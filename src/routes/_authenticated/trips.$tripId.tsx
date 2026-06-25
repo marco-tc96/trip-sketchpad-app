@@ -51,7 +51,7 @@ function TripLayout() {
     countries?: string[];
     cities?: Array<{ name: string; country: string; lat?: number; lng?: number }>;
   };
-  const coverType = tripRow.cover_type ?? "auto";
+  const coverType = (tripRow.cover_type ?? "auto") as "auto" | "map" | "photo" | "color";
   const cities = Array.isArray(tripRow.cities) ? tripRow.cities : [];
   const countries = Array.isArray(tripRow.countries) ? tripRow.countries : [];
   const lang = i18n.language || "it";
