@@ -9,38 +9,193 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
+import { Route as AuthRouteImport } from './routes/auth'
+import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AuthenticatedTripsRouteImport } from './routes/_authenticated/trips'
+import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
+import { Route as AuthenticatedTripsIndexRouteImport } from './routes/_authenticated/trips.index'
+import { Route as AuthenticatedTripsNewRouteImport } from './routes/_authenticated/trips.new'
+import { Route as AuthenticatedTripsTripIdRouteImport } from './routes/_authenticated/trips.$tripId'
+import { Route as AuthenticatedTripsTripIdIndexRouteImport } from './routes/_authenticated/trips.$tripId.index'
+import { Route as AuthenticatedTripsTripIdTimelineRouteImport } from './routes/_authenticated/trips.$tripId.timeline'
+import { Route as AuthenticatedTripsTripIdExpensesRouteImport } from './routes/_authenticated/trips.$tripId.expenses'
 
+const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
+  id: '/sitemap.xml',
+  path: '/sitemap.xml',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthRoute = AuthRouteImport.update({
+  id: '/auth',
+  path: '/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
+  id: '/_authenticated',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedTripsRoute = AuthenticatedTripsRouteImport.update({
+  id: '/trips',
+  path: '/trips',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedTripsIndexRoute = AuthenticatedTripsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AuthenticatedTripsRoute,
+} as any)
+const AuthenticatedTripsNewRoute = AuthenticatedTripsNewRouteImport.update({
+  id: '/new',
+  path: '/new',
+  getParentRoute: () => AuthenticatedTripsRoute,
+} as any)
+const AuthenticatedTripsTripIdRoute =
+  AuthenticatedTripsTripIdRouteImport.update({
+    id: '/$tripId',
+    path: '/$tripId',
+    getParentRoute: () => AuthenticatedTripsRoute,
+  } as any)
+const AuthenticatedTripsTripIdIndexRoute =
+  AuthenticatedTripsTripIdIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedTripsTripIdRoute,
+  } as any)
+const AuthenticatedTripsTripIdTimelineRoute =
+  AuthenticatedTripsTripIdTimelineRouteImport.update({
+    id: '/timeline',
+    path: '/timeline',
+    getParentRoute: () => AuthenticatedTripsTripIdRoute,
+  } as any)
+const AuthenticatedTripsTripIdExpensesRoute =
+  AuthenticatedTripsTripIdExpensesRouteImport.update({
+    id: '/expenses',
+    path: '/expenses',
+    getParentRoute: () => AuthenticatedTripsTripIdRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/auth': typeof AuthRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/settings': typeof AuthenticatedSettingsRoute
+  '/trips': typeof AuthenticatedTripsRouteWithChildren
+  '/trips/$tripId': typeof AuthenticatedTripsTripIdRouteWithChildren
+  '/trips/new': typeof AuthenticatedTripsNewRoute
+  '/trips/': typeof AuthenticatedTripsIndexRoute
+  '/trips/$tripId/expenses': typeof AuthenticatedTripsTripIdExpensesRoute
+  '/trips/$tripId/timeline': typeof AuthenticatedTripsTripIdTimelineRoute
+  '/trips/$tripId/': typeof AuthenticatedTripsTripIdIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/auth': typeof AuthRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/settings': typeof AuthenticatedSettingsRoute
+  '/trips/new': typeof AuthenticatedTripsNewRoute
+  '/trips': typeof AuthenticatedTripsIndexRoute
+  '/trips/$tripId/expenses': typeof AuthenticatedTripsTripIdExpensesRoute
+  '/trips/$tripId/timeline': typeof AuthenticatedTripsTripIdTimelineRoute
+  '/trips/$tripId': typeof AuthenticatedTripsTripIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
+  '/auth': typeof AuthRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/_authenticated/settings': typeof AuthenticatedSettingsRoute
+  '/_authenticated/trips': typeof AuthenticatedTripsRouteWithChildren
+  '/_authenticated/trips/$tripId': typeof AuthenticatedTripsTripIdRouteWithChildren
+  '/_authenticated/trips/new': typeof AuthenticatedTripsNewRoute
+  '/_authenticated/trips/': typeof AuthenticatedTripsIndexRoute
+  '/_authenticated/trips/$tripId/expenses': typeof AuthenticatedTripsTripIdExpensesRoute
+  '/_authenticated/trips/$tripId/timeline': typeof AuthenticatedTripsTripIdTimelineRoute
+  '/_authenticated/trips/$tripId/': typeof AuthenticatedTripsTripIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/auth'
+    | '/sitemap.xml'
+    | '/settings'
+    | '/trips'
+    | '/trips/$tripId'
+    | '/trips/new'
+    | '/trips/'
+    | '/trips/$tripId/expenses'
+    | '/trips/$tripId/timeline'
+    | '/trips/$tripId/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/auth'
+    | '/sitemap.xml'
+    | '/settings'
+    | '/trips/new'
+    | '/trips'
+    | '/trips/$tripId/expenses'
+    | '/trips/$tripId/timeline'
+    | '/trips/$tripId'
+  id:
+    | '__root__'
+    | '/'
+    | '/_authenticated'
+    | '/auth'
+    | '/sitemap.xml'
+    | '/_authenticated/settings'
+    | '/_authenticated/trips'
+    | '/_authenticated/trips/$tripId'
+    | '/_authenticated/trips/new'
+    | '/_authenticated/trips/'
+    | '/_authenticated/trips/$tripId/expenses'
+    | '/_authenticated/trips/$tripId/timeline'
+    | '/_authenticated/trips/$tripId/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
+  AuthRoute: typeof AuthRoute
+  SitemapDotxmlRoute: typeof SitemapDotxmlRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/sitemap.xml': {
+      id: '/sitemap.xml'
+      path: '/sitemap.xml'
+      fullPath: '/sitemap.xml'
+      preLoaderRoute: typeof SitemapDotxmlRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth': {
+      id: '/auth'
+      path: '/auth'
+      fullPath: '/auth'
+      preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated': {
+      id: '/_authenticated'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AuthenticatedRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -48,22 +203,119 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/trips': {
+      id: '/_authenticated/trips'
+      path: '/trips'
+      fullPath: '/trips'
+      preLoaderRoute: typeof AuthenticatedTripsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/settings': {
+      id: '/_authenticated/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AuthenticatedSettingsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/trips/': {
+      id: '/_authenticated/trips/'
+      path: '/'
+      fullPath: '/trips/'
+      preLoaderRoute: typeof AuthenticatedTripsIndexRouteImport
+      parentRoute: typeof AuthenticatedTripsRoute
+    }
+    '/_authenticated/trips/new': {
+      id: '/_authenticated/trips/new'
+      path: '/new'
+      fullPath: '/trips/new'
+      preLoaderRoute: typeof AuthenticatedTripsNewRouteImport
+      parentRoute: typeof AuthenticatedTripsRoute
+    }
+    '/_authenticated/trips/$tripId': {
+      id: '/_authenticated/trips/$tripId'
+      path: '/$tripId'
+      fullPath: '/trips/$tripId'
+      preLoaderRoute: typeof AuthenticatedTripsTripIdRouteImport
+      parentRoute: typeof AuthenticatedTripsRoute
+    }
+    '/_authenticated/trips/$tripId/': {
+      id: '/_authenticated/trips/$tripId/'
+      path: '/'
+      fullPath: '/trips/$tripId/'
+      preLoaderRoute: typeof AuthenticatedTripsTripIdIndexRouteImport
+      parentRoute: typeof AuthenticatedTripsTripIdRoute
+    }
+    '/_authenticated/trips/$tripId/timeline': {
+      id: '/_authenticated/trips/$tripId/timeline'
+      path: '/timeline'
+      fullPath: '/trips/$tripId/timeline'
+      preLoaderRoute: typeof AuthenticatedTripsTripIdTimelineRouteImport
+      parentRoute: typeof AuthenticatedTripsTripIdRoute
+    }
+    '/_authenticated/trips/$tripId/expenses': {
+      id: '/_authenticated/trips/$tripId/expenses'
+      path: '/expenses'
+      fullPath: '/trips/$tripId/expenses'
+      preLoaderRoute: typeof AuthenticatedTripsTripIdExpensesRouteImport
+      parentRoute: typeof AuthenticatedTripsTripIdRoute
+    }
   }
 }
 
+interface AuthenticatedTripsTripIdRouteChildren {
+  AuthenticatedTripsTripIdExpensesRoute: typeof AuthenticatedTripsTripIdExpensesRoute
+  AuthenticatedTripsTripIdTimelineRoute: typeof AuthenticatedTripsTripIdTimelineRoute
+  AuthenticatedTripsTripIdIndexRoute: typeof AuthenticatedTripsTripIdIndexRoute
+}
+
+const AuthenticatedTripsTripIdRouteChildren: AuthenticatedTripsTripIdRouteChildren =
+  {
+    AuthenticatedTripsTripIdExpensesRoute:
+      AuthenticatedTripsTripIdExpensesRoute,
+    AuthenticatedTripsTripIdTimelineRoute:
+      AuthenticatedTripsTripIdTimelineRoute,
+    AuthenticatedTripsTripIdIndexRoute: AuthenticatedTripsTripIdIndexRoute,
+  }
+
+const AuthenticatedTripsTripIdRouteWithChildren =
+  AuthenticatedTripsTripIdRoute._addFileChildren(
+    AuthenticatedTripsTripIdRouteChildren,
+  )
+
+interface AuthenticatedTripsRouteChildren {
+  AuthenticatedTripsTripIdRoute: typeof AuthenticatedTripsTripIdRouteWithChildren
+  AuthenticatedTripsNewRoute: typeof AuthenticatedTripsNewRoute
+  AuthenticatedTripsIndexRoute: typeof AuthenticatedTripsIndexRoute
+}
+
+const AuthenticatedTripsRouteChildren: AuthenticatedTripsRouteChildren = {
+  AuthenticatedTripsTripIdRoute: AuthenticatedTripsTripIdRouteWithChildren,
+  AuthenticatedTripsNewRoute: AuthenticatedTripsNewRoute,
+  AuthenticatedTripsIndexRoute: AuthenticatedTripsIndexRoute,
+}
+
+const AuthenticatedTripsRouteWithChildren =
+  AuthenticatedTripsRoute._addFileChildren(AuthenticatedTripsRouteChildren)
+
+interface AuthenticatedRouteRouteChildren {
+  AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
+  AuthenticatedTripsRoute: typeof AuthenticatedTripsRouteWithChildren
+}
+
+const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
+  AuthenticatedTripsRoute: AuthenticatedTripsRouteWithChildren,
+}
+
+const AuthenticatedRouteRouteWithChildren =
+  AuthenticatedRouteRoute._addFileChildren(AuthenticatedRouteRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
+  AuthRoute: AuthRoute,
+  SitemapDotxmlRoute: SitemapDotxmlRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
