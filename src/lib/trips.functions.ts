@@ -6,6 +6,12 @@ const tripInput = z.object({
   title: z.string().min(1).max(120),
   destination: z.string().max(120).optional().nullable(),
   country: z.string().max(80).optional().nullable(),
+  countries: z.array(z.string().length(2)).max(20).optional(),
+  cities: z
+    .array(z.object({ name: z.string().min(1).max(120), country: z.string().length(2) }))
+    .max(60)
+    .optional(),
+  cover_url: z.string().url().max(500).optional().nullable(),
   start_date: z.string(),
   end_date: z.string(),
   local_currency: z.string().length(3),
