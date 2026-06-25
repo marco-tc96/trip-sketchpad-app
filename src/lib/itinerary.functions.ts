@@ -57,7 +57,7 @@ export const createItem = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { data: row, error } = await context.supabase
       .from("itinerary_items")
-      .insert({ ...data, user_id: context.userId })
+      .insert({ ...data, meta: (data.meta ?? {}) as never, user_id: context.userId })
       .select()
       .single();
     if (error) throw new Error(error.message);
