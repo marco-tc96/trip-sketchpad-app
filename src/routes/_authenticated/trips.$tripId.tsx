@@ -130,7 +130,7 @@ function TripLayout() {
         ) : (
           <CoverContent
             tripId={tripId}
-            coverType={coverType === "color" ? "auto" : coverType}
+            coverType={coverType}
             coverUrl={tripRow.cover_url ?? null}
             cities={cities}
             fallbackQuery={
