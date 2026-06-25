@@ -91,6 +91,7 @@ export type Database = {
           id: string
           kind: string
           location: string | null
+          meta: Json
           notes: string | null
           position: number
           start_at: string | null
@@ -106,6 +107,7 @@ export type Database = {
           id?: string
           kind: string
           location?: string | null
+          meta?: Json
           notes?: string | null
           position?: number
           start_at?: string | null
@@ -121,6 +123,7 @@ export type Database = {
           id?: string
           kind?: string
           location?: string | null
+          meta?: Json
           notes?: string | null
           position?: number
           start_at?: string | null
