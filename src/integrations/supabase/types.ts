@@ -172,6 +172,7 @@ export type Database = {
           countries: string[]
           country: string | null
           cover_emoji: string | null
+          cover_type: string
           cover_url: string | null
           created_at: string
           destination: string | null
@@ -191,6 +192,7 @@ export type Database = {
           countries?: string[]
           country?: string | null
           cover_emoji?: string | null
+          cover_type?: string
           cover_url?: string | null
           created_at?: string
           destination?: string | null
@@ -210,6 +212,7 @@ export type Database = {
           countries?: string[]
           country?: string | null
           cover_emoji?: string | null
+          cover_type?: string
           cover_url?: string | null
           created_at?: string
           destination?: string | null
