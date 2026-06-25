@@ -26,6 +26,43 @@ export function countryByIso(iso: string): CountryEntry | undefined {
   return allCountries().find((c) => c.iso === iso.toUpperCase());
 }
 
+// Localized country name via Intl.DisplayNames. Falls back to the English
+// name from country-state-city if the runtime cannot resolve the locale.
+const _displayNamesCache = new Map<string, Intl.DisplayNames>();
+function getDisplayNames(lang: string): Intl.DisplayNames | null {
+  if (typeof Intl === "undefined" || !("DisplayNames" in Intl)) return null;
+  let dn = _displayNamesCache.get(lang);
+  if (!dn) {
+    try {
+      dn = new Intl.DisplayNames([lang], { type: "region" });
+      _displayNamesCache.set(lang, dn);
+    } catch {
+      return null;
+    }
+  }
+  return dn;
+}
+
+export function countryNameLocalized(iso: string, lang: string): string {
+  const ISO = iso.toUpperCase();
+  const dn = getDisplayNames(lang);
+  if (dn) {
+    try {
+      const v = dn.of(ISO);
+      if (v) return v;
+    } catch {
+      /* ignore */
+    }
+  }
+  return countryByIso(ISO)?.name ?? ISO;
+}
+
+export function localizedCountries(lang: string): CountryEntry[] {
+  return allCountries()
+    .map((c) => ({ ...c, name: countryNameLocalized(c.iso, lang) }))
+    .sort((a, b) => a.name.localeCompare(b.name, lang));
+}
+
 export type CityEntry = {
   name: string;
   country: string;
