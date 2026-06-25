@@ -414,7 +414,7 @@ function CityPicker({
   const multi = countries.length > 1;
 
   const cities = useMemo(() => {
-    const out: { name: string; country: string; flag: string }[] = [];
+    const out: { name: string; country: string; flag: string; lat?: number; lng?: number }[] = [];
     for (const iso of countries) {
       for (const c of citiesOfCountry(iso)) out.push(c);
     }
