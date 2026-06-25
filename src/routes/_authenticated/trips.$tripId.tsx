@@ -1,13 +1,14 @@
 import { createFileRoute, Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowLeft, Trash2, Image as ImageIcon, Map as MapIcon, Sparkles, Upload } from "lucide-react";
+import { ArrowLeft, Trash2, Image as ImageIcon, Map as MapIcon, Sparkles, Upload, Palette, Check } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useEffect, useRef, useState } from "react";
 import { getTrip, deleteTrip, updateTrip } from "@/lib/trips.functions";
 import { getProfile } from "@/lib/profile.functions";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { FxAverageWidget } from "@/components/app/fx-avg-widget";
 import { CityCover } from "@/components/app/city-cover";
 import { TripMap } from "@/components/app/trip-map";
@@ -15,6 +16,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "@tanstack/react-router";
+import { countryNameLocalized } from "@/lib/country-data";
 
 export const Route = createFileRoute("/_authenticated/trips/$tripId")({
   component: TripLayout,
@@ -22,7 +24,7 @@ export const Route = createFileRoute("/_authenticated/trips/$tripId")({
 
 function TripLayout() {
   const { tripId } = Route.useParams();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const nav = useNavigate();
   const qc = useQueryClient();
   const loc = useLocation();
@@ -43,19 +45,36 @@ function TripLayout() {
   }
 
   const tripRow = trip.data as typeof trip.data & {
-    cover_type?: "auto" | "map" | "photo";
+    cover_type?: "auto" | "map" | "photo" | "color";
     cover_url?: string | null;
+    cover_bg?: string | null;
     countries?: string[];
     cities?: Array<{ name: string; country: string; lat?: number; lng?: number }>;
   };
-  const coverType = tripRow.cover_type ?? "auto";
+  const coverType = (tripRow.cover_type ?? "auto") as "auto" | "map" | "photo" | "color";
   const cities = Array.isArray(tripRow.cities) ? tripRow.cities : [];
   const countries = Array.isArray(tripRow.countries) ? tripRow.countries : [];
+  const lang = i18n.language || "it";
+  const localizedCountry = countries[0]
+    ? countryNameLocalized(countries[0], lang)
+    : tripRow.country;
 
-  async function setCoverType(next: "auto" | "map" | "photo") {
+  async function setCoverType(next: "auto" | "map" | "photo" | "color") {
     if (next === coverType) return;
     try {
       await updateFn({ data: { id: tripId, patch: { cover_type: next } } });
+      qc.invalidateQueries({ queryKey: ["trip", tripId] });
+      qc.invalidateQueries({ queryKey: ["trips"] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("error_generic"));
+    }
+  }
+
+  async function setCoverBg(bg: string | null) {
+    try {
+      await updateFn({
+        data: { id: tripId, patch: { cover_bg: bg, cover_type: "color" } },
+      });
       qc.invalidateQueries({ queryKey: ["trip", tripId] });
       qc.invalidateQueries({ queryKey: ["trips"] });
     } catch (e) {
@@ -93,29 +112,60 @@ function TripLayout() {
   ];
 
   return (
-    <main className="mx-auto max-w-5xl px-4 py-6">
-      <Link to="/trips" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="h-4 w-4" />{t("back")}
-      </Link>
+    <div className="relative min-h-screen">
+      {/* Full-bleed cover background that fades into the page */}
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-x-0 top-0 -z-10 h-[70vh] overflow-hidden"
+      >
+        {coverType === "color" ? (
+          <div
+            className="absolute inset-0"
+            style={{
+              background:
+                tripRow.cover_bg ||
+                "linear-gradient(135deg, oklch(0.78 0.1 55), oklch(0.66 0.14 38))",
+            }}
+          />
+        ) : (
+          <CoverContent
+            tripId={tripId}
+            coverType={coverType}
+            coverUrl={tripRow.cover_url ?? null}
+            cities={cities}
+            fallbackQuery={
+              cities[0]?.name || tripRow.destination || countries[0] || tripRow.country || tripRow.title
+            }
+            signedPhoto={signedPhoto}
+            setSignedPhoto={setSignedPhoto}
+          />
+        )}
+        {/* Fade to background so details below stay readable */}
+        <div className="absolute inset-x-0 bottom-0 top-1/3 bg-gradient-to-b from-transparent via-background/70 to-background" />
+      </div>
 
-      {/* Cover */}
-      <section className="relative mt-4 h-48 overflow-hidden rounded-3xl border border-border shadow-soft sm:h-64">
-        <CoverContent
-          tripId={tripId}
-          coverType={coverType}
-          coverUrl={tripRow.cover_url ?? null}
-          cities={cities}
-          fallbackQuery={
-            cities[0]?.name || tripRow.destination || countries[0] || tripRow.country || tripRow.title
-          }
-          signedPhoto={signedPhoto}
-          setSignedPhoto={setSignedPhoto}
-        />
-        <div className="absolute left-3 top-3 z-10 flex items-center gap-1 rounded-full border border-white/20 bg-black/40 p-1 text-xs backdrop-blur">
-          <CoverPill active={coverType === "auto"} onClick={() => setCoverType("auto")} icon={Sparkles} label={t("cover_auto")} />
-          <CoverPill active={coverType === "map"} onClick={() => setCoverType("map")} icon={MapIcon} label={t("cover_map")} />
-          <CoverPill active={coverType === "photo"} onClick={() => fileRef.current?.click()} icon={ImageIcon} label={t("cover_photo")} />
+      <main className="mx-auto max-w-5xl px-4 pb-12 pt-4">
+        <div className="flex items-center justify-between gap-2">
+          <Link
+            to="/trips"
+            className="inline-flex items-center gap-1 rounded-full bg-background/60 px-3 py-1.5 text-sm text-foreground backdrop-blur hover:bg-background/80"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            {t("back")}
+          </Link>
+          {/* Always-visible cover selector */}
+          <div className="flex items-center gap-1 rounded-full border border-border/60 bg-background/70 p-1 text-xs shadow-soft backdrop-blur">
+            <CoverPill active={coverType === "auto"} onClick={() => setCoverType("auto")} icon={Sparkles} label={t("cover_auto")} />
+            <CoverPill active={coverType === "map"} onClick={() => setCoverType("map")} icon={MapIcon} label={t("cover_map")} />
+            <CoverPill active={coverType === "photo"} onClick={() => fileRef.current?.click()} icon={ImageIcon} label={t("cover_photo")} />
+            <ColorCoverPill
+              active={coverType === "color"}
+              current={tripRow.cover_bg}
+              onPick={(bg) => setCoverBg(bg)}
+            />
+          </div>
         </div>
+
         <input
           ref={fileRef}
           type="file"
@@ -128,13 +178,15 @@ function TripLayout() {
           }}
         />
         {uploading && (
-          <div className="absolute inset-0 z-10 grid place-items-center bg-black/40 text-xs text-white backdrop-blur">
+          <div className="fixed inset-x-0 top-16 z-20 mx-auto w-fit rounded-full bg-black/60 px-3 py-1.5 text-xs text-white backdrop-blur">
             <span className="inline-flex items-center gap-2"><Upload className="h-3.5 w-3.5" /> {t("upload_cover")}…</span>
           </div>
         )}
-      </section>
 
-      <header className="mt-4 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4 sm:flex sm:items-center sm:justify-between">
+        {/* Spacer so the title sits below the cover focal area */}
+        <div className="h-[26vh] sm:h-[30vh]" />
+
+        <header className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4 rounded-3xl border border-border/50 bg-background/70 p-4 shadow-soft backdrop-blur sm:flex sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-center gap-3">
           <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-secondary text-3xl">
             {trip.data.cover_emoji ?? "✈️"}
@@ -144,7 +196,7 @@ function TripLayout() {
               {trip.data.title}
             </h1>
             <p className="truncate text-sm text-muted-foreground">
-              {[trip.data.destination, trip.data.country].filter(Boolean).join(", ")}
+              {[trip.data.destination, localizedCountry].filter(Boolean).join(", ")}
               {" · "}{fmt(trip.data.start_date)} → {fmt(trip.data.end_date)}
             </p>
           </div>
@@ -199,8 +251,9 @@ function TripLayout() {
         })}
       </nav>
 
-      <div className="pt-6"><Outlet /></div>
-    </main>
+        <div className="pt-6"><Outlet /></div>
+      </main>
+    </div>
   );
 }
 
@@ -219,13 +272,94 @@ function CoverPill({
       className={cn(
         "inline-flex items-center gap-1 rounded-full px-2.5 py-1 transition",
         active
-          ? "bg-white text-foreground"
-          : "text-white/85 hover:bg-white/15",
+          ? "bg-primary text-primary-foreground"
+          : "text-foreground/80 hover:bg-foreground/10",
       )}
     >
       <Icon className="h-3.5 w-3.5" />
-      <span>{label}</span>
+      <span className="hidden sm:inline">{label}</span>
     </button>
+  );
+}
+
+const COVER_BG_PRESETS = [
+  "linear-gradient(135deg,#fcb69f,#ff8a65)",
+  "linear-gradient(135deg,#a1c4fd,#c2e9fb)",
+  "linear-gradient(135deg,#84fab0,#8fd3f4)",
+  "linear-gradient(135deg,#f6d365,#fda085)",
+  "linear-gradient(135deg,#5ee7df,#b490ca)",
+  "linear-gradient(135deg,#243949,#517fa4)",
+  "#0f172a",
+  "#1e293b",
+  "#f1f5f9",
+];
+
+function ColorCoverPill({
+  active,
+  current,
+  onPick,
+}: {
+  active: boolean;
+  current?: string | null;
+  onPick: (bg: string) => void;
+}) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            "inline-flex items-center gap-1 rounded-full px-2.5 py-1 transition",
+            active
+              ? "bg-primary text-primary-foreground"
+              : "text-foreground/80 hover:bg-foreground/10",
+          )}
+        >
+          <Palette className="h-3.5 w-3.5" />
+          <span className="hidden sm:inline">Colore</span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-64 p-3">
+        <p className="mb-2 text-xs font-medium text-muted-foreground">
+          Sfondo del viaggio
+        </p>
+        <div className="grid grid-cols-3 gap-2">
+          {COVER_BG_PRESETS.map((bg) => {
+            const sel = active && current === bg;
+            return (
+              <button
+                key={bg}
+                type="button"
+                onClick={() => onPick(bg)}
+                className={cn(
+                  "relative h-12 rounded-lg border border-border/60",
+                  sel && "ring-2 ring-primary",
+                )}
+                style={{ background: bg }}
+                aria-label={bg}
+              >
+                {sel && (
+                  <Check className="absolute right-1 top-1 h-3.5 w-3.5 text-white drop-shadow" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+        <label className="mt-3 block text-xs text-muted-foreground">
+          Custom (CSS color / gradient)
+          <input
+            type="text"
+            defaultValue={current ?? ""}
+            onBlur={(e) => {
+              const v = e.target.value.trim();
+              if (v) onPick(v);
+            }}
+            placeholder="#0f172a oppure linear-gradient(...)"
+            className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1 text-xs"
+          />
+        </label>
+      </PopoverContent>
+    </Popover>
   );
 }
 

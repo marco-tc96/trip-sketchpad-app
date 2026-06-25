@@ -171,6 +171,7 @@ export type Database = {
           cities: Json
           countries: string[]
           country: string | null
+          cover_bg: string | null
           cover_emoji: string | null
           cover_type: string
           cover_url: string | null
@@ -191,6 +192,7 @@ export type Database = {
           cities?: Json
           countries?: string[]
           country?: string | null
+          cover_bg?: string | null
           cover_emoji?: string | null
           cover_type?: string
           cover_url?: string | null
@@ -211,6 +213,7 @@ export type Database = {
           cities?: Json
           countries?: string[]
           country?: string | null
+          cover_bg?: string | null
           cover_emoji?: string | null
           cover_type?: string
           cover_url?: string | null
