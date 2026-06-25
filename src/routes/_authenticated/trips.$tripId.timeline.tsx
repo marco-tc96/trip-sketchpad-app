@@ -4,7 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  Plane, Train, Car, Ship, Hotel, MapPin, Sparkles, ArrowRightLeft,
+  Plane, Train, Car, Bike, Ship, Hotel, MapPin, Sparkles, ArrowRightLeft,
   PlaneTakeoff, PlaneLanding, Plus, Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -31,6 +31,7 @@ const KIND_ICON: Record<(typeof ITEM_KINDS)[number], React.ComponentType<{ class
   flight: Plane,
   train: Train,
   car: Car,
+  moto: Bike,
   ferry: Ship,
   transfer: ArrowRightLeft,
   lodging: Hotel,
