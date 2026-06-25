@@ -26,7 +26,13 @@ export function countryByIso(iso: string): CountryEntry | undefined {
   return allCountries().find((c) => c.iso === iso.toUpperCase());
 }
 
-export type CityEntry = { name: string; country: string; flag: string };
+export type CityEntry = {
+  name: string;
+  country: string;
+  flag: string;
+  lat?: number;
+  lng?: number;
+};
 
 export function citiesOfCountry(iso: string): CityEntry[] {
   const flag = flagOf(iso);
@@ -35,7 +41,15 @@ export function citiesOfCountry(iso: string): CityEntry[] {
   for (const c of City.getCitiesOfCountry(iso) ?? []) {
     if (seen.has(c.name)) continue;
     seen.add(c.name);
-    out.push({ name: c.name, country: iso, flag });
+    const lat = c.latitude ? Number(c.latitude) : undefined;
+    const lng = c.longitude ? Number(c.longitude) : undefined;
+    out.push({
+      name: c.name,
+      country: iso,
+      flag,
+      lat: Number.isFinite(lat) ? lat : undefined,
+      lng: Number.isFinite(lng) ? lng : undefined,
+    });
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
