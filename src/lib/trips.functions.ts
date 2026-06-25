@@ -11,7 +11,8 @@ const tripInput = z.object({
     .array(z.object({ name: z.string().min(1).max(120), country: z.string().length(2) }))
     .max(60)
     .optional(),
-  cover_url: z.string().url().max(500).optional().nullable(),
+  cover_url: z.string().max(500).optional().nullable(),
+  cover_type: z.enum(["auto", "map", "photo"]).optional(),
   start_date: z.string(),
   end_date: z.string(),
   local_currency: z.string().length(3),
