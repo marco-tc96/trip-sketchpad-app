@@ -1,0 +1,3 @@
+ALTER TABLE public.itinerary_items ADD COLUMN IF NOT EXISTS meta jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE public.itinerary_items DROP CONSTRAINT IF EXISTS itinerary_items_kind_check;
+ALTER TABLE public.itinerary_items ADD CONSTRAINT itinerary_items_kind_check CHECK (kind = ANY (ARRAY['outbound'::text,'return'::text,'flight'::text,'train'::text,'car'::text,'moto'::text,'ferry'::text,'transfer'::text,'lodging'::text,'activity'::text,'zone'::text,'other'::text]));
