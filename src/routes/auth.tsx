@@ -43,7 +43,7 @@ function AuthPage() {
         if (error) throw error;
         toast.success(t("saved"));
       } else {
-        const { error } = await supabase.auth.signInWithPassword({ email });
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
       }
     } catch (err) {
