@@ -190,6 +190,7 @@ function NewTrip() {
               {pickedCountries.map((iso) => {
                 const c = countryByIso(iso);
                 if (!c) return null;
+                const localized = countryNameLocalized(iso, lang);
                 return (
                   <Badge
                     key={iso}
@@ -197,10 +198,10 @@ function NewTrip() {
                     className="gap-1 rounded-full pl-2 pr-1"
                   >
                     <span>{c.flag}</span>
-                    <span>{c.name}</span>
+                    <span>{localized}</span>
                     <button
                       type="button"
-                      aria-label={`Remove ${c.name}`}
+                      aria-label={`Remove ${localized}`}
                       onClick={() => removeCountry(iso)}
                       className="ml-0.5 grid h-4 w-4 place-items-center rounded-full hover:bg-foreground/10"
                     >
