@@ -77,6 +77,7 @@ function TimelineView() {
   const outbound = list.find((i) => i.kind === "outbound");
   const ret = list.find((i) => i.kind === "return");
   const middle = list.filter((i) => i.kind !== "outbound" && i.kind !== "return");
+  const lodgings = middle.filter((i) => i.kind === "lodging");
 
   // Group middle
   let groups: { label: string; items: typeof middle }[] = [];
@@ -140,14 +141,39 @@ function TimelineView() {
       <div className="space-y-3">
         <TripBoundaryRow item={outbound} tripId={tripId} kind="outbound" />
 
+        {lodgings.length > 0 && (
+          <section className="rounded-2xl border border-border bg-card p-4 shadow-soft">
+            <h3 className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+              <Hotel className="h-3.5 w-3.5" /> Alloggi ({lodgings.length})
+            </h3>
+            <ul className="space-y-2">
+              {lodgings.map((it) => (
+                <li key={it.id} className="flex items-start justify-between gap-3 rounded-xl bg-muted/40 p-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">{it.title}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {it.location && <>{it.location} · </>}
+                      {it.start_at && fmtDT(it.start_at)}
+                      {it.end_at && ` → ${fmtDT(it.end_at)}`}
+                    </p>
+                  </div>
+                  <Button variant="ghost" size="icon" onClick={() => del(it.id)}>
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
         {groups.map((g) => (
           <section key={g.label} className="rounded-2xl border border-border bg-card p-4 shadow-soft">
             <h3 className="mb-3 text-xs font-semibold uppercase tracking-widest text-muted-foreground">{g.label}</h3>
-            {g.items.length === 0 ? (
+            {g.items.filter((it) => mode !== "days" || it.kind !== "lodging").length === 0 ? (
               <p className="text-sm text-muted-foreground">—</p>
             ) : (
               <ul className="relative space-y-3 border-l border-border pl-5">
-                {g.items.map((it) => {
+                {g.items.filter((it) => mode !== "days" || it.kind !== "lodging").map((it) => {
                   const Icon = KIND_ICON[it.kind as keyof typeof KIND_ICON] ?? MapPin;
                   return (
                     <li key={it.id} className="relative">
@@ -164,6 +190,7 @@ function TimelineView() {
                             {it.end_at && ` → ${fmtDT(it.end_at)}`}
                           </p>
                           {it.notes && <p className="mt-1 text-xs text-muted-foreground">{it.notes}</p>}
+                          <TransportLegs meta={it.meta as TransportMeta | null} />
                         </div>
                         <Button variant="ghost" size="icon" onClick={() => del(it.id)}>
                           <Trash2 className="h-3.5 w-3.5" />
@@ -186,32 +213,294 @@ function TimelineView() {
 function TripBoundaryRow({
   item, tripId, kind,
 }: {
-  item: { id: string; title: string; location: string | null; start_at: string | null } | undefined;
+  item:
+    | {
+        id: string;
+        title: string;
+        location: string | null;
+        start_at: string | null;
+        meta?: unknown;
+      }
+    | undefined;
   tripId: string;
   kind: "outbound" | "return";
 }) {
   const { t } = useTranslation();
-  const Icon = kind === "outbound" ? PlaneTakeoff : PlaneLanding;
+  const meta = (item?.meta ?? null) as TransportMeta | null;
+  const ModeIcon = meta?.mode ? MODE_ICON[meta.mode] : kind === "outbound" ? PlaneTakeoff : PlaneLanding;
   return (
-    <div className="flex items-center gap-3 rounded-2xl border border-primary/40 bg-warm-gradient p-4 text-primary-foreground shadow-soft">
-      <Icon className="h-5 w-5 shrink-0" />
-      <div className="min-w-0 flex-1">
-        <p className="text-xs uppercase tracking-widest opacity-90">{t(kind)}</p>
-        {item ? (
-          <p className="truncate font-medium">
-            {item.title}{item.location ? ` · ${item.location}` : ""}{item.start_at ? ` · ${fmtDT(item.start_at)}` : ""}
-          </p>
-        ) : (
-          <AddBoundaryButton tripId={tripId} kind={kind} />
-        )}
-      </div>
-    </div>
+    <TransportDialog
+      tripId={tripId}
+      kind={kind}
+      existing={item ? { id: item.id, meta } : undefined}
+      trigger={
+        <button
+          type="button"
+          className="flex w-full items-start gap-3 rounded-2xl border border-primary/40 bg-warm-gradient p-4 text-left text-primary-foreground shadow-soft transition hover:brightness-105"
+        >
+          <ModeIcon className="mt-0.5 h-5 w-5 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="text-xs uppercase tracking-widest opacity-90">{t(kind)}</p>
+            {item ? (
+              <>
+                <p className="truncate font-medium">{item.title}</p>
+                <TransportLegs meta={meta} compact />
+              </>
+            ) : (
+              <p className="text-sm underline opacity-95">{t("add_item")}</p>
+            )}
+          </div>
+        </button>
+      }
+    />
   );
 }
 
-function AddBoundaryButton({ tripId, kind }: { tripId: string; kind: "outbound" | "return" }) {
+type TransportMeta = { mode?: TransportMode; legs?: Leg[] };
+
+function TransportLegs({ meta, compact }: { meta: TransportMeta | null; compact?: boolean }) {
+  const legs = meta?.legs ?? [];
+  if (legs.length === 0) return null;
+  if (compact) {
+    return (
+      <p className="truncate text-xs opacity-90">
+        {legs
+          .map((l) =>
+            [l.from, l.to].filter(Boolean).join(" → ") +
+            (l.number ? ` · ${l.carrier ? l.carrier + " " : ""}${l.number}` : l.carrier ? ` · ${l.carrier}` : ""),
+          )
+          .join(" • ")}
+      </p>
+    );
+  }
+  return (
+    <ol className="mt-2 space-y-1 text-xs text-muted-foreground">
+      {legs.map((l, i) => (
+        <li key={i} className="flex gap-2">
+          <span className="font-mono opacity-60">{i + 1}.</span>
+          <span className="min-w-0">
+            <span className="font-medium text-foreground/90">
+              {[l.from, l.to].filter(Boolean).join(" → ") || "—"}
+            </span>
+            {(l.carrier || l.number) && (
+              <span className="ml-1.5">· {[l.carrier, l.number].filter(Boolean).join(" ")}</span>
+            )}
+            {l.depart_at && <span className="ml-1.5">· {fmtDT(l.depart_at)}</span>}
+            {l.arrive_at && <span className="ml-1">→ {fmtDT(l.arrive_at)}</span>}
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function TransportDialog({
+  tripId,
+  kind,
+  existing,
+  trigger,
+}: {
+  tripId: string;
+  kind: "outbound" | "return";
+  existing?: { id: string; meta: TransportMeta | null };
+  trigger: React.ReactNode;
+}) {
   const { t } = useTranslation();
-  return <AddItemDialog tripId={tripId} defaultKind={kind} trigger={<button className="text-sm underline opacity-95">{t("add_item")}</button>} />;
+  const qc = useQueryClient();
+  const createFn = useServerFn(createItem);
+  const delFn = useServerFn(deleteItem);
+  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<TransportMode>((existing?.meta?.mode as TransportMode) ?? "plane");
+  const [legs, setLegs] = useState<Leg[]>(
+    existing?.meta?.legs && existing.meta.legs.length > 0
+      ? existing.meta.legs.map((l) => ({ ...emptyLeg(), ...l }))
+      : [emptyLeg()],
+  );
+
+  const isStopBased = mode === "train" || mode === "plane";
+
+  function updateLeg(i: number, patch: Partial<Leg>) {
+    setLegs((arr) => arr.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
+  }
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    try {
+      const first = legs[0];
+      const last = legs[legs.length - 1];
+      const title = `${MODE_LABEL[mode]} ${[first?.from, last?.to].filter(Boolean).join(" → ") || ""}`.trim();
+      if (existing) {
+        await delFn({ data: { id: existing.id } });
+      }
+      await createFn({
+        data: {
+          trip_id: tripId,
+          kind,
+          title,
+          location: null,
+          start_at: first?.depart_at || null,
+          end_at: last?.arrive_at || null,
+          notes: null,
+          position: 0,
+          meta: { mode, legs },
+        },
+      });
+      qc.invalidateQueries({ queryKey: ["items", tripId] });
+      setOpen(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("error_generic"));
+    }
+  }
+
+  const fromLabel = mode === "train" ? "Stazione di partenza"
+    : mode === "plane" ? "Aeroporto di partenza"
+    : mode === "ferry" ? "Porto di partenza"
+    : "Punto di partenza";
+  const toLabel = mode === "train" ? "Stazione di arrivo"
+    : mode === "plane" ? "Aeroporto di arrivo"
+    : mode === "ferry" ? "Porto di arrivo"
+    : "Punto di arrivo";
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      <DialogContent className="max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{t(kind)}</DialogTitle>
+        </DialogHeader>
+        <form className="space-y-4" onSubmit={submit}>
+          <div className="space-y-1.5">
+            <Label>Mezzo di trasporto</Label>
+            <div className="grid grid-cols-5 gap-1.5">
+              {(Object.keys(MODE_LABEL) as TransportMode[]).map((m) => {
+                const Icon = MODE_ICON[m];
+                const active = m === mode;
+                return (
+                  <button
+                    type="button"
+                    key={m}
+                    onClick={() => setMode(m)}
+                    className={`flex flex-col items-center gap-1 rounded-xl border p-2 text-xs transition ${
+                      active
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border bg-card hover:bg-muted"
+                    }`}
+                  >
+                    <Icon className="h-4 w-4" />
+                    {MODE_LABEL[m]}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {legs.map((leg, i) => (
+              <div key={i} className="rounded-xl border border-border bg-muted/30 p-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    {isStopBased ? (legs.length === 1 ? "Tratta" : `Tratta ${i + 1}`) : "Percorso"}
+                  </p>
+                  {legs.length > 1 && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setLegs((arr) => arr.filter((_, idx) => idx !== i))}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <Label className="text-xs">{fromLabel}</Label>
+                    <Input value={leg.from} onChange={(e) => updateLeg(i, { from: e.target.value })} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">{toLabel}</Label>
+                    <Input value={leg.to} onChange={(e) => updateLeg(i, { to: e.target.value })} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Partenza</Label>
+                    <Input
+                      type="datetime-local"
+                      value={leg.depart_at}
+                      onChange={(e) => updateLeg(i, { depart_at: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Arrivo</Label>
+                    <Input
+                      type="datetime-local"
+                      value={leg.arrive_at}
+                      onChange={(e) => updateLeg(i, { arrive_at: e.target.value })}
+                    />
+                  </div>
+                  {(mode === "train" || mode === "plane" || mode === "ferry") && (
+                    <>
+                      <div className="space-y-1">
+                        <Label className="text-xs">
+                          {mode === "plane" ? "Compagnia aerea" : mode === "train" ? "Operatore" : "Compagnia"}
+                        </Label>
+                        <Input
+                          value={leg.carrier}
+                          onChange={(e) => updateLeg(i, { carrier: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">
+                          {mode === "plane" ? "Numero volo" : mode === "train" ? "Numero treno" : "Numero corsa"}
+                        </Label>
+                        <Input
+                          value={leg.number}
+                          onChange={(e) => updateLeg(i, { number: e.target.value })}
+                        />
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            ))}
+
+            {isStopBased && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setLegs((arr) => [...arr, emptyLeg()])}
+                className="w-full"
+              >
+                <Plus className="mr-1.5 h-3.5 w-3.5" /> Aggiungi scalo
+              </Button>
+            )}
+          </div>
+
+          <div className="flex justify-between gap-2">
+            {existing ? (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={async () => {
+                  await delFn({ data: { id: existing.id } });
+                  qc.invalidateQueries({ queryKey: ["items", tripId] });
+                  setOpen(false);
+                }}
+              >
+                <Trash2 className="mr-1.5 h-3.5 w-3.5" /> {t("delete_confirm") ? "Elimina" : "Delete"}
+              </Button>
+            ) : <span />}
+            <div className="flex gap-2">
+              <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
+                {t("cancel")}
+              </Button>
+              <Button type="submit">{t("save")}</Button>
+            </div>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 function AddItemDialog({
