@@ -3,9 +3,26 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
 
 export const ITEM_KINDS = [
-  "outbound","return","flight","train","car","ferry","transfer",
+  "outbound","return","flight","train","car","moto","ferry","transfer",
   "lodging","activity","zone","other",
 ] as const;
+
+const legSchema = z.object({
+  from: z.string().max(160).optional().nullable(),
+  to: z.string().max(160).optional().nullable(),
+  depart_at: z.string().optional().nullable(),
+  arrive_at: z.string().optional().nullable(),
+  carrier: z.string().max(120).optional().nullable(),
+  number: z.string().max(40).optional().nullable(),
+  notes: z.string().max(500).optional().nullable(),
+});
+
+const metaSchema = z
+  .object({
+    mode: z.enum(["car", "moto", "train", "plane", "ferry"]).optional(),
+    legs: z.array(legSchema).max(20).optional(),
+  })
+  .passthrough();
 
 const itemInput = z.object({
   trip_id: z.string().uuid(),
@@ -17,6 +34,7 @@ const itemInput = z.object({
   day_index: z.number().int().optional().nullable(),
   notes: z.string().max(4000).optional().nullable(),
   position: z.number().int().default(0),
+  meta: metaSchema.optional(),
 });
 
 export const listItems = createServerFn({ method: "GET" })
