@@ -168,8 +168,11 @@ export type Database = {
       }
       trips: {
         Row: {
+          cities: Json
+          countries: string[]
           country: string | null
           cover_emoji: string | null
+          cover_url: string | null
           created_at: string
           destination: string | null
           end_date: string
@@ -184,8 +187,11 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          cities?: Json
+          countries?: string[]
           country?: string | null
           cover_emoji?: string | null
+          cover_url?: string | null
           created_at?: string
           destination?: string | null
           end_date: string
@@ -200,8 +206,11 @@ export type Database = {
           user_id: string
         }
         Update: {
+          cities?: Json
+          countries?: string[]
           country?: string | null
           cover_emoji?: string | null
+          cover_url?: string | null
           created_at?: string
           destination?: string | null
           end_date?: string
