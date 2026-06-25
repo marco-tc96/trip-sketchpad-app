@@ -7,21 +7,19 @@ import { toast } from "sonner";
 import { Check, ChevronsUpDown, X, Plus } from "lucide-react";
 import { createTrip } from "@/lib/trips.functions";
 import { getProfile } from "@/lib/profile.functions";
-import { CURRENCIES } from "@/lib/currencies";
 import {
   allCountries,
   citiesOfCountry,
   countryByIso,
   currencyForCountryAt,
   flagOf,
+  countryNameLocalized,
+  localizedCountries,
 } from "@/lib/country-data";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
 import {
   Popover, PopoverContent, PopoverTrigger,
 } from "@/components/ui/popover";
@@ -38,7 +36,7 @@ export const Route = createFileRoute("/_authenticated/trips/new")({
 type CityPick = { name: string; country: string; lat?: number; lng?: number };
 
 function NewTrip() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const nav = useNavigate();
   const qc = useQueryClient();
   const profileFn = useServerFn(getProfile);
@@ -46,7 +44,8 @@ function NewTrip() {
 
   const createFn = useServerFn(createTrip);
 
-  const countries = useMemo(() => allCountries(), []);
+  const lang = i18n.language || "it";
+  const countries = useMemo(() => localizedCountries(lang), [lang]);
 
   const [title, setTitle] = useState("");
   const [coverEmoji, setCoverEmoji] = useState("");
@@ -65,18 +64,16 @@ function NewTrip() {
     new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
   );
   const [currency, setCurrency] = useState("EUR");
-  const [currencyTouched, setCurrencyTouched] = useState(false);
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
 
   // Auto-select currency based on first country and start date (historical aware).
   useEffect(() => {
-    if (currencyTouched) return;
     const iso = pickedCountries[0];
     if (!iso) return;
     const ccy = currencyForCountryAt(iso, startDate);
     if (ccy) setCurrency(ccy);
-  }, [pickedCountries, startDate, currencyTouched]);
+  }, [pickedCountries, startDate]);
 
   function toggleCountry(iso: string) {
     setPickedCountries((cs) =>
@@ -276,43 +273,20 @@ function NewTrip() {
           </div>
         </div>
 
-        {/* Currency */}
-        <div className="space-y-1.5">
-          <Label>{t("local_currency")}</Label>
-          <Select
-            value={currency}
-            onValueChange={(v) => {
-              setCurrency(v);
-              setCurrencyTouched(true);
-            }}
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent className="max-h-60">
-              {currency && !CURRENCIES.includes(currency as never) && (
-                <SelectItem value={currency}>{currency}</SelectItem>
-              )}
-              {CURRENCIES.map((c) => (
-                <SelectItem key={c} value={c}>
-                  {c}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <p className="text-xs text-muted-foreground">
+        {/* Currency (auto, derived from country + start date) */}
+        {pickedCountries[0] && (
+          <div className="rounded-xl border border-border bg-secondary/40 px-3 py-2 text-xs text-muted-foreground">
             {profile.data && (
               <>
-                {t("home_currency")}: {profile.data.home_currency} ·{" "}
+                {t("home_currency")}: <strong className="text-foreground">{profile.data.home_currency}</strong> ·{" "}
               </>
             )}
-            {!currencyTouched && pickedCountries[0]
-              ? `Auto (${countryByIso(pickedCountries[0])?.name}, ${startDate.slice(0, 4)})`
-              : currencyTouched
-                ? "Manual"
-                : ""}
-          </p>
-        </div>
+            {t("local_currency")}: <strong className="text-foreground">{currency}</strong>{" "}
+            <span className="opacity-70">
+              · auto ({countryNameLocalized(pickedCountries[0], lang)}, {startDate.slice(0, 4)})
+            </span>
+          </div>
+        )}
 
         {/* Notes */}
         <div className="space-y-1.5">
