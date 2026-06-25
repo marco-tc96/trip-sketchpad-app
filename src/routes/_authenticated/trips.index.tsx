@@ -6,7 +6,8 @@ import { useTranslation } from "react-i18next";
 import { useMemo } from "react";
 import { listTrips } from "@/lib/trips.functions";
 import { Button } from "@/components/ui/button";
-import { coverPhotoFor, flagOf, hashSeed } from "@/lib/country-data";
+import { flagOf } from "@/lib/country-data";
+import { CityCover } from "@/components/app/city-cover";
 
 export const Route = createFileRoute("/_authenticated/trips/")({
   component: TripsList,
@@ -146,11 +147,18 @@ function TripCard({ trip }: { trip: Trip }) {
   const countries: string[] = Array.isArray((trip as unknown as { countries?: string[] }).countries)
     ? ((trip as unknown as { countries: string[] }).countries)
     : [];
+  const coverType = (trip as unknown as { cover_type?: string }).cover_type ?? "auto";
+  const storedCover = (trip as unknown as { cover_url?: string | null }).cover_url ?? null;
+  // For user photo uploads (cover_type="photo") cover_url is a storage path,
+  // not a public URL — the trip detail resolves it via signed URL. For the
+  // list card we just fall back to a Wikipedia lookup so we never render a
+  // broken image.
+  const inlineSrc =
+    coverType !== "photo" && storedCover && /^https?:\/\//i.test(storedCover)
+      ? storedCover
+      : null;
   const coverQuery =
     cities[0]?.name || trip.destination || countries[0] || trip.country || "travel";
-  const photo =
-    (trip as unknown as { cover_url?: string | null }).cover_url ??
-    coverPhotoFor(coverQuery, hashSeed(trip.id));
 
   const flagStr =
     countries.length > 0
@@ -163,26 +171,16 @@ function TripCard({ trip }: { trip: Trip }) {
       params={{ tripId: trip.id }}
       className="group relative flex h-44 flex-col justify-end overflow-hidden rounded-2xl border border-border shadow-soft transition hover:-translate-y-0.5 hover:shadow-lg"
     >
-      <img
-        src={photo}
-        alt=""
-        loading="lazy"
-        className="absolute inset-0 h-full w-full object-cover transition duration-500 group-hover:scale-[1.04]"
-        onError={(e) => {
-          (e.currentTarget as HTMLImageElement).style.display = "none";
-        }}
+      <CityCover
+        query={coverQuery}
+        src={inlineSrc}
+        className="transition duration-500 group-hover:scale-[1.04]"
       />
-      <div className="absolute inset-0 bg-card-overlay" />
-      <div className="absolute right-2.5 top-2.5 flex items-center gap-1.5">
-        {flagStr && (
-          <span className="rounded-full bg-black/40 px-2 py-0.5 text-sm leading-none backdrop-blur">
-            {flagStr}
-          </span>
-        )}
-        <span className="rounded-full bg-black/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white backdrop-blur">
-          {trip.local_currency}
-        </span>
-      </div>
+      {flagStr && (
+        <div className="absolute right-2.5 top-2.5 rounded-full bg-black/40 px-2 py-0.5 text-sm leading-none backdrop-blur">
+          {flagStr}
+        </div>
+      )}
       <div className="relative z-10 flex flex-col gap-1 p-3.5 text-white">
         <h3 className="font-serif text-base font-semibold leading-tight tracking-tight line-clamp-1">
           {trip.cover_emoji ? <span className="mr-1.5">{trip.cover_emoji}</span> : null}

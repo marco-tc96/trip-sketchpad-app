@@ -14,8 +14,6 @@ import {
   countryByIso,
   currencyForCountryAt,
   flagOf,
-  coverPhotoFor,
-  hashSeed,
 } from "@/lib/country-data";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,7 +35,7 @@ export const Route = createFileRoute("/_authenticated/trips/new")({
   component: NewTrip,
 });
 
-type CityPick = { name: string; country: string };
+type CityPick = { name: string; country: string; lat?: number; lng?: number };
 
 function NewTrip() {
   const { t } = useTranslation();
@@ -51,8 +49,16 @@ function NewTrip() {
   const countries = useMemo(() => allCountries(), []);
 
   const [title, setTitle] = useState("");
-  const [coverEmoji, setCoverEmoji] = useState("✈️");
+  const [coverEmoji, setCoverEmoji] = useState("");
+  const [emojiTouched, setEmojiTouched] = useState(false);
   const [pickedCountries, setPickedCountries] = useState<string[]>([]);
+  // Auto-set cover emoji to the first country flag unless the user typed one.
+  useEffect(() => {
+    if (emojiTouched) return;
+    const iso = pickedCountries[0];
+    setCoverEmoji(iso ? flagOf(iso) : "");
+  }, [pickedCountries, emojiTouched]);
+
   const [pickedCities, setPickedCities] = useState<CityPick[]>([]);
   const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
   const [endDate, setEndDate] = useState(
@@ -112,12 +118,10 @@ function NewTrip() {
         ? countryByIso(primaryCountryIso)?.name ?? null
         : null;
       const primaryCity = pickedCities[0]?.name ?? null;
-      const coverQuery =
-        primaryCity ||
-        primaryCountryName ||
-        title;
-      const seed = hashSeed(`${title}|${startDate}|${coverQuery}`);
-      const cover_url = coverPhotoFor(coverQuery, seed);
+      // Fall back to country flag if user didn't pick an emoji.
+      const emoji =
+        coverEmoji.trim() ||
+        (primaryCountryIso ? flagOf(primaryCountryIso) : "✈️");
 
       const row = await createFn({
         data: {
@@ -126,11 +130,11 @@ function NewTrip() {
           country: primaryCountryName,
           countries: pickedCountries,
           cities: pickedCities,
-          cover_url,
+          cover_url: null,
           start_date: startDate,
           end_date: endDate,
           local_currency: currency,
-          cover_emoji: coverEmoji || "✈️",
+          cover_emoji: emoji,
           notes: notes || null,
           timeline_mode: "days",
         },
@@ -157,7 +161,11 @@ function NewTrip() {
             <Input
               className="w-16 text-center text-xl"
               value={coverEmoji}
-              onChange={(e) => setCoverEmoji(e.target.value)}
+              onChange={(e) => {
+                setCoverEmoji(e.target.value);
+                setEmojiTouched(true);
+              }}
+              placeholder={pickedCountries[0] ? flagOf(pickedCountries[0]) : "✈️"}
             />
           </div>
           <div className="space-y-1.5">
@@ -481,7 +489,12 @@ function CityPicker({
                       key={key}
                       value={key}
                       onSelect={() =>
-                        onToggle({ name: c.name, country: c.country })
+                      onToggle({
+                        name: c.name,
+                        country: c.country,
+                        lat: c.lat,
+                        lng: c.lng,
+                      })
                       }
                     >
                       <Check
