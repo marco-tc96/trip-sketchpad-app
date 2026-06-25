@@ -16,7 +16,7 @@ const expenseInput = z.object({
   amount_home: z.number().finite().optional().nullable(),
   home_currency: z.string().length(3).optional().nullable(),
   fx_rate: z.number().positive().optional().nullable(),
-  spent_on: z.string().optional().nullable(),
+  spent_on: z.string().optional(),
   note: z.string().max(2000).optional().nullable(),
 });
 
