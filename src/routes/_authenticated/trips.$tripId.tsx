@@ -31,11 +31,11 @@ function TripLayout() {
     return <main className="mx-auto max-w-5xl px-4 py-8 text-sm text-muted-foreground">{t("loading")}</main>;
   }
 
-  const tabs = [
+  const tabs: { to: "/trips/$tripId" | "/trips/$tripId/timeline" | "/trips/$tripId/expenses"; label: string; exact?: boolean }[] = [
     { to: "/trips/$tripId", label: t("overview"), exact: true },
     { to: "/trips/$tripId/timeline", label: t("timeline") },
     { to: "/trips/$tripId/expenses", label: t("expenses") },
-  ] as const;
+  ];
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-6">
