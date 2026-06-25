@@ -1,0 +1,15 @@
+{
+  "name": "Voyager — Travel Journal & Planner",
+  "short_name": "Voyager",
+  "description": "Your travel history, itineraries, expenses and planner — all in one place.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f7f3ea",
+  "theme_color": "#c2632c",
+  "icons": [
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/icon-512.png", "sizes": "192x192", "type": "image/png", "purpose": "any" }
+  ]
+}
