@@ -19,7 +19,7 @@ const tripInput = z.object({
     .max(60)
     .optional(),
   cover_url: z.string().max(500).optional().nullable(),
-  cover_type: z.enum(["auto", "map", "photo"]).optional(),
+  cover_type: z.enum(["auto", "map", "photo", "color"]).optional(),
   cover_bg: z.string().max(200).optional().nullable(),
   start_date: z.string(),
   end_date: z.string(),
