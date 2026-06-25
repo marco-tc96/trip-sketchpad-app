@@ -8,7 +8,14 @@ const tripInput = z.object({
   country: z.string().max(80).optional().nullable(),
   countries: z.array(z.string().length(2)).max(20).optional(),
   cities: z
-    .array(z.object({ name: z.string().min(1).max(120), country: z.string().length(2) }))
+    .array(
+      z.object({
+        name: z.string().min(1).max(120),
+        country: z.string().length(2),
+        lat: z.number().optional(),
+        lng: z.number().optional(),
+      }),
+    )
     .max(60)
     .optional(),
   cover_url: z.string().max(500).optional().nullable(),
