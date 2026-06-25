@@ -101,6 +101,21 @@ const it: Dict = {
   expense_breakdown: "Suddivisione spese",
   link_to_item: "Collega a una tappa",
   none: "Nessuno",
+  coins: "Valute",
+  stats: "Statistiche",
+  converter_sub: "Convertitore valuta in tempo reale",
+  from: "Da",
+  to: "A",
+  countries: "Paesi",
+  cities: "Città",
+  countries_visited: "Paesi visitati",
+  trips_per_year: "Viaggi per anno",
+  cover_image: "Immagine di copertina",
+  cover_auto: "Automatica",
+  cover_map: "Mappa",
+  cover_photo: "Foto",
+  upload_cover: "Carica foto",
+  fx_average: "Cambio medio",
 };
 
 const en: Dict = {
@@ -190,6 +205,21 @@ const en: Dict = {
   expense_breakdown: "Expense breakdown",
   link_to_item: "Link to a stop",
   none: "None",
+  coins: "Currencies",
+  stats: "Stats",
+  converter_sub: "Live currency converter",
+  from: "From",
+  to: "To",
+  countries: "Countries",
+  cities: "Cities",
+  countries_visited: "Countries visited",
+  trips_per_year: "Trips per year",
+  cover_image: "Cover image",
+  cover_auto: "Auto",
+  cover_map: "Map",
+  cover_photo: "Photo",
+  upload_cover: "Upload photo",
+  fx_average: "Avg rate",
 };
 
 // Compact translations: fall back to English keys + light per-language overrides
