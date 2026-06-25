@@ -12,10 +12,7 @@ import { useAuth } from "@/lib/auth-context";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
-    meta: [
-      { title: "Sign in — Voyager" },
-      { name: "description", content: "Access your Voyager travel journal." },
-    ],
+    meta: [{ title: "Sign in — Voyager" }, { name: "description", content: "Access your Voyager travel journal." }],
   }),
   component: AuthPage,
 });
@@ -46,7 +43,7 @@ function AuthPage() {
         if (error) throw error;
         toast.success(t("saved"));
       } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const { error } = await supabase.auth.signInWithPassword({ email });
         if (error) throw error;
       }
     } catch (err) {
@@ -65,7 +62,9 @@ function AuthPage() {
           </span>
           <span className="font-serif text-lg font-semibold">Voyager</span>
         </Link>
-        <div className="ml-auto"><LanguageSwitcher /></div>
+        <div className="ml-auto">
+          <LanguageSwitcher />
+        </div>
       </header>
 
       <main className="mx-auto flex max-w-md flex-col gap-6 px-4 pt-10">
@@ -79,11 +78,26 @@ function AuthPage() {
         <form onSubmit={submit} className="space-y-4 rounded-2xl border border-border bg-card p-6 shadow-soft">
           <div className="space-y-1.5">
             <Label htmlFor="email">{t("email")}</Label>
-            <Input id="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+            <Input
+              id="email"
+              type="email"
+              autoComplete="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="password">{t("password")}</Label>
-            <Input id="password" type="password" autoComplete={mode === "signin" ? "current-password" : "new-password"} required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} />
+            <Input
+              id="password"
+              type="password"
+              autoComplete={mode === "signin" ? "current-password" : "new-password"}
+              required
+              minLength={6}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
           </div>
           <Button type="submit" className="w-full" disabled={busy}>
             {mode === "signin" ? t("sign_in") : t("sign_up")}
