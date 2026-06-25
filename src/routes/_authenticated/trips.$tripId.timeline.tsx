@@ -21,6 +21,25 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 
+type TransportMode = "car" | "moto" | "train" | "plane" | "ferry";
+type Leg = {
+  from: string;
+  to: string;
+  depart_at: string;
+  arrive_at: string;
+  carrier: string;
+  number: string;
+};
+const emptyLeg = (): Leg => ({
+  from: "", to: "", depart_at: "", arrive_at: "", carrier: "", number: "",
+});
+const MODE_LABEL: Record<TransportMode, string> = {
+  car: "Auto", moto: "Moto", train: "Treno", plane: "Aereo", ferry: "Traghetto",
+};
+const MODE_ICON: Record<TransportMode, React.ComponentType<{ className?: string }>> = {
+  car: Car, moto: Bike, train: Train, plane: Plane, ferry: Ship,
+};
+
 export const Route = createFileRoute("/_authenticated/trips/$tripId/timeline")({
   component: TimelineView,
 });
