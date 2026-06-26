@@ -1,7 +1,7 @@
 import { createFileRoute, Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowLeft, Trash2, Image as ImageIcon, Map as MapIcon, Sparkles, Upload, Palette, Check, Pencil, X, Plus, ChevronsUpDown, Briefcase, Palmtree } from "lucide-react";
+import { ArrowLeft, Trash2, Image as ImageIcon, Map as MapIcon, Sparkles, Upload, Palette, Check, Pencil, X, Plus, ChevronsUpDown, Briefcase, Palmtree, LayoutDashboard, CalendarDays, Wallet, Clock } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useEffect, useRef, useState } from "react";
@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 import { useNavigate } from "@tanstack/react-router";
 import { countryNameLocalized, citiesOfCountry, flagOf } from "@/lib/country-data";
 import { flagGradient } from "@/lib/flag-gradient";
+import { Country } from "country-state-city";
 
 export const Route = createFileRoute("/_authenticated/trips/$tripId")({
   component: TripLayout,
@@ -118,11 +119,13 @@ function TripLayout() {
     }
   }
 
-  const tabs: { to: "/trips/$tripId" | "/trips/$tripId/timeline" | "/trips/$tripId/expenses"; label: string; exact?: boolean }[] = [
-    { to: "/trips/$tripId", label: t("overview"), exact: true },
-    { to: "/trips/$tripId/timeline", label: t("timeline") },
-    { to: "/trips/$tripId/expenses", label: t("expenses") },
+  const tabs: { to: "/trips/$tripId" | "/trips/$tripId/timeline" | "/trips/$tripId/expenses"; label: string; icon: React.ComponentType<{ className?: string }>; exact?: boolean }[] = [
+    { to: "/trips/$tripId", label: t("overview"), icon: LayoutDashboard, exact: true },
+    { to: "/trips/$tripId/timeline", label: t("timeline"), icon: CalendarDays },
+    { to: "/trips/$tripId/expenses", label: t("expenses"), icon: Wallet },
   ];
+
+  const isPhoto = coverType === "photo";
 
   return (
     <div className="relative min-h-screen isolate">
@@ -165,6 +168,22 @@ function TripLayout() {
             />
           )}
         </div>
+      )}
+
+      {/* In photo mode, override the flag gradient behind the page with a
+          theme-aware solid so the photo fades into dark/light, not into the
+          flag colors. A blurred copy of the photo continues underneath the
+          info blocks for visual continuity. */}
+      {isPhoto && (
+        <>
+          <div aria-hidden className="pointer-events-none fixed inset-0 z-0 bg-background" />
+          <PhotoBlurBackdrop
+            tripId={tripId}
+            coverUrl={tripRow.cover_url ?? null}
+            signedPhoto={signedPhoto}
+            setSignedPhoto={setSignedPhoto}
+          />
+        </>
       )}
 
       <main className="relative z-10 mx-auto max-w-5xl px-4 pb-12 pt-4">
@@ -227,8 +246,17 @@ function TripLayout() {
           </div>
         )}
 
-        {/* Spacer so the title sits below the cover focal area */}
-        <div className="h-[26vh] sm:h-[30vh]" />
+        {/* Map of visited cities sits in the free space between the cover
+            selector row and the title/info block. */}
+        <div className="relative mt-4 h-[24vh] overflow-hidden rounded-2xl sm:h-[28vh]">
+          <TripMap
+            cities={cities}
+            countries={countries}
+            className="absolute inset-0 h-full w-full"
+            noTiles
+            compact
+          />
+        </div>
 
         <header className="flex flex-col gap-3 rounded-3xl border border-border/50 bg-background/70 p-4 shadow-soft backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div className="flex min-w-0 items-center gap-3">
@@ -259,13 +287,19 @@ function TripLayout() {
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2 sm:flex-nowrap">
           {profile.data && (
-            <FxAverageWidget
-              from={profile.data.home_currency}
-              to={trip.data.local_currency}
-              start={trip.data.start_date}
-              end={trip.data.end_date}
-              fallback={trip.data.fx_rate_fallback}
-            />
+            <div className="flex flex-col items-end gap-1">
+              <FxAverageWidget
+                from={profile.data.home_currency}
+                to={trip.data.local_currency}
+                start={trip.data.start_date}
+                end={trip.data.end_date}
+                fallback={trip.data.fx_rate_fallback}
+              />
+              <TimezoneBadge
+                home={(profile.data as { home_country?: string | null }).home_country ?? null}
+                destinations={countries}
+              />
+            </div>
           )}
           <Button variant="ghost" size="icon" onClick={() => setEditOpen(true)} aria-label={t("edit_trip")}>
             <Pencil className="h-4 w-4" />
@@ -289,22 +323,29 @@ function TripLayout() {
         </div>
       </header>
 
-      <nav className="mt-6 flex gap-1 border-b border-border">
+      <nav
+        aria-label="Sezioni viaggio"
+        className="mt-5 mx-auto flex w-fit items-center gap-1 rounded-full border border-border/60 bg-background/70 p-1 text-xs shadow-soft backdrop-blur"
+      >
         {tabs.map((tab) => {
           const active = tab.exact
             ? loc.pathname === `/trips/${tripId}`
             : loc.pathname.startsWith(`/trips/${tripId}${tab.to.replace("/trips/$tripId", "")}`);
+          const Icon = tab.icon;
           return (
             <Link
               key={tab.to}
               to={tab.to}
               params={{ tripId }}
-              className={`relative px-4 py-2.5 text-sm font-medium transition ${
-                active ? "text-foreground" : "text-muted-foreground hover:text-foreground"
-              }`}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 font-medium transition",
+                active
+                  ? "bg-primary text-primary-foreground shadow-soft"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
+              )}
             >
-              {tab.label}
-              {active && <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-primary" />}
+              <Icon className="h-3.5 w-3.5" />
+              <span>{tab.label}</span>
             </Link>
           );
         })}
