@@ -786,25 +786,61 @@ function PhotoBlurBackdrop({
   );
 }
 
-function TimezoneBadge({ home, destinations }: { home: string | null; destinations: string[] }) {
+function TimezoneBadge({
+  home,
+  destinations,
+  startDate,
+}: {
+  home: string | null;
+  destinations: string[];
+  startDate?: string;
+}) {
   if (!home || destinations.length === 0) return null;
   const dest = destinations[0];
-  if (dest === home) return null;
-  const offset = (iso: string) => {
+  const zoneOf = (iso: string) => {
     const c = Country.getCountryByCode(iso);
-    const tz = c?.timezones?.[0];
-    return tz ? tz.gmtOffset / 3600 : null;
+    return c?.timezones?.[0]?.zoneName ?? null;
   };
-  const h = offset(home);
-  const d = offset(dest);
+  const homeZone = zoneOf(home);
+  const destZone = zoneOf(dest);
+  if (!homeZone || !destZone) return null;
+  const when = startDate ? new Date(`${startDate}T12:00:00Z`) : new Date();
+  const offsetOn = (tz: string, d: Date): number | null => {
+    try {
+      const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone: tz,
+        timeZoneName: "shortOffset",
+      }).formatToParts(d);
+      const name = parts.find((p) => p.type === "timeZoneName")?.value ?? "";
+      const m = name.match(/GMT([+-]?)(\d{1,2})(?::?(\d{2}))?/);
+      if (!m) return name === "GMT" ? 0 : null;
+      const sign = m[1] === "-" ? -1 : 1;
+      return sign * (parseInt(m[2], 10) + (m[3] ? parseInt(m[3], 10) / 60 : 0));
+    } catch {
+      return null;
+    }
+  };
+  const h = offsetOn(homeZone, when);
+  const d = offsetOn(destZone, when);
   if (h == null || d == null) return null;
-  const diff = Math.round(d - h);
-  if (diff === 0) return null;
-  const sign = diff > 0 ? "+" : "−";
+  const fmt = (n: number) => {
+    const s = n >= 0 ? "+" : "−";
+    const abs = Math.abs(n);
+    const hh = Math.floor(abs);
+    const mm = Math.round((abs - hh) * 60);
+    return mm ? `GMT${s}${hh}:${String(mm).padStart(2, "0")}` : `GMT${s}${hh}`;
+  };
+  const diff = Math.round((d - h) * 10) / 10;
+  const diffLabel =
+    diff === 0
+      ? "stesso fuso"
+      : `${diff > 0 ? "+" : "−"}${Math.abs(diff)}h`;
   return (
     <div className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background/70 px-2 py-0.5 text-[11px] text-muted-foreground shadow-soft backdrop-blur">
       <Clock className="h-3 w-3" />
-      <span className="tabular-nums">{sign}{Math.abs(diff)}h locale</span>
+      <span className="tabular-nums">
+        {fmt(h)} → {fmt(d)} ({diffLabel})
+      </span>
     </div>
   );
 }
