@@ -146,6 +146,7 @@ export type Database = {
         Row: {
           created_at: string
           display_name: string | null
+          home_country: string | null
           home_currency: string
           id: string
           language: string
@@ -154,6 +155,7 @@ export type Database = {
         Insert: {
           created_at?: string
           display_name?: string | null
+          home_country?: string | null
           home_currency?: string
           id: string
           language?: string
@@ -162,6 +164,7 @@ export type Database = {
         Update: {
           created_at?: string
           display_name?: string | null
+          home_country?: string | null
           home_currency?: string
           id?: string
           language?: string
