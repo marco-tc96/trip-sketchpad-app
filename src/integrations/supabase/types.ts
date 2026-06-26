@@ -188,6 +188,7 @@ export type Database = {
           start_date: string
           timeline_mode: string
           title: string
+          trip_type: string
           updated_at: string
           user_id: string
         }
@@ -209,6 +210,7 @@ export type Database = {
           start_date: string
           timeline_mode?: string
           title: string
+          trip_type?: string
           updated_at?: string
           user_id: string
         }
@@ -230,6 +232,7 @@ export type Database = {
           start_date?: string
           timeline_mode?: string
           title?: string
+          trip_type?: string
           updated_at?: string
           user_id?: string
         }
