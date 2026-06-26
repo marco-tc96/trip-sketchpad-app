@@ -297,6 +297,7 @@ function TripLayout() {
               <TimezoneBadge
                 home={(profile.data as { home_country?: string | null }).home_country ?? null}
                 destinations={countries}
+                startDate={trip.data.start_date}
               />
             </div>
           )}
