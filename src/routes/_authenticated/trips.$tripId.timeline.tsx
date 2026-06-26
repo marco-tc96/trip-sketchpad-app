@@ -531,7 +531,7 @@ function TransportDialog({
                     <Input value={leg.to} onChange={(e) => updateLeg(i, { to: e.target.value })} />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs">Partenza</Label>
+                    <Label className="text-xs">Partenza <span className="opacity-60">(opzionale)</span></Label>
                     <Input
                       type="datetime-local"
                       value={leg.depart_at}
@@ -539,7 +539,7 @@ function TransportDialog({
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs">Arrivo</Label>
+                    <Label className="text-xs">Arrivo <span className="opacity-60">(opzionale)</span></Label>
                     <Input
                       type="datetime-local"
                       value={leg.arrive_at}
