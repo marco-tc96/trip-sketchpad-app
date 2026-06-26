@@ -1118,7 +1118,7 @@ function HubCombobox({
         onChange={(e) => { onChange(e.target.value); setOpen(true); }}
         autoComplete="off"
       />
-      {open && (filtered.length > 0 || hiddenCount > 0) && (
+      {open && (filtered.length > 0 || hiddenCount > 0 || (q && (remoteHubs.length > 0 || remote.isFetching))) && (
         <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-72 overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
           {filtered.length === 0 && !q && (
             <div className="px-2 py-1.5 text-xs text-muted-foreground">Nessuna opzione</div>
