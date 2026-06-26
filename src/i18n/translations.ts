@@ -120,6 +120,11 @@ const it: Dict = {
   cover_photo: "Foto",
   upload_cover: "Carica foto",
   fx_average: "Cambio medio",
+  profile: "Profilo",
+  account_details: "Dettagli account",
+  display_name: "Nome visualizzato",
+  home_country: "Paese di residenza",
+  change_photo: "Cambia foto",
 };
 
 const en: Dict = {
