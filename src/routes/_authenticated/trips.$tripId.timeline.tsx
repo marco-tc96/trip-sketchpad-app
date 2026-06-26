@@ -24,6 +24,20 @@ import { cn } from "@/lib/utils";
 import { useCityPhoto } from "@/hooks/use-city-photo";
 import { hubsForMode, formatHub, type Hub } from "@/lib/transport-hubs";
 
+type ItemRow = {
+  id: string;
+  trip_id: string;
+  kind: string;
+  title: string;
+  location: string | null;
+  start_at: string | null;
+  end_at: string | null;
+  day_index: number | null;
+  notes: string | null;
+  position: number;
+  meta?: unknown;
+};
+
 type TransportMode = "car" | "moto" | "train" | "plane" | "ferry" | "bus";
 type Leg = {
   from: string;
