@@ -356,10 +356,12 @@ function JourneyLeg({
 }
 
 function LodgingsBlock({
-  tripId: _tripId, lodgings, onDelete,
+  tripId, lodgings, tripCities, tripCountries, onDelete,
 }: {
   tripId: string;
-  lodgings: Array<JourneyItem & { kind: string }>;
+  lodgings: Array<ItemRow>;
+  tripCities: Array<{ name: string; country: string }>;
+  tripCountries: string[];
   onDelete: (id: string) => void;
 }) {
   const { t } = useTranslation();
@@ -371,7 +373,14 @@ function LodgingsBlock({
       </h3>
       <div className="space-y-2">
         {lodgings.map((l) => (
-          <LodgingCard key={l.id} item={l} onDelete={() => onDelete(l.id)} />
+          <LodgingCard
+            key={l.id}
+            item={l}
+            tripId={tripId}
+            tripCities={tripCities}
+            tripCountries={tripCountries}
+            onDelete={() => onDelete(l.id)}
+          />
         ))}
       </div>
     </section>
@@ -379,12 +388,24 @@ function LodgingsBlock({
 }
 
 function LodgingCard({
-  item, onDelete,
-}: { item: JourneyItem; onDelete: () => void }) {
+  item, onDelete, tripId, tripCities, tripCountries,
+}: {
+  item: ItemRow;
+  onDelete: () => void;
+  tripId: string;
+  tripCities: Array<{ name: string; country: string }>;
+  tripCountries: string[];
+}) {
   const { t } = useTranslation();
   const photo = useCityPhoto(item.location);
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-border/40 text-white shadow-soft">
+    <AddItemDialog
+      tripId={tripId}
+      tripCities={tripCities}
+      tripCountries={tripCountries}
+      existing={item}
+      trigger={
+    <button type="button" className="relative block w-full overflow-hidden rounded-2xl border border-border/40 text-left text-white shadow-soft transition hover:brightness-110">
       <div className="absolute inset-0">
         {photo ? (
           <img src={photo} alt="" className="h-full w-full object-cover" />
@@ -404,11 +425,18 @@ function LodgingCard({
             {item.end_at && ` → ${fmtDT(item.end_at)}`}
           </p>
         </div>
-        <Button variant="ghost" size="icon" onClick={onDelete} className="text-white hover:bg-white/10 hover:text-white">
+        <span
+          role="button"
+          tabIndex={0}
+          onClick={(e) => { e.stopPropagation(); e.preventDefault(); onDelete(); }}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-white hover:bg-white/10"
+        >
           <Trash2 className="h-3.5 w-3.5" />
-        </Button>
+        </span>
       </div>
-    </div>
+    </button>
+      }
+    />
   );
 }
 
