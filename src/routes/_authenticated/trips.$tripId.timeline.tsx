@@ -23,7 +23,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { citiesOfCountry, flagOf } from "@/lib/country-data";
 import { cn } from "@/lib/utils";
 import { useCityPhoto } from "@/hooks/use-city-photo";
-import { hubsForMode, formatHub, type Hub } from "@/lib/transport-hubs";
+import { hubsForMode, formatHub, type Hub, HUBS } from "@/lib/transport-hubs";
 
 type ItemRow = {
   id: string;
