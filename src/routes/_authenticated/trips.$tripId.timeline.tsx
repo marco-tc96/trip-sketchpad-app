@@ -1038,8 +1038,8 @@ function HubCombobox({
     );
     const q = value.trim().toLowerCase();
     const filteredCities = q
-      ? cityList.filter((c) => c.name.toLowerCase().includes(q)).slice(0, 200)
-      : cityList.slice(0, 50);
+      ? cityList.filter((c) => c.name.toLowerCase().includes(q)).slice(0, 300)
+      : cityList.slice(0, 300);
     return (
       <div className="relative">
         <Input
