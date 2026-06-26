@@ -152,7 +152,7 @@ function TimelineView() {
 
       <div className="space-y-6">
         <JourneyBlock tripId={tripId} outbound={outbound} ret={ret} />
-        <LodgingsBlock tripId={tripId} lodgings={lodgings} onDelete={del} />
+        <LodgingsBlock tripId={tripId} lodgings={lodgings} tripCities={tripCities} tripCountries={tripCountries} onDelete={del} />
 
         <div className="space-y-3">
           {groups.map((g) => (
@@ -168,23 +168,39 @@ function TimelineView() {
                     const dark = TRANSPORT_KINDS.has(it.kind) || it.kind === "activity";
                     return (
                       <li key={it.id}>
-                        <div className={cn("flex items-start gap-3 rounded-xl p-3", cls.card)}>
-                          <Icon className="mt-0.5 h-5 w-5 shrink-0" />
-                          <div className="min-w-0 flex-1">
-                            <p className={cn("text-[10px] uppercase tracking-widest", cls.sub)}>{t(it.kind)}</p>
-                            <p className="truncate font-medium">{it.title}</p>
-                            <p className={cn("text-xs", cls.sub)}>
-                              {it.location && <>{it.location} · </>}
-                              {it.start_at && fmtDT(it.start_at)}
-                              {it.end_at && ` → ${fmtDT(it.end_at)}`}
-                            </p>
-                            {it.notes && <p className={cn("mt-1 text-xs", cls.sub)}>{it.notes}</p>}
-                            <TransportLegs meta={it.meta as TransportMeta | null} />
-                          </div>
-                          <Button variant="ghost" size="icon" onClick={() => del(it.id)} className={cn(dark ? "text-white hover:bg-white/10 hover:text-white" : "")}>
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
+                        <AddItemDialog
+                          tripId={tripId}
+                          tripCities={tripCities}
+                          tripCountries={tripCountries}
+                          existing={it as ItemRow}
+                          trigger={
+                            <button
+                              type="button"
+                              className={cn("flex w-full items-start gap-3 rounded-xl p-3 text-left transition hover:brightness-110", cls.card)}
+                            >
+                              <Icon className="mt-0.5 h-5 w-5 shrink-0" />
+                              <div className="min-w-0 flex-1">
+                                <p className={cn("text-[10px] uppercase tracking-widest", cls.sub)}>{t(it.kind)}</p>
+                                <p className="truncate font-medium">{it.title}</p>
+                                <p className={cn("text-xs", cls.sub)}>
+                                  {it.location && <>{it.location} · </>}
+                                  {it.start_at && fmtDT(it.start_at)}
+                                  {it.end_at && ` → ${fmtDT(it.end_at)}`}
+                                </p>
+                                {it.notes && <p className={cn("mt-1 text-xs", cls.sub)}>{it.notes}</p>}
+                                <TransportLegs meta={it.meta as TransportMeta | null} />
+                              </div>
+                              <span
+                                role="button"
+                                tabIndex={0}
+                                onClick={(e) => { e.stopPropagation(); e.preventDefault(); del(it.id); }}
+                                className={cn("inline-flex h-8 w-8 items-center justify-center rounded-md", dark ? "text-white hover:bg-white/10" : "hover:bg-foreground/10")}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </span>
+                            </button>
+                          }
+                        />
                       </li>
                     );
                   })}
