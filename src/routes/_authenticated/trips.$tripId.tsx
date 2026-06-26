@@ -116,7 +116,7 @@ function TripLayout() {
   return (
     <div className="relative min-h-screen">
       {/* Full-bleed cover background that fades into the page */}
-      <div aria-hidden className="pointer-events-none fixed inset-x-0 top-0 -z-10 h-full overflow-hidden">
+      <div aria-hidden className="pointer-events-none fixed inset-x-0 top-0 -z-10 h-[70vh] overflow-hidden">
         {coverType === "color" ? (
           <div
             className="absolute inset-0"
