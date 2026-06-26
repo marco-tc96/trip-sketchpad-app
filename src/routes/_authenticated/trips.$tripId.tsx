@@ -126,39 +126,46 @@ function TripLayout() {
 
   return (
     <div className="relative min-h-screen isolate">
-      {/* Full-bleed cover background that fades into the page */}
+      {/* Full-bleed gradient that stays behind the entire page */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[70vh] overflow-hidden"
-      >
-        {coverType === "color" ? (
-          <div
-            className="absolute inset-0"
-            style={{
-              background:
-                tripRow.cover_bg ||
-                "linear-gradient(135deg, oklch(0.78 0.1 55), oklch(0.66 0.14 38))",
-            }}
-          />
-        ) : coverType === "map" ? (
-          <>
+        className="pointer-events-none fixed inset-0 z-0"
+        style={{
+          background:
+            coverType === "color"
+              ? tripRow.cover_bg ||
+                "linear-gradient(135deg, oklch(0.78 0.1 55), oklch(0.66 0.14 38))"
+              : autoGradient,
+        }}
+      />
+      {/* Header-only focal media (photo or map), centered, fades into the
+          gradient below the first information block. */}
+      {(coverType === "photo" || coverType === "map") && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[58vh] overflow-hidden"
+          style={{
+            WebkitMaskImage:
+              "linear-gradient(to bottom, black 0%, black 60%, transparent 100%)",
+            maskImage:
+              "linear-gradient(to bottom, black 0%, black 60%, transparent 100%)",
+          }}
+        >
+          {coverType === "map" ? (
             <TripMap cities={cities} countries={countries} className="absolute inset-0 h-full w-full" />
-            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
-          </>
-        ) : (
-          <CoverContent
-            tripId={tripId}
-            coverType={coverType}
-            coverUrl={tripRow.cover_url ?? null}
-            cities={cities}
-            gradient={autoGradient}
-            signedPhoto={signedPhoto}
-            setSignedPhoto={setSignedPhoto}
-          />
-        )}
-        {/* Fade to background so details below stay readable */}
-        <div className="absolute inset-x-0 bottom-0 top-1/3 bg-gradient-to-b from-transparent via-background/70 to-background" />
-      </div>
+          ) : (
+            <CoverContent
+              tripId={tripId}
+              coverType={coverType}
+              coverUrl={tripRow.cover_url ?? null}
+              cities={cities}
+              gradient={autoGradient}
+              signedPhoto={signedPhoto}
+              setSignedPhoto={setSignedPhoto}
+            />
+          )}
+        </div>
+      )}
 
       <main className="relative z-10 mx-auto max-w-5xl px-4 pb-12 pt-4">
         <div className="flex items-center justify-between gap-2">
@@ -173,7 +180,28 @@ function TripLayout() {
           <div className="flex items-center gap-1 rounded-full border border-border/60 bg-background/70 p-1 text-xs shadow-soft backdrop-blur">
             <CoverPill active={coverType === "auto"} onClick={() => setCoverType("auto")} icon={Sparkles} label={t("cover_auto")} />
             <CoverPill active={coverType === "map"} onClick={() => setCoverType("map")} icon={MapIcon} label={t("cover_map")} />
-            <CoverPill active={coverType === "photo"} onClick={() => fileRef.current?.click()} icon={ImageIcon} label={t("cover_photo")} />
+            <CoverPill
+              active={coverType === "photo"}
+              onClick={() => {
+                // If a photo already exists, switching to the photo cover
+                // just shows it — no re-upload. The user can replace it via
+                // the dedicated "Change photo" button below.
+                if (tripRow.cover_url) setCoverType("photo");
+                else fileRef.current?.click();
+              }}
+              icon={ImageIcon}
+              label={t("cover_photo")}
+            />
+            {coverType === "photo" && tripRow.cover_url && (
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-foreground/80 transition hover:bg-foreground/10"
+              >
+                <Upload className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">{t("change_photo")}</span>
+              </button>
+            )}
             <ColorCoverPill
               active={coverType === "color"}
               current={tripRow.cover_bg}
