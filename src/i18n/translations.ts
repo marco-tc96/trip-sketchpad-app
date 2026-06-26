@@ -228,6 +228,8 @@ const en: Dict = {
   countries: "Countries",
   cities: "Cities",
   countries_visited: "Countries visited",
+  most_visited_countries: "Most visited countries",
+  most_visited_cities: "Most visited cities",
   trips_per_year: "Trips per year",
   cover_image: "Cover image",
   cover_auto: "Auto",
