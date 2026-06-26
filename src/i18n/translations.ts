@@ -120,6 +120,11 @@ const it: Dict = {
   cover_photo: "Foto",
   upload_cover: "Carica foto",
   fx_average: "Cambio medio",
+  profile: "Profilo",
+  account_details: "Dettagli account",
+  display_name: "Nome visualizzato",
+  home_country: "Paese di residenza",
+  change_photo: "Cambia foto",
 };
 
 const en: Dict = {
@@ -228,6 +233,11 @@ const en: Dict = {
   cover_photo: "Photo",
   upload_cover: "Upload photo",
   fx_average: "Avg rate",
+  profile: "Profile",
+  account_details: "Account details",
+  display_name: "Display name",
+  home_country: "Country of residence",
+  change_photo: "Change photo",
 };
 
 // Compact translations: fall back to English keys + light per-language overrides

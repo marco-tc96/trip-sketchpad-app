@@ -1048,16 +1048,28 @@ function HubCombobox({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button type="button" variant="outline" className="w-full justify-between font-normal">
-          <span className={cn("truncate", !value && "text-muted-foreground")}>
-            {value || placeholder || "Seleziona"}
-          </span>
-          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-        </Button>
+        <Input
+          value={open ? query : value}
+          placeholder={placeholder || "Cerca o digita…"}
+          onFocus={() => {
+            setQuery(value);
+            setOpen(true);
+          }}
+          onChange={(e) => {
+            const v = e.target.value;
+            setQuery(v);
+            onChange(v);
+            if (!open) setOpen(true);
+          }}
+          autoComplete="off"
+        />
       </PopoverTrigger>
-      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+      <PopoverContent
+        className="w-[--radix-popover-trigger-width] p-0"
+        align="start"
+        onOpenAutoFocus={(e) => e.preventDefault()}
+      >
         <Command shouldFilter={false}>
-          <CommandInput placeholder="Cerca o digita…" value={query} onValueChange={setQuery} />
           <CommandList className="max-h-72">
             {filtered.length === 0 && !query && <CommandEmpty>Nessuna opzione</CommandEmpty>}
             {query && (

@@ -3,12 +3,13 @@ import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Plus, MapPin, Calendar, Briefcase, Palmtree } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { listTrips } from "@/lib/trips.functions";
 import { Button } from "@/components/ui/button";
 import { flagOf } from "@/lib/country-data";
 import { CityCover } from "@/components/app/city-cover";
 import { flagGradient } from "@/lib/flag-gradient";
+import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/_authenticated/trips/")({
   component: TripsList,
@@ -141,17 +142,29 @@ function TripCard({ trip }: { trip: Trip }) {
   const countries: string[] = Array.isArray((trip as unknown as { countries?: string[] }).countries)
     ? ((trip as unknown as { countries: string[] }).countries)
     : [];
-  const coverType = (trip as unknown as { cover_type?: string }).cover_type ?? "auto";
   const storedCover = (trip as unknown as { cover_url?: string | null }).cover_url ?? null;
   const tripType = ((trip as unknown as { trip_type?: string }).trip_type ?? "vacation") as "vacation" | "business";
-  // For user photo uploads (cover_type="photo") cover_url is a storage path,
-  // not a public URL — the trip detail resolves it via signed URL. For the
-  // list card we just fall back to a Wikipedia lookup so we never render a
-  // broken image.
+  const [signed, setSigned] = useState<string | null>(null);
+  // Whenever the user uploaded a photo, show it on the home card too —
+  // regardless of the trip's internal cover_type selection.
+  useEffect(() => {
+    let cancelled = false;
+    setSigned(null);
+    if (storedCover && !/^https?:\/\//i.test(storedCover)) {
+      supabase.storage
+        .from("trip-covers")
+        .createSignedUrl(storedCover, 60 * 60)
+        .then(({ data }) => {
+          if (!cancelled) setSigned(data?.signedUrl ?? null);
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [storedCover]);
   const inlineSrc =
-    coverType !== "photo" && storedCover && /^https?:\/\//i.test(storedCover)
-      ? storedCover
-      : null;
+    storedCover && /^https?:\/\//i.test(storedCover) ? storedCover : signed;
+  const coverType = (trip as unknown as { cover_type?: string }).cover_type ?? "auto";
   const coverBg =
     (trip as unknown as { cover_bg?: string | null }).cover_bg ?? null;
   const gradient =
