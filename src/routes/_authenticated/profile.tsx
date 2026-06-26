@@ -85,14 +85,25 @@ function ProfilePage() {
     const past = all.filter((tr) => tr.end_date < today);
     const countrySet = new Set<string>();
     const cityKey = new Set<string>();
+    const countryCounts = new Map<string, number>();
+    const cityCounts = new Map<string, { name: string; country: string; count: number }>();
     let nights = 0;
     let business = 0;
     let vacation = 0;
     const byYear: Record<string, { business: number; vacation: number }> = {};
     for (const tr of past) {
       const cs = (tr as unknown as { countries?: string[] }).countries ?? [];
-      cs.forEach((c) => countrySet.add(c));
-      getCities(tr).forEach((c) => cityKey.add(`${c.country}|${c.name}`));
+      cs.forEach((c) => {
+        countrySet.add(c);
+        countryCounts.set(c, (countryCounts.get(c) ?? 0) + 1);
+      });
+      getCities(tr).forEach((c) => {
+        cityKey.add(`${c.country}|${c.name}`);
+        const k = `${c.country}|${c.name}`;
+        const cur = cityCounts.get(k);
+        if (cur) cur.count += 1;
+        else cityCounts.set(k, { name: c.name, country: c.country, count: 1 });
+      });
       nights += Math.max(
         1,
         Math.round(
@@ -108,9 +119,17 @@ function ProfilePage() {
     const years = Object.entries(byYear)
       .map(([y, v]) => ({ y, ...v, total: v.business + v.vacation }))
       .sort((a, b) => b.y.localeCompare(a.y));
+    const countriesRanked = [...countryCounts.entries()]
+      .map(([iso, count]) => ({ iso, count }))
+      .sort((a, b) => b.count - a.count || a.iso.localeCompare(b.iso));
+    const citiesRanked = [...cityCounts.values()].sort(
+      (a, b) => b.count - a.count || a.name.localeCompare(b.name),
+    );
     return {
       past,
       countries: [...countrySet].sort(),
+      countriesRanked,
+      citiesRanked,
       cityCount: cityKey.size,
       nights,
       business,
@@ -220,6 +239,27 @@ function ProfilePage() {
             ))}
           </div>
         </div>
+
+        {stats.countriesRanked.length > 0 && (
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <RankList
+              title={t("most_visited_countries")}
+              rows={stats.countriesRanked.map((r) => ({
+                key: r.iso,
+                left: <><span>{flagOf(r.iso)}</span><span>{countryNameLocalized(r.iso, lang)}</span></>,
+                count: r.count,
+              }))}
+            />
+            <RankList
+              title={t("most_visited_cities")}
+              rows={stats.citiesRanked.map((r) => ({
+                key: `${r.country}|${r.name}`,
+                left: <><span>{flagOf(r.country)}</span><span>{r.name}</span></>,
+                count: r.count,
+              }))}
+            />
+          </div>
+        )}
 
         {(stats.business + stats.vacation) > 0 && (
           <div className="mt-4 rounded-3xl border border-border bg-card p-5 shadow-soft">
