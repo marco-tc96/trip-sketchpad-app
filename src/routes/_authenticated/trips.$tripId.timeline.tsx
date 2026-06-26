@@ -115,6 +115,12 @@ function TimelineView() {
   if (!trip.data) return <p className="text-sm text-muted-foreground">{t("loading")}</p>;
 
   const mode = trip.data.timeline_mode;
+  const tripRow = trip.data as typeof trip.data & {
+    cities?: Array<{ name: string; country: string }>;
+    countries?: string[];
+  };
+  const tripCities = Array.isArray(tripRow.cities) ? tripRow.cities : [];
+  const tripCountries = Array.isArray(tripRow.countries) ? tripRow.countries : [];
   const list = items.data ?? [];
   const outbound = list.find((i) => i.kind === "outbound");
   const ret = list.find((i) => i.kind === "return");
@@ -176,30 +182,30 @@ function TimelineView() {
           >{t("by_activities")}</button>
         </div>
         <div className="ml-auto">
-          <AddItemDialog tripId={tripId} />
+          <AddItemDialog tripId={tripId} tripCities={tripCities} tripCountries={tripCountries} />
         </div>
       </div>
 
       <div className="space-y-3">
         <TripBoundaryRow item={outbound} tripId={tripId} kind="outbound" />
 
-        {lodgings.length > 0 && (
+        {mode === "activities" && lodgings.length > 0 && (
           <section className="rounded-2xl border border-border bg-card p-4 shadow-soft">
             <h3 className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
               <Hotel className="h-3.5 w-3.5" /> Alloggi ({lodgings.length})
             </h3>
             <ul className="space-y-2">
               {lodgings.map((it) => (
-                <li key={it.id} className="flex items-start justify-between gap-3 rounded-xl bg-muted/40 p-3">
+                <li key={it.id} className="flex items-start justify-between gap-3 rounded-xl bg-gradient-to-br from-indigo-500 to-blue-600 p-3 text-white">
                   <div className="min-w-0">
                     <p className="truncate font-medium">{it.title}</p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-xs text-white/80">
                       {it.location && <>{it.location} · </>}
                       {it.start_at && fmtDT(it.start_at)}
                       {it.end_at && ` → ${fmtDT(it.end_at)}`}
                     </p>
                   </div>
-                  <Button variant="ghost" size="icon" onClick={() => del(it.id)}>
+                  <Button variant="ghost" size="icon" onClick={() => del(it.id)} className="text-white hover:bg-white/10 hover:text-white">
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
                 </li>
@@ -208,33 +214,90 @@ function TimelineView() {
           </section>
         )}
 
-        {groups.map((g) => (
+        {groups.map((g) => {
+          // Compute lodging context for this day in days mode.
+          let dayIso: string | null = null;
+          if (mode === "days") {
+            const idx = groups.indexOf(g);
+            const start = new Date(trip.data!.start_date);
+            dayIso = new Date(start.getTime() + idx * 86400000).toISOString().slice(0, 10);
+          }
+          const activeLodgings = dayIso
+            ? lodgings.filter((l) => {
+                const { s, e } = lodgingDateRange(l);
+                return s && e && s <= dayIso! && dayIso! <= e;
+              })
+            : [];
+          return (
           <section key={g.label} className="rounded-2xl border border-border bg-card p-4 shadow-soft">
             <h3 className="mb-3 text-xs font-semibold uppercase tracking-widest text-muted-foreground">{g.label}</h3>
+            {mode === "days" && activeLodgings.map((l) => {
+              const { s, e } = lodgingDateRange(l);
+              const isFirst = s === dayIso;
+              const isLast = e === dayIso;
+              if (isFirst) {
+                return (
+                  <div key={`lodg-${l.id}`} className={cn(
+                    "mb-3 flex items-start justify-between gap-3 rounded-2xl bg-gradient-to-br from-indigo-500 to-blue-600 p-3 text-white shadow-soft",
+                    !isLast && "rounded-b-none",
+                  )}>
+                    <div className="flex min-w-0 items-start gap-2">
+                      <Hotel className="mt-0.5 h-4 w-4 shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-[10px] uppercase tracking-widest opacity-80">{t("lodging")}</p>
+                        <p className="truncate font-medium">{l.title}</p>
+                        <p className="text-xs text-white/80">
+                          {l.location && <>{l.location} · </>}
+                          {l.start_at && fmtDT(l.start_at)}
+                          {l.end_at && ` → ${fmtDT(l.end_at)}`}
+                        </p>
+                      </div>
+                    </div>
+                    <Button variant="ghost" size="icon" onClick={() => del(l.id)} className="text-white hover:bg-white/10 hover:text-white">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                );
+              }
+              // Continuation band — small slim strip
+              return (
+                <div
+                  key={`lodg-${l.id}`}
+                  aria-hidden
+                  className={cn(
+                    "mb-3 h-2 bg-gradient-to-br from-indigo-500 to-blue-600",
+                    isLast ? "rounded-b-2xl" : "",
+                    "rounded-t-none",
+                  )}
+                  title={l.title}
+                />
+              );
+            })}
             {g.items.filter((it) => mode !== "days" || it.kind !== "lodging").length === 0 ? (
-              <p className="text-sm text-muted-foreground">—</p>
+              activeLodgings.length === 0 ? <p className="text-sm text-muted-foreground">—</p> : null
             ) : (
               <ul className="relative space-y-3 border-l border-border pl-5">
                 {g.items.filter((it) => mode !== "days" || it.kind !== "lodging").map((it) => {
                   const Icon = KIND_ICON[it.kind as keyof typeof KIND_ICON] ?? MapPin;
+                  const cls = kindClasses(it.kind);
                   return (
                     <li key={it.id} className="relative">
-                      <span className="absolute -left-[27px] top-1 grid h-5 w-5 place-items-center rounded-full bg-primary text-primary-foreground">
+                      <span className={cn("absolute -left-[27px] top-1 grid h-5 w-5 place-items-center rounded-full", cls.dot)}>
                         <Icon className="h-3 w-3" />
                       </span>
-                      <div className="flex items-start gap-3">
+                      <div className={cn("flex items-start gap-3 rounded-xl p-3", cls.card)}>
                         <div className="min-w-0 flex-1">
-                          <p className="text-xs uppercase tracking-wider text-muted-foreground">{t(it.kind)}</p>
+                          <p className={cn("text-[10px] uppercase tracking-widest", cls.sub)}>{t(it.kind)}</p>
                           <p className="truncate font-medium">{it.title}</p>
-                          <p className="text-xs text-muted-foreground">
+                          <p className={cn("text-xs", cls.sub)}>
                             {it.location && <>{it.location} · </>}
                             {it.start_at && fmtDT(it.start_at)}
                             {it.end_at && ` → ${fmtDT(it.end_at)}`}
                           </p>
-                          {it.notes && <p className="mt-1 text-xs text-muted-foreground">{it.notes}</p>}
+                          {it.notes && <p className={cn("mt-1 text-xs", cls.sub)}>{it.notes}</p>}
                           <TransportLegs meta={it.meta as TransportMeta | null} />
                         </div>
-                        <Button variant="ghost" size="icon" onClick={() => del(it.id)}>
+                        <Button variant="ghost" size="icon" onClick={() => del(it.id)} className={cn(TRANSPORT_KINDS.has(it.kind) || it.kind === "activity" ? "text-white hover:bg-white/10 hover:text-white" : "")}>
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </div>
@@ -244,7 +307,8 @@ function TimelineView() {
               </ul>
             )}
           </section>
-        ))}
+          );
+        })}
 
         <TripBoundaryRow item={ret} tripId={tripId} kind="return" />
       </div>
