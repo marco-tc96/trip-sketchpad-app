@@ -5,7 +5,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Plane, Train, Car, Bike, Ship, Hotel, MapPin, Sparkles, ArrowRightLeft,
-  PlaneTakeoff, PlaneLanding, Plus, Trash2,
+  PlaneTakeoff, PlaneLanding, Plus, Trash2, ChevronsUpDown, Check,
 } from "lucide-react";
 import { toast } from "sonner";
 import { listItems, createItem, deleteItem, ITEM_KINDS } from "@/lib/itinerary.functions";
@@ -17,9 +17,10 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { citiesOfCountry, flagOf } from "@/lib/country-data";
+import { cn } from "@/lib/utils";
 
 type TransportMode = "car" | "moto" | "train" | "plane" | "ferry";
 type Leg = {
