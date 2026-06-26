@@ -141,12 +141,18 @@ function TripLayout() {
               : autoGradient,
         }}
       />
-      {/* Header-only focal media (photo or map), centered, fades into the
+      {/* In photo mode, override the flag gradient behind the page with a
+          theme-aware solid so the photo fades into dark/light, not into the
+          flag colors. Rendered BEFORE the focal photo so it sits beneath it. */}
+      {isPhoto && (
+        <div aria-hidden className="pointer-events-none fixed inset-0 z-0 bg-background" />
+      )}
+      {/* Header-only focal media (photo), centered, fades into the
           gradient below the first information block. */}
       {coverType === "photo" && (
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[58vh] overflow-hidden"
+          className="pointer-events-none absolute inset-x-0 top-0 z-[1] h-[58vh] overflow-hidden"
           style={{
             WebkitMaskImage:
               "linear-gradient(to bottom, black 0%, black 60%, transparent 100%)",
@@ -166,20 +172,14 @@ function TripLayout() {
         </div>
       )}
 
-      {/* In photo mode, override the flag gradient behind the page with a
-          theme-aware solid so the photo fades into dark/light, not into the
-          flag colors. A blurred copy of the photo continues underneath the
-          info blocks for visual continuity. */}
+      {/* Blurred copy of the photo continuing underneath the info blocks. */}
       {isPhoto && (
-        <>
-          <div aria-hidden className="pointer-events-none fixed inset-0 z-0 bg-background" />
-          <PhotoBlurBackdrop
-            tripId={tripId}
-            coverUrl={tripRow.cover_url ?? null}
-            signedPhoto={signedPhoto}
-            setSignedPhoto={setSignedPhoto}
-          />
-        </>
+        <PhotoBlurBackdrop
+          tripId={tripId}
+          coverUrl={tripRow.cover_url ?? null}
+          signedPhoto={signedPhoto}
+          setSignedPhoto={setSignedPhoto}
+        />
       )}
 
       <main className="relative z-10 mx-auto flex min-h-screen max-w-5xl flex-col px-4 pb-12 pt-4">
@@ -242,17 +242,20 @@ function TripLayout() {
           </div>
         )}
 
-        {/* Map of visited cities sits in the free space between the cover
-            selector row and the title/info block. */}
-        <div className="relative my-4 min-h-[40vh] flex-1 overflow-hidden rounded-2xl">
-          <TripMap
-            cities={cities}
-            countries={countries}
-            className="absolute inset-0 h-full w-full"
-            noTiles={coverType !== "map"}
-            compact
-          />
-        </div>
+        {/* Map of visited cities — shown only when the user picks the map
+            cover, so pins don't leak onto photo/gradient/color backgrounds. */}
+        {coverType === "map" ? (
+          <div className="relative my-4 min-h-[40vh] flex-1 overflow-hidden rounded-2xl">
+            <TripMap
+              cities={cities}
+              countries={countries}
+              className="absolute inset-0 h-full w-full"
+              compact
+            />
+          </div>
+        ) : (
+          <div className="my-4 flex-1" />
+        )}
 
         <header className="flex flex-col gap-3 rounded-3xl border border-border/50 bg-background/70 p-4 shadow-soft backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div className="flex min-w-0 items-center gap-3">
