@@ -531,11 +531,13 @@ function TransportDialog({
   kind,
   existing,
   trigger,
+  tripCountries = [],
 }: {
   tripId: string;
   kind: "outbound" | "return";
   existing?: { id: string; meta: TransportMeta | null };
   trigger: React.ReactNode;
+  tripCountries?: string[];
 }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
@@ -647,11 +649,23 @@ function TransportDialog({
                 <div className="grid gap-2 sm:grid-cols-2">
                   <div className="space-y-1">
                     <Label className="text-xs">{fromLabel}</Label>
-                    <Input value={leg.from} onChange={(e) => updateLeg(i, { from: e.target.value })} />
+                    <HubCombobox
+                      mode={mode}
+                      countries={tripCountries}
+                      value={leg.from}
+                      onChange={(v) => updateLeg(i, { from: v })}
+                      placeholder={fromLabel}
+                    />
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs">{toLabel}</Label>
-                    <Input value={leg.to} onChange={(e) => updateLeg(i, { to: e.target.value })} />
+                    <HubCombobox
+                      mode={mode}
+                      countries={tripCountries}
+                      value={leg.to}
+                      onChange={(v) => updateLeg(i, { to: v })}
+                      placeholder={toLabel}
+                    />
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs">Partenza <span className="opacity-60">(opzionale)</span></Label>
