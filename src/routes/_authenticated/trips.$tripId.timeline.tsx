@@ -96,12 +96,6 @@ function kindClasses(kind: string) {
   };
 }
 
-function lodgingDateRange(it: { start_at: string | null; end_at: string | null }) {
-  const s = it.start_at?.slice(0, 10) ?? null;
-  const e = it.end_at?.slice(0, 10) ?? s;
-  return { s, e };
-}
-
 function TimelineView() {
   const { tripId } = Route.useParams();
   const { t } = useTranslation();
