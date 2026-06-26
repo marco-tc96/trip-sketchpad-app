@@ -127,7 +127,8 @@ function TimelineView() {
   const middle = list.filter((i) => i.kind !== "outbound" && i.kind !== "return");
   const lodgings = middle.filter((i) => i.kind === "lodging");
 
-  // Group middle
+  // Group middle items only in "days" mode. In "activities" mode each item
+  // is rendered as a stand-alone full-width card with no sub-sections.
   let groups: { label: string; items: typeof middle }[] = [];
   if (mode === "days") {
     const start = new Date(trip.data.start_date);
@@ -143,14 +144,6 @@ function TimelineView() {
         ),
       };
     });
-  } else {
-    const byKind = new Map<string, typeof middle>();
-    for (const it of middle) {
-      const arr = byKind.get(it.kind) ?? [];
-      arr.push(it);
-      byKind.set(it.kind, arr);
-    }
-    groups = Array.from(byKind.entries()).map(([k, v]) => ({ label: t(k), items: v }));
   }
 
   async function setMode(m: "days" | "activities") {
@@ -189,32 +182,43 @@ function TimelineView() {
       <div className="space-y-3">
         <TripBoundaryRow item={outbound} tripId={tripId} kind="outbound" />
 
-        {mode === "activities" && lodgings.length > 0 && (
-          <section className="rounded-2xl border border-border bg-card p-4 shadow-soft">
-            <h3 className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-              <Hotel className="h-3.5 w-3.5" /> Alloggi ({lodgings.length})
-            </h3>
-            <ul className="space-y-2">
-              {lodgings.map((it) => (
-                <li key={it.id} className="flex items-start justify-between gap-3 rounded-xl bg-gradient-to-br from-indigo-500 to-blue-600 p-3 text-white">
-                  <div className="min-w-0">
-                    <p className="truncate font-medium">{it.title}</p>
-                    <p className="text-xs text-white/80">
-                      {it.location && <>{it.location} · </>}
-                      {it.start_at && fmtDT(it.start_at)}
-                      {it.end_at && ` → ${fmtDT(it.end_at)}`}
-                    </p>
-                  </div>
-                  <Button variant="ghost" size="icon" onClick={() => del(it.id)} className="text-white hover:bg-white/10 hover:text-white">
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
+        {mode === "activities" && middle.map((it) => {
+          const Icon = KIND_ICON[it.kind as keyof typeof KIND_ICON] ?? MapPin;
+          const cls = kindClasses(it.kind);
+          const dark = TRANSPORT_KINDS.has(it.kind) || it.kind === "activity" || it.kind === "lodging";
+          return (
+            <div
+              key={it.id}
+              className={cn(
+                "flex w-full items-start gap-3 rounded-2xl p-4 shadow-soft border",
+                cls.card,
+              )}
+            >
+              <Icon className="mt-0.5 h-5 w-5 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <p className={cn("text-[10px] uppercase tracking-widest", cls.sub)}>{t(it.kind)}</p>
+                <p className="truncate font-medium">{it.title}</p>
+                <p className={cn("text-xs", cls.sub)}>
+                  {it.location && <>{it.location} · </>}
+                  {it.start_at && fmtDT(it.start_at)}
+                  {it.end_at && ` → ${fmtDT(it.end_at)}`}
+                </p>
+                {it.notes && <p className={cn("mt-1 text-xs", cls.sub)}>{it.notes}</p>}
+                <TransportLegs meta={it.meta as TransportMeta | null} />
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => del(it.id)}
+                className={cn(dark ? "text-white hover:bg-white/10 hover:text-white" : "")}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          );
+        })}
 
-        {groups.map((g) => {
+        {mode === "days" && groups.map((g) => {
           // Compute lodging context for this day in days mode.
           let dayIso: string | null = null;
           if (mode === "days") {
@@ -273,19 +277,18 @@ function TimelineView() {
                 />
               );
             })}
-            {g.items.filter((it) => mode !== "days" || it.kind !== "lodging").length === 0 ? (
+            {g.items.filter((it) => it.kind !== "lodging").length === 0 ? (
               activeLodgings.length === 0 ? <p className="text-sm text-muted-foreground">—</p> : null
             ) : (
-              <ul className="relative space-y-3 border-l border-border pl-5">
-                {g.items.filter((it) => mode !== "days" || it.kind !== "lodging").map((it) => {
+              <ul className="space-y-3">
+                {g.items.filter((it) => it.kind !== "lodging").map((it) => {
                   const Icon = KIND_ICON[it.kind as keyof typeof KIND_ICON] ?? MapPin;
                   const cls = kindClasses(it.kind);
+                  const dark = TRANSPORT_KINDS.has(it.kind) || it.kind === "activity";
                   return (
-                    <li key={it.id} className="relative">
-                      <span className={cn("absolute -left-[27px] top-1 grid h-5 w-5 place-items-center rounded-full", cls.dot)}>
-                        <Icon className="h-3 w-3" />
-                      </span>
+                    <li key={it.id}>
                       <div className={cn("flex items-start gap-3 rounded-xl p-3", cls.card)}>
+                        <Icon className="mt-0.5 h-5 w-5 shrink-0" />
                         <div className="min-w-0 flex-1">
                           <p className={cn("text-[10px] uppercase tracking-widest", cls.sub)}>{t(it.kind)}</p>
                           <p className="truncate font-medium">{it.title}</p>
@@ -297,7 +300,7 @@ function TimelineView() {
                           {it.notes && <p className={cn("mt-1 text-xs", cls.sub)}>{it.notes}</p>}
                           <TransportLegs meta={it.meta as TransportMeta | null} />
                         </div>
-                        <Button variant="ghost" size="icon" onClick={() => del(it.id)} className={cn(TRANSPORT_KINDS.has(it.kind) || it.kind === "activity" ? "text-white hover:bg-white/10 hover:text-white" : "")}>
+                        <Button variant="ghost" size="icon" onClick={() => del(it.id)} className={cn(dark ? "text-white hover:bg-white/10 hover:text-white" : "")}>
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </div>
@@ -528,7 +531,7 @@ function TransportDialog({
                     <Input value={leg.to} onChange={(e) => updateLeg(i, { to: e.target.value })} />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs">Partenza</Label>
+                    <Label className="text-xs">Partenza <span className="opacity-60">(opzionale)</span></Label>
                     <Input
                       type="datetime-local"
                       value={leg.depart_at}
@@ -536,7 +539,7 @@ function TransportDialog({
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs">Arrivo</Label>
+                    <Label className="text-xs">Arrivo <span className="opacity-60">(opzionale)</span></Label>
                     <Input
                       type="datetime-local"
                       value={leg.arrive_at}

@@ -22,6 +22,7 @@ import { useAuth } from "@/lib/auth-context";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "@tanstack/react-router";
 import { countryNameLocalized, citiesOfCountry, flagOf } from "@/lib/country-data";
+import { flagGradient } from "@/lib/flag-gradient";
 
 export const Route = createFileRoute("/_authenticated/trips/$tripId")({
   component: TripLayout,
@@ -69,6 +70,7 @@ function TripLayout() {
   const citiesLabel = cities.length > 0
     ? cities.map((c) => c.name).join(" · ")
     : tripRow.destination;
+  const autoGradient = flagGradient(countries);
 
   async function setCoverType(next: "auto" | "map" | "photo" | "color") {
     if (next === coverType) return;
@@ -138,15 +140,18 @@ function TripLayout() {
                 "linear-gradient(135deg, oklch(0.78 0.1 55), oklch(0.66 0.14 38))",
             }}
           />
+        ) : coverType === "map" ? (
+          <>
+            <TripMap cities={cities} countries={countries} className="absolute inset-0 h-full w-full" />
+            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
+          </>
         ) : (
           <CoverContent
             tripId={tripId}
             coverType={coverType}
             coverUrl={tripRow.cover_url ?? null}
             cities={cities}
-            fallbackQuery={
-              cities[0]?.name || tripRow.destination || countries[0] || tripRow.country || tripRow.title
-            }
+            gradient={autoGradient}
             signedPhoto={signedPhoto}
             setSignedPhoto={setSignedPhoto}
           />
@@ -631,15 +636,15 @@ function CoverContent({
   coverType,
   coverUrl,
   cities,
-  fallbackQuery,
+  gradient,
   signedPhoto,
   setSignedPhoto,
 }: {
   tripId: string;
-  coverType: "auto" | "map" | "photo";
+  coverType: "auto" | "photo";
   coverUrl: string | null;
   cities: Array<{ name: string; country: string; lat?: number; lng?: number }>;
-  fallbackQuery: string;
+  gradient: string;
   signedPhoto: string | null;
   setSignedPhoto: (v: string | null) => void;
 }) {
@@ -660,23 +665,14 @@ function CoverContent({
     };
   }, [coverType, coverUrl, tripId, setSignedPhoto]);
 
-  if (coverType === "map") {
-    return (
-      <>
-        <TripMap cities={cities} className="absolute inset-0 h-full w-full" />
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
-      </>
-    );
-  }
-
   if (coverType === "photo") {
     const src = signedPhoto || (coverUrl && /^https?:\/\//i.test(coverUrl) ? coverUrl : null);
-    return <CityCover query={fallbackQuery} src={src} />;
+    return <CityCover src={src} gradient={gradient} />;
   }
 
   // auto
   const src = coverUrl && /^https?:\/\//i.test(coverUrl) ? coverUrl : null;
-  return <CityCover query={fallbackQuery} src={src} />;
+  return <CityCover src={src} gradient={gradient} />;
 }
 
 function fmt(d: string) {

@@ -8,6 +8,7 @@ import { listTrips } from "@/lib/trips.functions";
 import { Button } from "@/components/ui/button";
 import { flagOf } from "@/lib/country-data";
 import { CityCover } from "@/components/app/city-cover";
+import { flagGradient } from "@/lib/flag-gradient";
 
 export const Route = createFileRoute("/_authenticated/trips/")({
   component: TripsList,
@@ -151,8 +152,10 @@ function TripCard({ trip }: { trip: Trip }) {
     coverType !== "photo" && storedCover && /^https?:\/\//i.test(storedCover)
       ? storedCover
       : null;
-  const coverQuery =
-    cities[0]?.name || trip.destination || countries[0] || trip.country || "travel";
+  const coverBg =
+    (trip as unknown as { cover_bg?: string | null }).cover_bg ?? null;
+  const gradient =
+    coverType === "color" && coverBg ? coverBg : flagGradient(countries);
 
   const flagStr =
     countries.length > 0
@@ -166,8 +169,8 @@ function TripCard({ trip }: { trip: Trip }) {
       className="group relative flex aspect-[9/16] w-[58vw] max-w-[240px] shrink-0 snap-start flex-col justify-end overflow-hidden rounded-2xl border border-border shadow-soft transition hover:-translate-y-1 hover:shadow-xl sm:w-auto sm:max-w-none"
     >
       <CityCover
-        query={coverQuery}
         src={inlineSrc}
+        gradient={gradient}
         className="transition duration-700 group-hover:scale-[1.06]"
       />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/85 via-black/40 to-transparent" />
