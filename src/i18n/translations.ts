@@ -233,6 +233,11 @@ const en: Dict = {
   cover_photo: "Photo",
   upload_cover: "Upload photo",
   fx_average: "Avg rate",
+  profile: "Profile",
+  account_details: "Account details",
+  display_name: "Display name",
+  home_country: "Country of residence",
+  change_photo: "Change photo",
 };
 
 // Compact translations: fall back to English keys + light per-language overrides
