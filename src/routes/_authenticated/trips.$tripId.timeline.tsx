@@ -4,11 +4,11 @@ import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  Plane, Train, Car, Bike, Ship, Hotel, MapPin, Sparkles, ArrowRightLeft,
+  Plane, Train, Bus, Car, Bike, Ship, Hotel, MapPin, Sparkles, ArrowRightLeft,
   PlaneTakeoff, PlaneLanding, Plus, Trash2, ChevronsUpDown, Check, Clock,
 } from "lucide-react";
 import { toast } from "sonner";
-import { listItems, createItem, deleteItem, ITEM_KINDS } from "@/lib/itinerary.functions";
+import { listItems, createItem, updateItem, deleteItem, ITEM_KINDS } from "@/lib/itinerary.functions";
 import { getTrip } from "@/lib/trips.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,8 +22,9 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { citiesOfCountry, flagOf } from "@/lib/country-data";
 import { cn } from "@/lib/utils";
 import { useCityPhoto } from "@/hooks/use-city-photo";
+import { hubsForMode, formatHub, type Hub } from "@/lib/transport-hubs";
 
-type TransportMode = "car" | "moto" | "train" | "plane" | "ferry";
+type TransportMode = "car" | "moto" | "train" | "plane" | "ferry" | "bus";
 type Leg = {
   from: string;
   to: string;
@@ -36,10 +37,10 @@ const emptyLeg = (): Leg => ({
   from: "", to: "", depart_at: "", arrive_at: "", carrier: "", number: "",
 });
 const MODE_LABEL: Record<TransportMode, string> = {
-  car: "Auto", moto: "Moto", train: "Treno", plane: "Aereo", ferry: "Traghetto",
+  car: "Auto", moto: "Moto", train: "Treno", plane: "Aereo", ferry: "Traghetto", bus: "Bus",
 };
 const MODE_ICON: Record<TransportMode, React.ComponentType<{ className?: string }>> = {
-  car: Car, moto: Bike, train: Train, plane: Plane, ferry: Ship,
+  car: Car, moto: Bike, train: Train, plane: Plane, ferry: Ship, bus: Bus,
 };
 
 export const Route = createFileRoute("/_authenticated/trips/$tripId/timeline")({
@@ -51,6 +52,7 @@ const KIND_ICON: Record<(typeof ITEM_KINDS)[number], React.ComponentType<{ class
   return: PlaneLanding,
   flight: Plane,
   train: Train,
+  bus: Bus,
   car: Car,
   moto: Bike,
   ferry: Ship,
