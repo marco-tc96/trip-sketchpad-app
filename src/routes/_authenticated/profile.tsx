@@ -345,3 +345,35 @@ function Stat({
     </div>
   );
 }
+
+function RankList({
+  title,
+  rows,
+}: {
+  title: string;
+  rows: Array<{ key: string; left: React.ReactNode; count: number }>;
+}) {
+  if (rows.length === 0) return null;
+  const max = Math.max(1, ...rows.map((r) => r.count));
+  return (
+    <div className="rounded-3xl border border-border bg-card p-5 shadow-soft">
+      <h3 className="font-serif text-base font-semibold">{title}</h3>
+      <ul className="mt-3 space-y-2 text-sm">
+        {rows.slice(0, 12).map((r) => {
+          const pct = (r.count / max) * 100;
+          return (
+            <li key={r.key} className="flex items-center gap-2">
+              <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate">
+                {r.left}
+              </span>
+              <div className="h-1.5 w-20 overflow-hidden rounded-full bg-muted">
+                <div className="h-full bg-primary" style={{ width: `${pct}%` }} />
+              </div>
+              <span className="w-6 text-right tabular-nums font-medium">{r.count}</span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
