@@ -10,6 +10,7 @@ import {
 import { toast } from "sonner";
 import { listItems, createItem, updateItem, deleteItem, ITEM_KINDS } from "@/lib/itinerary.functions";
 import { getTrip } from "@/lib/trips.functions";
+import { getProfile } from "@/lib/profile.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -119,8 +120,10 @@ function TimelineView() {
   const tripFn = useServerFn(getTrip);
   const itemFn = useServerFn(listItems);
   const delFn = useServerFn(deleteItem);
+  const profFn = useServerFn(getProfile);
   const trip = useQuery({ queryKey: ["trip", tripId], queryFn: () => tripFn({ data: { id: tripId } }) });
   const items = useQuery({ queryKey: ["items", tripId], queryFn: () => itemFn({ data: { trip_id: tripId } }) });
+  const profile = useQuery({ queryKey: ["profile"], queryFn: () => profFn() });
 
   if (!trip.data) return <p className="text-sm text-muted-foreground">{t("loading")}</p>;
 
@@ -130,6 +133,8 @@ function TimelineView() {
   };
   const tripCities = Array.isArray(tripRow.cities) ? tripRow.cities : [];
   const tripCountries = Array.isArray(tripRow.countries) ? tripRow.countries : [];
+  const homeCountry = (profile.data as { home_country?: string | null } | undefined)?.home_country ?? null;
+  const hubCountries = Array.from(new Set([...(homeCountry ? [homeCountry] : []), ...tripCountries]));
   const list = items.data ?? [];
   const outbound = list.find((i) => i.kind === "outbound");
   const ret = list.find((i) => i.kind === "return");
@@ -161,11 +166,11 @@ function TimelineView() {
   return (
     <div>
       <div className="mb-4 flex items-center justify-end">
-          <AddItemDialog tripId={tripId} tripCities={tripCities} tripCountries={tripCountries} />
+          <AddItemDialog tripId={tripId} tripCities={tripCities} tripCountries={tripCountries} hubCountries={hubCountries} />
       </div>
 
       <div className="space-y-6">
-        <JourneyBlock tripId={tripId} outbound={outbound} ret={ret} tripCountries={tripCountries} />
+        <JourneyBlock tripId={tripId} outbound={outbound} ret={ret} tripCountries={hubCountries} />
         <LodgingsBlock tripId={tripId} lodgings={lodgings} tripCities={tripCities} tripCountries={tripCountries} onDelete={del} />
 
         <div className="space-y-3">
@@ -186,6 +191,7 @@ function TimelineView() {
                           tripId={tripId}
                           tripCities={tripCities}
                           tripCountries={tripCountries}
+                          hubCountries={hubCountries}
                           existing={it as ItemRow}
                           trigger={
                             <button
