@@ -242,8 +242,8 @@ function JourneyBlock({
 }: { tripId: string; outbound: JourneyItem | undefined; ret: JourneyItem | undefined }) {
   return (
     <div className="space-y-3">
-      <JourneyLeg tripId={tripId} kind="outbound" item={outbound} />
-      <JourneyLeg tripId={tripId} kind="return" item={ret} />
+      <JourneyLegWrap tripId={tripId} kind="outbound" item={outbound} />
+      <JourneyLegWrap tripId={tripId} kind="return" item={ret} />
     </div>
   );
 }
