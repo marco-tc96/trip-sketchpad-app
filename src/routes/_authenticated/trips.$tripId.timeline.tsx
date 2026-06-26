@@ -60,6 +60,47 @@ const KIND_ICON: Record<(typeof ITEM_KINDS)[number], React.ComponentType<{ class
   other: MapPin,
 };
 
+// Category groups → visual palettes. Transport and lodging share the warm
+// gradient family; activities use a distinct emerald palette; meta items
+// (zone/other) stay neutral.
+const TRANSPORT_KINDS = new Set([
+  "outbound", "return", "flight", "train", "car", "moto", "ferry", "transfer",
+]);
+function kindClasses(kind: string) {
+  if (TRANSPORT_KINDS.has(kind)) {
+    return {
+      card: "bg-warm-gradient text-primary-foreground border-transparent",
+      sub: "text-primary-foreground/85",
+      dot: "bg-primary text-primary-foreground",
+    };
+  }
+  if (kind === "lodging") {
+    return {
+      card: "bg-gradient-to-br from-indigo-500 to-blue-600 text-white border-transparent",
+      sub: "text-white/85",
+      dot: "bg-indigo-500 text-white",
+    };
+  }
+  if (kind === "activity") {
+    return {
+      card: "bg-gradient-to-br from-emerald-500 to-teal-600 text-white border-transparent",
+      sub: "text-white/85",
+      dot: "bg-emerald-600 text-white",
+    };
+  }
+  return {
+    card: "bg-muted/40 text-foreground",
+    sub: "text-muted-foreground",
+    dot: "bg-muted-foreground/50 text-background",
+  };
+}
+
+function lodgingDateRange(it: { start_at: string | null; end_at: string | null }) {
+  const s = it.start_at?.slice(0, 10) ?? null;
+  const e = it.end_at?.slice(0, 10) ?? s;
+  return { s, e };
+}
+
 function TimelineView() {
   const { tripId } = Route.useParams();
   const { t } = useTranslation();
