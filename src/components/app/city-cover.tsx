@@ -35,7 +35,7 @@ export function CityCover({
           src={url}
           alt=""
           loading="lazy"
-          className={`h-full w-full ${className ?? ""}`}
+          className={`h-full w-full object-cover ${className ?? ""}`}
           onError={(e) => {
             (e.currentTarget as HTMLImageElement).style.display = "none";
           }}
