@@ -26,10 +26,10 @@ async function lookupOnce(lang: string, query: string): Promise<string | null> {
       originalimage?: { source: string };
       thumbnail?: { source: string };
     };
-    const url = j.originalimage?.source ?? j.thumbnail?.source ?? null;
-    if (!url) return null;
-    if (BAD_IMAGE.test(url)) return null;
-    return url;
+    const candidate = j.originalimage?.source ?? j.thumbnail?.source ?? null;
+    if (!candidate) return null;
+    if (BAD_IMAGE.test(candidate)) return null;
+    return candidate;
   } catch {
     return null;
   }
