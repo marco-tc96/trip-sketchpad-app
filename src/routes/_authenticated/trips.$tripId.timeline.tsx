@@ -166,7 +166,7 @@ function TimelineView() {
   return (
     <div>
       <div className="mb-4 flex items-center justify-end">
-          <AddItemDialog tripId={tripId} tripCities={tripCities} tripCountries={tripCountries} hubCountries={hubCountries} />
+          <AddItemDialog tripId={tripId} tripCities={tripCities} tripCountries={tripCountries} />
       </div>
 
       <div className="space-y-6">
@@ -191,7 +191,6 @@ function TimelineView() {
                           tripId={tripId}
                           tripCities={tripCities}
                           tripCountries={tripCountries}
-                          hubCountries={hubCountries}
                           existing={it as ItemRow}
                           trigger={
                             <button
