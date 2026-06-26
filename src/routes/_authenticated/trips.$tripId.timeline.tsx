@@ -5,7 +5,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Plane, Train, Car, Bike, Ship, Hotel, MapPin, Sparkles, ArrowRightLeft,
-  PlaneTakeoff, PlaneLanding, Plus, Trash2, ChevronsUpDown, Check,
+  PlaneTakeoff, PlaneLanding, Plus, Trash2, ChevronsUpDown, Check, Clock,
 } from "lucide-react";
 import { toast } from "sonner";
 import { listItems, createItem, deleteItem, ITEM_KINDS } from "@/lib/itinerary.functions";
@@ -21,6 +21,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { citiesOfCountry, flagOf } from "@/lib/country-data";
 import { cn } from "@/lib/utils";
+import { useCityPhoto } from "@/hooks/use-city-photo";
 
 type TransportMode = "car" | "moto" | "train" | "plane" | "ferry";
 type Leg = {
@@ -107,14 +108,12 @@ function TimelineView() {
   const qc = useQueryClient();
   const tripFn = useServerFn(getTrip);
   const itemFn = useServerFn(listItems);
-  const updFn = useServerFn(updateTrip);
   const delFn = useServerFn(deleteItem);
   const trip = useQuery({ queryKey: ["trip", tripId], queryFn: () => tripFn({ data: { id: tripId } }) });
   const items = useQuery({ queryKey: ["items", tripId], queryFn: () => itemFn({ data: { trip_id: tripId } }) });
 
   if (!trip.data) return <p className="text-sm text-muted-foreground">{t("loading")}</p>;
 
-  const mode = trip.data.timeline_mode;
   const tripRow = trip.data as typeof trip.data & {
     cities?: Array<{ name: string; country: string }>;
     countries?: string[];
@@ -126,34 +125,22 @@ function TimelineView() {
   const ret = list.find((i) => i.kind === "return");
   const middle = list.filter((i) => i.kind !== "outbound" && i.kind !== "return");
   const lodgings = middle.filter((i) => i.kind === "lodging");
+  const nonLodging = middle.filter((i) => i.kind !== "lodging");
 
-  // Group middle items only in "days" mode. In "activities" mode each item
-  // is rendered as a stand-alone full-width card with no sub-sections.
-  let groups: { label: string; items: typeof middle }[] = [];
-  if (mode === "days") {
-    const start = new Date(trip.data.start_date);
-    const end = new Date(trip.data.end_date);
-    const dayCount = Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
-    groups = Array.from({ length: dayCount }, (_, i) => {
-      const d = new Date(start.getTime() + i * 86400000);
-      const iso = d.toISOString().slice(0, 10);
-      return {
-        label: `${t("day_of", { n: i + 1 })} · ${d.toLocaleDateString(undefined, { weekday: "short", day: "2-digit", month: "short" })}`,
-        items: middle.filter((it) =>
-          it.start_at ? it.start_at.slice(0, 10) === iso : it.day_index === i + 1,
-        ),
-      };
-    });
-  }
-
-  async function setMode(m: "days" | "activities") {
-    try {
-      await updFn({ data: { id: tripId, patch: { timeline_mode: m } } });
-      qc.invalidateQueries({ queryKey: ["trip", tripId] });
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : t("error_generic"));
-    }
-  }
+  // Group only the day-bound items (everything except lodging) by trip day.
+  const start = new Date(trip.data.start_date);
+  const end = new Date(trip.data.end_date);
+  const dayCount = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000) + 1);
+  const groups = Array.from({ length: dayCount }, (_, i) => {
+    const d = new Date(start.getTime() + i * 86400000);
+    const iso = d.toISOString().slice(0, 10);
+    return {
+      label: `${t("day_of", { n: i + 1 })} · ${d.toLocaleDateString(undefined, { weekday: "short", day: "2-digit", month: "short" })}`,
+      items: nonLodging.filter((it) =>
+        it.start_at ? it.start_at.slice(0, 10) === iso : it.day_index === i + 1,
+      ),
+    };
+  });
 
   async function del(id: string) {
     if (!confirm(t("delete_confirm"))) return;
@@ -163,157 +150,53 @@ function TimelineView() {
 
   return (
     <div>
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <div className="rounded-full border border-border bg-card p-1 text-xs shadow-soft">
-          <button
-            className={`rounded-full px-3 py-1.5 transition ${mode === "days" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
-            onClick={() => setMode("days")}
-          >{t("by_days")}</button>
-          <button
-            className={`rounded-full px-3 py-1.5 transition ${mode === "activities" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
-            onClick={() => setMode("activities")}
-          >{t("by_activities")}</button>
-        </div>
-        <div className="ml-auto">
+      <div className="mb-4 flex items-center justify-end">
           <AddItemDialog tripId={tripId} tripCities={tripCities} tripCountries={tripCountries} />
-        </div>
       </div>
 
-      <div className="space-y-3">
-        <TripBoundaryRow item={outbound} tripId={tripId} kind="outbound" />
+      <div className="space-y-6">
+        <JourneyBlock tripId={tripId} outbound={outbound} ret={ret} />
+        <LodgingsBlock tripId={tripId} lodgings={lodgings} onDelete={del} />
 
-        {mode === "activities" && middle.map((it) => {
-          const Icon = KIND_ICON[it.kind as keyof typeof KIND_ICON] ?? MapPin;
-          const cls = kindClasses(it.kind);
-          const dark = TRANSPORT_KINDS.has(it.kind) || it.kind === "activity" || it.kind === "lodging";
-          return (
-            <div
-              key={it.id}
-              className={cn(
-                "flex w-full items-start gap-3 rounded-2xl p-4 shadow-soft border",
-                cls.card,
-              )}
-            >
-              <Icon className="mt-0.5 h-5 w-5 shrink-0" />
-              <div className="min-w-0 flex-1">
-                <p className={cn("text-[10px] uppercase tracking-widest", cls.sub)}>{t(it.kind)}</p>
-                <p className="truncate font-medium">{it.title}</p>
-                <p className={cn("text-xs", cls.sub)}>
-                  {it.location && <>{it.location} · </>}
-                  {it.start_at && fmtDT(it.start_at)}
-                  {it.end_at && ` → ${fmtDT(it.end_at)}`}
-                </p>
-                {it.notes && <p className={cn("mt-1 text-xs", cls.sub)}>{it.notes}</p>}
-                <TransportLegs meta={it.meta as TransportMeta | null} />
-              </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => del(it.id)}
-                className={cn(dark ? "text-white hover:bg-white/10 hover:text-white" : "")}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-          );
-        })}
-
-        {mode === "days" && groups.map((g) => {
-          // Compute lodging context for this day in days mode.
-          let dayIso: string | null = null;
-          if (mode === "days") {
-            const idx = groups.indexOf(g);
-            const start = new Date(trip.data!.start_date);
-            dayIso = new Date(start.getTime() + idx * 86400000).toISOString().slice(0, 10);
-          }
-          const activeLodgings = dayIso
-            ? lodgings.filter((l) => {
-                const { s, e } = lodgingDateRange(l);
-                return s && e && s <= dayIso! && dayIso! <= e;
-              })
-            : [];
-          return (
-          <section key={g.label} className="rounded-2xl border border-border bg-card p-4 shadow-soft">
-            <h3 className="mb-3 text-xs font-semibold uppercase tracking-widest text-muted-foreground">{g.label}</h3>
-            {mode === "days" && activeLodgings.map((l) => {
-              const { s, e } = lodgingDateRange(l);
-              const isFirst = s === dayIso;
-              const isLast = e === dayIso;
-              if (isFirst) {
-                return (
-                  <div key={`lodg-${l.id}`} className={cn(
-                    "mb-3 flex items-start justify-between gap-3 rounded-2xl bg-gradient-to-br from-indigo-500 to-blue-600 p-3 text-white shadow-soft",
-                    !isLast && "rounded-b-none",
-                  )}>
-                    <div className="flex min-w-0 items-start gap-2">
-                      <Hotel className="mt-0.5 h-4 w-4 shrink-0" />
-                      <div className="min-w-0">
-                        <p className="text-[10px] uppercase tracking-widest opacity-80">{t("lodging")}</p>
-                        <p className="truncate font-medium">{l.title}</p>
-                        <p className="text-xs text-white/80">
-                          {l.location && <>{l.location} · </>}
-                          {l.start_at && fmtDT(l.start_at)}
-                          {l.end_at && ` → ${fmtDT(l.end_at)}`}
-                        </p>
-                      </div>
-                    </div>
-                    <Button variant="ghost" size="icon" onClick={() => del(l.id)} className="text-white hover:bg-white/10 hover:text-white">
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                );
-              }
-              // Continuation band — small slim strip
-              return (
-                <div
-                  key={`lodg-${l.id}`}
-                  aria-hidden
-                  className={cn(
-                    "mb-3 h-2 bg-gradient-to-br from-indigo-500 to-blue-600",
-                    isLast ? "rounded-b-2xl" : "",
-                    "rounded-t-none",
-                  )}
-                  title={l.title}
-                />
-              );
-            })}
-            {g.items.filter((it) => it.kind !== "lodging").length === 0 ? (
-              activeLodgings.length === 0 ? <p className="text-sm text-muted-foreground">—</p> : null
-            ) : (
-              <ul className="space-y-3">
-                {g.items.filter((it) => it.kind !== "lodging").map((it) => {
-                  const Icon = KIND_ICON[it.kind as keyof typeof KIND_ICON] ?? MapPin;
-                  const cls = kindClasses(it.kind);
-                  const dark = TRANSPORT_KINDS.has(it.kind) || it.kind === "activity";
-                  return (
-                    <li key={it.id}>
-                      <div className={cn("flex items-start gap-3 rounded-xl p-3", cls.card)}>
-                        <Icon className="mt-0.5 h-5 w-5 shrink-0" />
-                        <div className="min-w-0 flex-1">
-                          <p className={cn("text-[10px] uppercase tracking-widest", cls.sub)}>{t(it.kind)}</p>
-                          <p className="truncate font-medium">{it.title}</p>
-                          <p className={cn("text-xs", cls.sub)}>
-                            {it.location && <>{it.location} · </>}
-                            {it.start_at && fmtDT(it.start_at)}
-                            {it.end_at && ` → ${fmtDT(it.end_at)}`}
-                          </p>
-                          {it.notes && <p className={cn("mt-1 text-xs", cls.sub)}>{it.notes}</p>}
-                          <TransportLegs meta={it.meta as TransportMeta | null} />
+        <div className="space-y-3">
+          {groups.map((g) => (
+            <section key={g.label} className="rounded-2xl border border-border bg-card p-4 shadow-soft">
+              <h3 className="mb-3 text-xs font-semibold uppercase tracking-widest text-muted-foreground">{g.label}</h3>
+              {g.items.length === 0 ? (
+                <p className="text-sm text-muted-foreground">—</p>
+              ) : (
+                <ul className="space-y-3">
+                  {g.items.map((it) => {
+                    const Icon = KIND_ICON[it.kind as keyof typeof KIND_ICON] ?? MapPin;
+                    const cls = kindClasses(it.kind);
+                    const dark = TRANSPORT_KINDS.has(it.kind) || it.kind === "activity";
+                    return (
+                      <li key={it.id}>
+                        <div className={cn("flex items-start gap-3 rounded-xl p-3", cls.card)}>
+                          <Icon className="mt-0.5 h-5 w-5 shrink-0" />
+                          <div className="min-w-0 flex-1">
+                            <p className={cn("text-[10px] uppercase tracking-widest", cls.sub)}>{t(it.kind)}</p>
+                            <p className="truncate font-medium">{it.title}</p>
+                            <p className={cn("text-xs", cls.sub)}>
+                              {it.location && <>{it.location} · </>}
+                              {it.start_at && fmtDT(it.start_at)}
+                              {it.end_at && ` → ${fmtDT(it.end_at)}`}
+                            </p>
+                            {it.notes && <p className={cn("mt-1 text-xs", cls.sub)}>{it.notes}</p>}
+                            <TransportLegs meta={it.meta as TransportMeta | null} />
+                          </div>
+                          <Button variant="ghost" size="icon" onClick={() => del(it.id)} className={cn(dark ? "text-white hover:bg-white/10 hover:text-white" : "")}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
                         </div>
-                        <Button variant="ghost" size="icon" onClick={() => del(it.id)} className={cn(dark ? "text-white hover:bg-white/10 hover:text-white" : "")}>
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </section>
-          );
-        })}
-
-        <TripBoundaryRow item={ret} tripId={tripId} kind="return" />
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </section>
+          ))}
+        </div>
       </div>
     </div>
   );
