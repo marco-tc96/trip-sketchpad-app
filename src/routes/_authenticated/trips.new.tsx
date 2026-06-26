@@ -66,6 +66,7 @@ function NewTrip() {
   const [currency, setCurrency] = useState("EUR");
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
+  const [tripType, setTripType] = useState<"vacation" | "business">("vacation");
 
   // Auto-select currency based on first country and start date (historical aware).
   useEffect(() => {
@@ -134,6 +135,7 @@ function NewTrip() {
           cover_emoji: emoji,
           notes: notes || null,
           timeline_mode: "days",
+          trip_type: tripType,
         },
       });
       qc.invalidateQueries({ queryKey: ["trips"] });
