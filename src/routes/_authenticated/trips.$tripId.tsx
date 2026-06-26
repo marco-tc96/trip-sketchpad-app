@@ -636,15 +636,15 @@ function CoverContent({
   coverType,
   coverUrl,
   cities,
-  fallbackQuery,
+  gradient,
   signedPhoto,
   setSignedPhoto,
 }: {
   tripId: string;
-  coverType: "auto" | "map" | "photo";
+  coverType: "auto" | "photo";
   coverUrl: string | null;
   cities: Array<{ name: string; country: string; lat?: number; lng?: number }>;
-  fallbackQuery: string;
+  gradient: string;
   signedPhoto: string | null;
   setSignedPhoto: (v: string | null) => void;
 }) {
@@ -665,23 +665,14 @@ function CoverContent({
     };
   }, [coverType, coverUrl, tripId, setSignedPhoto]);
 
-  if (coverType === "map") {
-    return (
-      <>
-        <TripMap cities={cities} className="absolute inset-0 h-full w-full" />
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
-      </>
-    );
-  }
-
   if (coverType === "photo") {
     const src = signedPhoto || (coverUrl && /^https?:\/\//i.test(coverUrl) ? coverUrl : null);
-    return <CityCover query={fallbackQuery} src={src} />;
+    return <CityCover src={src} gradient={gradient} />;
   }
 
   // auto
   const src = coverUrl && /^https?:\/\//i.test(coverUrl) ? coverUrl : null;
-  return <CityCover query={fallbackQuery} src={src} />;
+  return <CityCover src={src} gradient={gradient} />;
 }
 
 function fmt(d: string) {
