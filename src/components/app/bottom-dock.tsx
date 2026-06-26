@@ -1,10 +1,10 @@
 import { Link, useLocation } from "@tanstack/react-router";
-import { Compass, Coins, BarChart3 } from "lucide-react";
+import { Compass, User } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 
 type Item = {
-  to: "/trips" | "/coins" | "/stats";
+  to: "/trips" | "/profile";
   icon: React.ComponentType<{ className?: string }>;
   labelKey: string;
   match: (path: string) => boolean;
@@ -12,8 +12,7 @@ type Item = {
 
 const ITEMS: Item[] = [
   { to: "/trips", icon: Compass, labelKey: "trips", match: (p) => p.startsWith("/trips") },
-  { to: "/coins", icon: Coins, labelKey: "coins", match: (p) => p.startsWith("/coins") },
-  { to: "/stats", icon: BarChart3, labelKey: "stats", match: (p) => p.startsWith("/stats") },
+  { to: "/profile", icon: User, labelKey: "profile", match: (p) => p.startsWith("/profile") },
 ];
 
 export function BottomDock() {
