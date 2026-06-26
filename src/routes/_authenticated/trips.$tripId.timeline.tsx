@@ -1026,9 +1026,52 @@ function HubCombobox({
 }) {
   const [open, setOpen] = useState(false);
   const [showAll, setShowAll] = useState(false);
-  const supports = mode === "plane" || mode === "train" || mode === "bus" || mode === "ferry";
+  const isHub = mode === "plane" || mode === "train" || mode === "bus" || mode === "ferry";
+  const isCityMode = mode === "car" || mode === "moto";
 
-  if (!supports || countries.length === 0) {
+  // City-based selection for car/moto: list all cities from the trip countries.
+  if (isCityMode) {
+    const cityList = countries.flatMap((iso) =>
+      citiesOfCountry(iso).map((c) => ({ name: c.name, country: c.country })),
+    );
+    const q = value.trim().toLowerCase();
+    const filteredCities = q
+      ? cityList.filter((c) => c.name.toLowerCase().includes(q)).slice(0, 200)
+      : cityList.slice(0, 50);
+    return (
+      <div className="relative">
+        <Input
+          value={value}
+          placeholder={placeholder || "Cerca città…"}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+          autoComplete="off"
+        />
+        {open && filteredCities.length > 0 && (
+          <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-72 overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+            {filteredCities.map((c, i) => {
+              const sel = value === c.name;
+              return (
+                <button
+                  type="button"
+                  key={`${c.country}-${c.name}-${i}`}
+                  onMouseDown={(e) => { e.preventDefault(); onChange(c.name); setOpen(false); }}
+                  className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                >
+                  <Check className={cn("h-4 w-4 shrink-0", sel ? "opacity-100" : "opacity-0")} />
+                  <span className="mr-1">{flagOf(c.country)}</span>
+                  <span className="min-w-0 flex-1 truncate">{c.name}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (!isHub) {
     return (
       <Input
         value={value}
@@ -1040,14 +1083,20 @@ function HubCombobox({
 
   const major: Hub[] = hubsForMode(mode, countries, false);
   const all: Hub[] = hubsForMode(mode, countries, true);
+  // When the user types and nothing matches in the trip countries, expand
+  // the search across every country in the curated hubs table — useful when
+  // the user picks a station/airport in a city we didn't preload.
+  const allCountries = Object.keys(HUBS);
+  const globalHubs: Hub[] = hubsForMode(mode, allCountries, true);
   const list: Hub[] = showAll ? all : major;
   const q = value.trim().toLowerCase();
-  const filtered = q
-    ? all.filter((h) =>
-        [h.name, h.city, h.code].filter(Boolean).join(" ").toLowerCase().includes(q) &&
-        formatHub(h).toLowerCase() !== q,
-      )
-    : list;
+  const matchQuery = (h: Hub) =>
+    [h.name, h.city, h.code].filter(Boolean).join(" ").toLowerCase().includes(q) &&
+    formatHub(h).toLowerCase() !== q;
+  let filtered: Hub[] = q ? all.filter(matchQuery) : list;
+  if (q && filtered.length === 0) {
+    filtered = globalHubs.filter(matchQuery).slice(0, 50);
+  }
   const hiddenCount = all.length - major.length;
 
   return (
