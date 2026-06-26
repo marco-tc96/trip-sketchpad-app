@@ -546,11 +546,17 @@ function TransportDialog({
 }
 
 function AddItemDialog({
-  tripId, defaultKind = "activity", trigger,
+  tripId,
+  defaultKind = "activity",
+  trigger,
+  tripCities = [],
+  tripCountries = [],
 }: {
   tripId: string;
   defaultKind?: (typeof ITEM_KINDS)[number];
   trigger?: React.ReactNode;
+  tripCities?: Array<{ name: string; country: string }>;
+  tripCountries?: string[];
 }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
@@ -564,6 +570,29 @@ function AddItemDialog({
     end_at: "",
     notes: "",
   });
+  const [locOpen, setLocOpen] = useState(false);
+  const [locQuery, setLocQuery] = useState("");
+
+  const CATEGORY_BUTTONS: { kind: (typeof ITEM_KINDS)[number]; icon: React.ComponentType<{ className?: string }>; label: string }[] = [
+    { kind: "activity", icon: Sparkles, label: t("activity") },
+    { kind: "lodging", icon: Hotel, label: t("lodging") },
+    { kind: "flight", icon: Plane, label: t("flight") },
+    { kind: "train", icon: Train, label: t("train") },
+    { kind: "car", icon: Car, label: t("car") },
+    { kind: "ferry", icon: Ship, label: t("ferry") },
+    { kind: "transfer", icon: ArrowRightLeft, label: t("transfer") },
+    { kind: "zone", icon: MapPin, label: t("zone") },
+    { kind: "other", icon: MapPin, label: t("other") },
+  ];
+
+  // Suggested locations: trip cities first, then other cities from same countries.
+  const tripKeys = new Set(tripCities.map((c) => `${c.country}|${c.name}`));
+  const countryCities = tripCountries.flatMap((iso) => citiesOfCountry(iso));
+  const extras = countryCities.filter((c) => !tripKeys.has(`${c.country}|${c.name}`));
+  const q = locQuery.trim().toLowerCase();
+  const matchTrip = (q ? tripCities.filter((c) => c.name.toLowerCase().includes(q)) : tripCities);
+  const matchExtras = (q ? extras.filter((c) => c.name.toLowerCase().includes(q)) : extras).slice(0, 200);
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -600,12 +629,27 @@ function AddItemDialog({
         >
           <div className="space-y-1.5">
             <Label>{t("category")}</Label>
-            <Select value={form.kind} onValueChange={(v) => setForm({ ...form, kind: v as (typeof ITEM_KINDS)[number] })}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {ITEM_KINDS.map((k) => <SelectItem key={k} value={k}>{t(k)}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-5">
+              {CATEGORY_BUTTONS.map(({ kind, icon: Icon, label }) => {
+                const active = form.kind === kind;
+                return (
+                  <button
+                    type="button"
+                    key={kind}
+                    onClick={() => setForm({ ...form, kind })}
+                    className={cn(
+                      "flex flex-col items-center gap-1 rounded-xl border p-2 text-[11px] transition",
+                      active
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border bg-card hover:bg-muted",
+                    )}
+                  >
+                    <Icon className="h-4 w-4" />
+                    <span className="truncate">{label}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
           <div className="space-y-1.5">
             <Label>{t("title")}</Label>
@@ -613,15 +657,89 @@ function AddItemDialog({
           </div>
           <div className="space-y-1.5">
             <Label>{t("location")}</Label>
-            <Input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} />
+            <Popover open={locOpen} onOpenChange={setLocOpen}>
+              <PopoverTrigger asChild>
+                <Button type="button" variant="outline" className="w-full justify-between font-normal">
+                  <span className={cn("truncate", !form.location && "text-muted-foreground")}>
+                    {form.location || t("location")}
+                  </span>
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                <Command shouldFilter={false}>
+                  <CommandInput placeholder="Cerca o digita…" value={locQuery} onValueChange={setLocQuery} />
+                  <CommandList className="max-h-72">
+                    {matchTrip.length === 0 && matchExtras.length === 0 && !locQuery && (
+                      <CommandEmpty>Nessuna città</CommandEmpty>
+                    )}
+                    {locQuery && (
+                      <CommandGroup heading="Personalizzato">
+                        <CommandItem
+                          onSelect={() => {
+                            setForm({ ...form, location: locQuery.trim() });
+                            setLocOpen(false);
+                          }}
+                        >
+                          <Plus className="mr-2 h-4 w-4" />
+                          <span>Usa "{locQuery.trim()}"</span>
+                        </CommandItem>
+                      </CommandGroup>
+                    )}
+                    {matchTrip.length > 0 && (
+                      <CommandGroup heading="Tappe del viaggio">
+                        {matchTrip.map((c) => {
+                          const sel = form.location === c.name;
+                          return (
+                            <CommandItem
+                              key={`trip-${c.country}-${c.name}`}
+                              value={`trip-${c.country}-${c.name}`}
+                              onSelect={() => {
+                                setForm({ ...form, location: c.name });
+                                setLocOpen(false);
+                              }}
+                            >
+                              <Check className={cn("mr-2 h-4 w-4", sel ? "opacity-100" : "opacity-0")} />
+                              <span className="mr-2">{flagOf(c.country)}</span>
+                              <span>{c.name}</span>
+                            </CommandItem>
+                          );
+                        })}
+                      </CommandGroup>
+                    )}
+                    {matchExtras.length > 0 && (
+                      <CommandGroup heading="Altre città">
+                        {matchExtras.map((c) => {
+                          const sel = form.location === c.name;
+                          return (
+                            <CommandItem
+                              key={`x-${c.country}-${c.name}`}
+                              value={`x-${c.country}-${c.name}`}
+                              onSelect={() => {
+                                setForm({ ...form, location: c.name });
+                                setLocOpen(false);
+                              }}
+                            >
+                              <Check className={cn("mr-2 h-4 w-4", sel ? "opacity-100" : "opacity-0")} />
+                              <span className="mr-2">{flagOf(c.country)}</span>
+                              <span>{c.name}</span>
+                            </CommandItem>
+                          );
+                        })}
+                      </CommandGroup>
+                    )}
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label>{t("starts_at")}</Label>
+              <Label className="text-muted-foreground">{t("starts_at")} <span className="text-xs opacity-70">(opzionale)</span></Label>
               <Input type="datetime-local" value={form.start_at} onChange={(e) => setForm({ ...form, start_at: e.target.value })} />
             </div>
             <div className="space-y-1.5">
-              <Label>{t("ends_at")}</Label>
+              <Label className="text-muted-foreground">{t("ends_at")} <span className="text-xs opacity-70">(opzionale)</span></Label>
               <Input type="datetime-local" value={form.end_at} onChange={(e) => setForm({ ...form, end_at: e.target.value })} />
             </div>
           </div>
