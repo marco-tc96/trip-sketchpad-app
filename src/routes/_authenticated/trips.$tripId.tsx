@@ -1,7 +1,7 @@
 import { createFileRoute, Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowLeft, Trash2, Image as ImageIcon, Map as MapIcon, Sparkles, Upload, Palette, Check, Pencil, X, Plus, ChevronsUpDown } from "lucide-react";
+import { ArrowLeft, Trash2, Image as ImageIcon, Map as MapIcon, Sparkles, Upload, Palette, Check, Pencil, X, Plus, ChevronsUpDown, Briefcase, Palmtree } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useEffect, useRef, useState } from "react";
@@ -44,6 +44,7 @@ function TripLayout() {
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = useState(false);
   const [signedPhoto, setSignedPhoto] = useState<string | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
 
   if (trip.isLoading || !trip.data) {
     return <main className="mx-auto max-w-5xl px-4 py-8 text-sm text-muted-foreground">{t("loading")}</main>;
@@ -61,7 +62,6 @@ function TripLayout() {
   const cities = Array.isArray(tripRow.cities) ? tripRow.cities : [];
   const countries = Array.isArray(tripRow.countries) ? tripRow.countries : [];
   const tripType = (tripRow.trip_type ?? "vacation") as "vacation" | "business";
-  const [editOpen, setEditOpen] = useState(false);
   const lang = i18n.language || "it";
   const localizedCountry = countries[0]
     ? countryNameLocalized(countries[0], lang)
@@ -196,8 +196,18 @@ function TripLayout() {
 
         <header className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4 rounded-3xl border border-border/50 bg-background/70 p-4 shadow-soft backdrop-blur sm:flex sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-center gap-3">
-          <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-secondary text-3xl">
+          <span className="relative grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-secondary text-3xl">
             {trip.data.cover_emoji ?? "✈️"}
+            <span
+              aria-label={t(tripType)}
+              title={t(tripType)}
+              className={cn(
+                "absolute -bottom-1 -right-1 grid h-6 w-6 place-items-center rounded-full border-2 border-background text-primary-foreground shadow-soft",
+                tripType === "business" ? "bg-slate-700" : "bg-emerald-600",
+              )}
+            >
+              {tripType === "business" ? <Briefcase className="h-3 w-3" /> : <Palmtree className="h-3 w-3" />}
+            </span>
           </span>
           <div className="min-w-0">
             <h1 className="truncate font-serif text-2xl font-bold tracking-tight sm:text-3xl">
@@ -272,6 +282,7 @@ function TripLayout() {
         initialCities={cities}
         initialCountries={countries}
         initialType={tripType}
+        initialEmoji={trip.data.cover_emoji ?? "✈️"}
         onSave={async (patch) => {
           try {
             await updateFn({ data: { id: tripId, patch } });
@@ -295,6 +306,7 @@ function EditTripDialog({
   initialCities,
   initialCountries,
   initialType,
+  initialEmoji,
   onSave,
 }: {
   open: boolean;
@@ -303,17 +315,20 @@ function EditTripDialog({
   initialCities: Array<{ name: string; country: string; lat?: number; lng?: number }>;
   initialCountries: string[];
   initialType: "vacation" | "business";
+  initialEmoji: string;
   onSave: (patch: {
     title: string;
     cities: Array<{ name: string; country: string; lat?: number; lng?: number }>;
     destination: string | null;
     trip_type: "vacation" | "business";
+    cover_emoji: string;
   }) => Promise<void>;
 }) {
   const { t } = useTranslation();
   const [title, setTitle] = useState(initialTitle);
   const [cities, setCities] = useState(initialCities);
   const [type, setType] = useState(initialType);
+  const [emoji, setEmoji] = useState(initialEmoji);
   const [query, setQuery] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -322,9 +337,10 @@ function EditTripDialog({
       setTitle(initialTitle);
       setCities(initialCities);
       setType(initialType);
+      setEmoji(initialEmoji || "✈️");
       setQuery("");
     }
-  }, [open, initialTitle, initialCities, initialType]);
+  }, [open, initialTitle, initialCities, initialType, initialEmoji]);
 
   const available = initialCountries.flatMap((iso) => citiesOfCountry(iso));
   const q = query.trim().toLowerCase();
@@ -358,6 +374,33 @@ function EditTripDialog({
           <DialogTitle>{t("edit_trip")}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label>Icona</Label>
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                value={emoji}
+                onChange={(e) => setEmoji(e.target.value.slice(0, 4))}
+                className="w-16 text-center text-2xl"
+                maxLength={4}
+              />
+              <div className="flex flex-wrap gap-1.5">
+                {["✈️","🏖️","🗺️","🏔️","🏛️","🏙️","🚆","🚗","⛵","🎒","💼","🍷"].map((e) => (
+                  <button
+                    key={e}
+                    type="button"
+                    onClick={() => setEmoji(e)}
+                    className={cn(
+                      "grid h-9 w-9 place-items-center rounded-lg text-xl transition",
+                      emoji === e ? "bg-primary/15 ring-2 ring-primary" : "bg-secondary hover:bg-secondary/80",
+                    )}
+                  >
+                    {e}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
           <div className="space-y-1.5">
             <Label>{t("title")}</Label>
             <Input value={title} onChange={(e) => setTitle(e.target.value)} />
@@ -460,6 +503,7 @@ function EditTripDialog({
                 cities,
                 destination: cities[0]?.name ?? null,
                 trip_type: type,
+                cover_emoji: emoji || "✈️",
               })
             }
           >

@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Plus, MapPin, Calendar } from "lucide-react";
+import { Plus, MapPin, Calendar, Briefcase, Palmtree } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useMemo } from "react";
 import { listTrips } from "@/lib/trips.functions";
@@ -136,19 +136,13 @@ function getCities(trip: Trip): CityObj[] {
 }
 
 function TripCard({ trip }: { trip: Trip }) {
-  const nights = Math.max(
-    1,
-    Math.round(
-      (new Date(trip.end_date).getTime() - new Date(trip.start_date).getTime()) /
-        86400000,
-    ),
-  );
   const cities = getCities(trip);
   const countries: string[] = Array.isArray((trip as unknown as { countries?: string[] }).countries)
     ? ((trip as unknown as { countries: string[] }).countries)
     : [];
   const coverType = (trip as unknown as { cover_type?: string }).cover_type ?? "auto";
   const storedCover = (trip as unknown as { cover_url?: string | null }).cover_url ?? null;
+  const tripType = ((trip as unknown as { trip_type?: string }).trip_type ?? "vacation") as "vacation" | "business";
   // For user photo uploads (cover_type="photo") cover_url is a storage path,
   // not a public URL — the trip detail resolves it via signed URL. For the
   // list card we just fall back to a Wikipedia lookup so we never render a
@@ -169,37 +163,45 @@ function TripCard({ trip }: { trip: Trip }) {
     <Link
       to="/trips/$tripId"
       params={{ tripId: trip.id }}
-      className="group relative flex h-44 flex-col justify-end overflow-hidden rounded-2xl border border-border shadow-soft transition hover:-translate-y-0.5 hover:shadow-lg"
+      className="group relative flex aspect-[3/4] flex-col justify-end overflow-hidden rounded-3xl border border-border shadow-soft transition hover:-translate-y-1 hover:shadow-xl"
     >
       <CityCover
         query={coverQuery}
         src={inlineSrc}
-        className="transition duration-500 group-hover:scale-[1.04]"
+        className="transition duration-700 group-hover:scale-[1.06]"
       />
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/85 via-black/40 to-transparent" />
+      <div className="absolute left-3 top-3 flex items-center gap-1.5">
+        <span
+          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-white backdrop-blur ${
+            tripType === "business" ? "bg-slate-800/70" : "bg-emerald-700/70"
+          }`}
+        >
+          {tripType === "business" ? <Briefcase className="h-3 w-3" /> : <Palmtree className="h-3 w-3" />}
+          {tripType === "business" ? "Lavoro" : "Vacanza"}
+        </span>
+      </div>
       {flagStr && (
-        <div className="absolute right-2.5 top-2.5 rounded-full bg-black/40 px-2 py-0.5 text-sm leading-none backdrop-blur">
+        <div className="absolute right-3 top-3 rounded-full bg-black/45 px-2 py-0.5 text-sm leading-none backdrop-blur">
           {flagStr}
         </div>
       )}
-      <div className="relative z-10 flex flex-col gap-1 p-3.5 text-white">
-        <h3 className="font-serif text-base font-semibold leading-tight tracking-tight line-clamp-1">
+      <div className="relative z-10 flex flex-col gap-1.5 p-4 text-white">
+        <h3 className="font-serif text-lg font-semibold leading-tight tracking-tight line-clamp-2">
           {trip.cover_emoji ? <span className="mr-1.5">{trip.cover_emoji}</span> : null}
           {trip.title}
         </h3>
         {(cities.length > 0 || trip.destination) && (
-          <p className="flex items-center gap-1 text-[12px] text-white/85 line-clamp-1">
-            <MapPin className="h-3 w-3 shrink-0" />
+          <p className="flex items-center gap-1 text-[13px] text-white/90 line-clamp-1">
+            <MapPin className="h-3.5 w-3.5 shrink-0" />
             {cities.length > 0
               ? cities.slice(0, 3).map((c) => c.name).join(" · ")
               : trip.destination}
           </p>
         )}
-        <div className="mt-0.5 flex items-center gap-2 text-[11px] text-white/80">
-          <span className="inline-flex items-center gap-1">
-            <Calendar className="h-3 w-3" />
-            {fmt(trip.start_date)} → {fmt(trip.end_date)}
-          </span>
-          <span>· {nights}n</span>
+        <div className="mt-0.5 flex items-center gap-1 text-[11px] text-white/75">
+          <Calendar className="h-3 w-3" />
+          {fmt(trip.start_date)} → {fmt(trip.end_date)}
         </div>
       </div>
     </Link>
