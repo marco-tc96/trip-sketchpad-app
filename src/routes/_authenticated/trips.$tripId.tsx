@@ -747,3 +747,64 @@ function CoverContent({
 function fmt(d: string) {
   return new Date(d).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
 }
+
+function PhotoBlurBackdrop({
+  tripId, coverUrl, signedPhoto, setSignedPhoto,
+}: {
+  tripId: string;
+  coverUrl: string | null;
+  signedPhoto: string | null;
+  setSignedPhoto: (v: string | null) => void;
+}) {
+  useEffect(() => {
+    let cancelled = false;
+    if (coverUrl && !/^https?:\/\//i.test(coverUrl)) {
+      supabase.storage
+        .from("trip-covers")
+        .createSignedUrl(coverUrl, 60 * 60)
+        .then(({ data }) => {
+          if (!cancelled) setSignedPhoto(data?.signedUrl ?? null);
+        });
+    }
+    return () => { cancelled = true; };
+  }, [coverUrl, tripId, setSignedPhoto]);
+  const src = signedPhoto || (coverUrl && /^https?:\/\//i.test(coverUrl) ? coverUrl : null);
+  if (!src) return null;
+  return (
+    <div
+      aria-hidden
+      className="pointer-events-none fixed inset-0 top-[58vh] z-0 overflow-hidden"
+    >
+      <img
+        src={src}
+        alt=""
+        className="h-full w-full scale-110 object-cover opacity-50"
+        style={{ filter: "blur(28px)" }}
+      />
+      <div className="absolute inset-0 bg-background/60" />
+    </div>
+  );
+}
+
+function TimezoneBadge({ home, destinations }: { home: string | null; destinations: string[] }) {
+  if (!home || destinations.length === 0) return null;
+  const dest = destinations[0];
+  if (dest === home) return null;
+  const offset = (iso: string) => {
+    const c = Country.getCountryByCode(iso);
+    const tz = c?.timezones?.[0];
+    return tz ? tz.gmtOffset / 3600 : null;
+  };
+  const h = offset(home);
+  const d = offset(dest);
+  if (h == null || d == null) return null;
+  const diff = Math.round(d - h);
+  if (diff === 0) return null;
+  const sign = diff > 0 ? "+" : "−";
+  return (
+    <div className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background/70 px-2 py-0.5 text-[11px] text-muted-foreground shadow-soft backdrop-blur">
+      <Clock className="h-3 w-3" />
+      <span className="tabular-nums">{sign}{Math.abs(diff)}h locale</span>
+    </div>
+  );
+}
