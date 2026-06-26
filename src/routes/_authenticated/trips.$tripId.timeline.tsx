@@ -1025,7 +1025,6 @@ function HubCombobox({
   placeholder?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
   const [showAll, setShowAll] = useState(false);
   const supports = mode === "plane" || mode === "train" || mode === "bus" || mode === "ferry";
 
@@ -1042,86 +1041,70 @@ function HubCombobox({
   const major: Hub[] = hubsForMode(mode, countries, false);
   const all: Hub[] = hubsForMode(mode, countries, true);
   const list: Hub[] = showAll ? all : major;
-  const q = query.trim().toLowerCase();
+  const q = value.trim().toLowerCase();
   const filtered = q
     ? all.filter((h) =>
-        [h.name, h.city, h.code].filter(Boolean).join(" ").toLowerCase().includes(q),
+        [h.name, h.city, h.code].filter(Boolean).join(" ").toLowerCase().includes(q) &&
+        formatHub(h).toLowerCase() !== q,
       )
     : list;
   const hiddenCount = all.length - major.length;
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Input
-          value={open ? query : value}
-          placeholder={placeholder || "Cerca o digita…"}
-          onFocus={() => {
-            setQuery(value);
-            setOpen(true);
-          }}
-          onChange={(e) => {
-            const v = e.target.value;
-            setQuery(v);
-            onChange(v);
-            if (!open) setOpen(true);
-          }}
-          autoComplete="off"
-        />
-      </PopoverTrigger>
-      <PopoverContent
-        className="w-[--radix-popover-trigger-width] p-0"
-        align="start"
-        onOpenAutoFocus={(e) => e.preventDefault()}
-      >
-        <Command shouldFilter={false}>
-          <CommandList className="max-h-72">
-            {filtered.length === 0 && !query && <CommandEmpty>Nessuna opzione</CommandEmpty>}
-            {query && (
-              <CommandGroup heading="Personalizzato">
-                <CommandItem
-                  onSelect={() => { onChange(query.trim()); setOpen(false); }}
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  <span>Usa "{query.trim()}"</span>
-                </CommandItem>
-              </CommandGroup>
-            )}
-            {filtered.length > 0 && (
-              <CommandGroup heading={showAll || query ? "Tutte le opzioni" : "Principali"}>
-                {filtered.map((h, i) => {
-                  const label = formatHub(h);
-                  const sel = value === label;
-                  return (
-                    <CommandItem
-                      key={`${h.code ?? ""}-${h.name}-${i}`}
-                      value={`${h.code ?? ""}-${h.name}`}
-                      onSelect={() => { onChange(label); setOpen(false); }}
-                    >
-                      <Check className={cn("mr-2 h-4 w-4", sel ? "opacity-100" : "opacity-0")} />
-                      <span className="min-w-0 truncate">
-                        <span className="font-medium">{h.name}</span>
-                        {h.code && <span className="ml-1.5 text-xs opacity-70">({h.code})</span>}
-                        {h.city && h.city !== h.name && (
-                          <span className="ml-1.5 text-xs opacity-60">· {h.city}</span>
-                        )}
-                      </span>
-                    </CommandItem>
-                  );
-                })}
-              </CommandGroup>
-            )}
-            {!query && !showAll && hiddenCount > 0 && (
-              <CommandGroup>
-                <CommandItem onSelect={() => setShowAll(true)}>
-                  <ChevronsUpDown className="mr-2 h-4 w-4" />
-                  <span>Visualizza altri ({hiddenCount})</span>
-                </CommandItem>
-              </CommandGroup>
-            )}
-          </CommandList>
-        </Command>
-      </PopoverContent>
-    </Popover>
+    <div className="relative">
+      <Input
+        value={value}
+        placeholder={placeholder || "Cerca o digita…"}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+        autoComplete="off"
+      />
+      {open && (filtered.length > 0 || hiddenCount > 0) && (
+        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-72 overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+          {filtered.length === 0 && !q && (
+            <div className="px-2 py-1.5 text-xs text-muted-foreground">Nessuna opzione</div>
+          )}
+          {filtered.length > 0 && (
+            <div className="py-1">
+              <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                {showAll || q ? "Tutte le opzioni" : "Principali"}
+              </p>
+              {filtered.map((h, i) => {
+                const label = formatHub(h);
+                const sel = value === label;
+                return (
+                  <button
+                    type="button"
+                    key={`${h.code ?? ""}-${h.name}-${i}`}
+                    onMouseDown={(e) => { e.preventDefault(); onChange(label); setOpen(false); }}
+                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                  >
+                    <Check className={cn("h-4 w-4 shrink-0", sel ? "opacity-100" : "opacity-0")} />
+                    <span className="min-w-0 flex-1 truncate">
+                      <span className="font-medium">{h.name}</span>
+                      {h.code && <span className="ml-1.5 text-xs opacity-70">({h.code})</span>}
+                      {h.city && h.city !== h.name && (
+                        <span className="ml-1.5 text-xs opacity-60">· {h.city}</span>
+                      )}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {!q && !showAll && hiddenCount > 0 && (
+            <button
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); setShowAll(true); }}
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-muted-foreground hover:bg-accent"
+            >
+              <ChevronsUpDown className="h-4 w-4" />
+              <span>Visualizza altri ({hiddenCount})</span>
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
