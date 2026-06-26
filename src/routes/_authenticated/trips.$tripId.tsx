@@ -196,8 +196,18 @@ function TripLayout() {
 
         <header className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4 rounded-3xl border border-border/50 bg-background/70 p-4 shadow-soft backdrop-blur sm:flex sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-center gap-3">
-          <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-secondary text-3xl">
+          <span className="relative grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-secondary text-3xl">
             {trip.data.cover_emoji ?? "✈️"}
+            <span
+              aria-label={t(tripType)}
+              title={t(tripType)}
+              className={cn(
+                "absolute -bottom-1 -right-1 grid h-6 w-6 place-items-center rounded-full border-2 border-background text-primary-foreground shadow-soft",
+                tripType === "business" ? "bg-slate-700" : "bg-emerald-600",
+              )}
+            >
+              {tripType === "business" ? <Briefcase className="h-3 w-3" /> : <Palmtree className="h-3 w-3" />}
+            </span>
           </span>
           <div className="min-w-0">
             <h1 className="truncate font-serif text-2xl font-bold tracking-tight sm:text-3xl">
