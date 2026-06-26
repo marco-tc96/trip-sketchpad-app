@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { MapContainer, TileLayer, Marker, Tooltip, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { Country } from "country-state-city";
 
 export type MapCity = { name: string; country: string; lat?: number; lng?: number };
 
@@ -29,9 +30,11 @@ function FitBounds({ points }: { points: [number, number][] }) {
 
 export function TripMap({
   cities,
+  countries,
   className,
 }: {
   cities: MapCity[];
+  countries?: string[];
   className?: string;
 }) {
   const points = useMemo<[number, number][]>(
@@ -44,9 +47,25 @@ export function TripMap({
         .map((c) => [c.lat, c.lng]),
     [cities],
   );
+  // Country fallback when cities have no coordinates.
+  const fallbackPoints = useMemo<[number, number][]>(() => {
+    if (points.length > 0) return [];
+    const isos = countries && countries.length > 0
+      ? countries
+      : Array.from(new Set(cities.map((c) => c.country))).filter(Boolean);
+    const out: [number, number][] = [];
+    for (const iso of isos) {
+      const c = Country.getCountryByCode(iso);
+      const lat = c?.latitude ? Number(c.latitude) : NaN;
+      const lng = c?.longitude ? Number(c.longitude) : NaN;
+      if (Number.isFinite(lat) && Number.isFinite(lng)) out.push([lat, lng]);
+    }
+    return out;
+  }, [points.length, countries, cities]);
   const ref = useRef<L.Map | null>(null);
 
-  if (points.length === 0) {
+  const effective = points.length > 0 ? points : fallbackPoints;
+  if (effective.length === 0) {
     return (
       <div className={`grid place-items-center bg-muted text-xs text-muted-foreground ${className ?? ""}`}>
         Nessuna coordinata disponibile
@@ -57,7 +76,7 @@ export function TripMap({
   return (
     <MapContainer
       ref={ref}
-      center={points[0]}
+      center={effective[0]}
       zoom={4}
       scrollWheelZoom={false}
       attributionControl={false}
@@ -78,7 +97,7 @@ export function TripMap({
             </Tooltip>
           </Marker>
         ))}
-      <FitBounds points={points} />
+      <FitBounds points={effective} />
     </MapContainer>
   );
 }
