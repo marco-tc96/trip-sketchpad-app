@@ -165,7 +165,7 @@ function TimelineView() {
       </div>
 
       <div className="space-y-6">
-        <JourneyBlock tripId={tripId} outbound={outbound} ret={ret} />
+        <JourneyBlock tripId={tripId} outbound={outbound} ret={ret} tripCountries={tripCountries} />
         <LodgingsBlock tripId={tripId} lodgings={lodgings} tripCities={tripCities} tripCountries={tripCountries} onDelete={del} />
 
         <div className="space-y-3">
@@ -238,19 +238,19 @@ type JourneyItem = {
 };
 
 function JourneyBlock({
-  tripId, outbound, ret,
-}: { tripId: string; outbound: JourneyItem | undefined; ret: JourneyItem | undefined }) {
+  tripId, outbound, ret, tripCountries,
+}: { tripId: string; outbound: JourneyItem | undefined; ret: JourneyItem | undefined; tripCountries: string[] }) {
   return (
     <div className="space-y-3">
-      <JourneyLegWrap tripId={tripId} kind="outbound" item={outbound} />
-      <JourneyLegWrap tripId={tripId} kind="return" item={ret} />
+      <JourneyLeg tripId={tripId} kind="outbound" item={outbound} tripCountries={tripCountries} />
+      <JourneyLeg tripId={tripId} kind="return" item={ret} tripCountries={tripCountries} />
     </div>
   );
 }
 
 function JourneyLeg({
-  tripId, kind, item,
-}: { tripId: string; kind: "outbound" | "return"; item: JourneyItem | undefined }) {
+  tripId, kind, item, tripCountries,
+}: { tripId: string; kind: "outbound" | "return"; item: JourneyItem | undefined; tripCountries: string[] }) {
   const { t } = useTranslation();
   const meta = (item?.meta ?? null) as TransportMeta | null;
   const legs = meta?.legs ?? [];
@@ -273,6 +273,7 @@ function JourneyLeg({
     <TransportDialog
       tripId={tripId}
       kind={kind}
+      tripCountries={tripCountries}
       existing={item ? { id: item.id, meta } : undefined}
       trigger={
         <button
