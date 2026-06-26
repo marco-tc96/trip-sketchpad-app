@@ -85,14 +85,25 @@ function ProfilePage() {
     const past = all.filter((tr) => tr.end_date < today);
     const countrySet = new Set<string>();
     const cityKey = new Set<string>();
+    const countryCounts = new Map<string, number>();
+    const cityCounts = new Map<string, { name: string; country: string; count: number }>();
     let nights = 0;
     let business = 0;
     let vacation = 0;
     const byYear: Record<string, { business: number; vacation: number }> = {};
     for (const tr of past) {
       const cs = (tr as unknown as { countries?: string[] }).countries ?? [];
-      cs.forEach((c) => countrySet.add(c));
-      getCities(tr).forEach((c) => cityKey.add(`${c.country}|${c.name}`));
+      cs.forEach((c) => {
+        countrySet.add(c);
+        countryCounts.set(c, (countryCounts.get(c) ?? 0) + 1);
+      });
+      getCities(tr).forEach((c) => {
+        cityKey.add(`${c.country}|${c.name}`);
+        const k = `${c.country}|${c.name}`;
+        const cur = cityCounts.get(k);
+        if (cur) cur.count += 1;
+        else cityCounts.set(k, { name: c.name, country: c.country, count: 1 });
+      });
       nights += Math.max(
         1,
         Math.round(
@@ -108,9 +119,17 @@ function ProfilePage() {
     const years = Object.entries(byYear)
       .map(([y, v]) => ({ y, ...v, total: v.business + v.vacation }))
       .sort((a, b) => b.y.localeCompare(a.y));
+    const countriesRanked = [...countryCounts.entries()]
+      .map(([iso, count]) => ({ iso, count }))
+      .sort((a, b) => b.count - a.count || a.iso.localeCompare(b.iso));
+    const citiesRanked = [...cityCounts.values()].sort(
+      (a, b) => b.count - a.count || a.name.localeCompare(b.name),
+    );
     return {
       past,
       countries: [...countrySet].sort(),
+      countriesRanked,
+      citiesRanked,
       cityCount: cityKey.size,
       nights,
       business,
@@ -221,6 +240,27 @@ function ProfilePage() {
           </div>
         </div>
 
+        {stats.countriesRanked.length > 0 && (
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <RankList
+              title={t("most_visited_countries")}
+              rows={stats.countriesRanked.map((r) => ({
+                key: r.iso,
+                left: <><span>{flagOf(r.iso)}</span><span>{countryNameLocalized(r.iso, lang)}</span></>,
+                count: r.count,
+              }))}
+            />
+            <RankList
+              title={t("most_visited_cities")}
+              rows={stats.citiesRanked.map((r) => ({
+                key: `${r.country}|${r.name}`,
+                left: <><span>{flagOf(r.country)}</span><span>{r.name}</span></>,
+                count: r.count,
+              }))}
+            />
+          </div>
+        )}
+
         {(stats.business + stats.vacation) > 0 && (
           <div className="mt-4 rounded-3xl border border-border bg-card p-5 shadow-soft">
             <h3 className="font-serif text-base font-semibold">Lavoro vs vacanza</h3>
@@ -302,6 +342,38 @@ function Stat({
       <Icon className="h-4 w-4 text-primary" />
       <p className="mt-2 text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
       <p className="mt-0.5 font-serif text-2xl font-semibold tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+function RankList({
+  title,
+  rows,
+}: {
+  title: string;
+  rows: Array<{ key: string; left: React.ReactNode; count: number }>;
+}) {
+  if (rows.length === 0) return null;
+  const max = Math.max(1, ...rows.map((r) => r.count));
+  return (
+    <div className="rounded-3xl border border-border bg-card p-5 shadow-soft">
+      <h3 className="font-serif text-base font-semibold">{title}</h3>
+      <ul className="mt-3 space-y-2 text-sm">
+        {rows.slice(0, 12).map((r) => {
+          const pct = (r.count / max) * 100;
+          return (
+            <li key={r.key} className="flex items-center gap-2">
+              <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate">
+                {r.left}
+              </span>
+              <div className="h-1.5 w-20 overflow-hidden rounded-full bg-muted">
+                <div className="h-full bg-primary" style={{ width: `${pct}%` }} />
+              </div>
+              <span className="w-6 text-right tabular-nums font-medium">{r.count}</span>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
