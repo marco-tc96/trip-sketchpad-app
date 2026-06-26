@@ -1,7 +1,7 @@
 import { createFileRoute, Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowLeft, Trash2, Image as ImageIcon, Map as MapIcon, Sparkles, Upload, Palette, Check } from "lucide-react";
+import { ArrowLeft, Trash2, Image as ImageIcon, Map as MapIcon, Sparkles, Upload, Palette, Check, Pencil, X, Plus, ChevronsUpDown, Briefcase, Palmtree, LayoutDashboard, CalendarDays, Wallet, Clock } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useEffect, useRef, useState } from "react";
@@ -9,6 +9,11 @@ import { getTrip, deleteTrip, updateTrip } from "@/lib/trips.functions";
 import { getProfile } from "@/lib/profile.functions";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { FxAverageWidget } from "@/components/app/fx-avg-widget";
 import { CityCover } from "@/components/app/city-cover";
 import { TripMap } from "@/components/app/trip-map";
@@ -16,7 +21,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "@tanstack/react-router";
-import { countryNameLocalized } from "@/lib/country-data";
+import { countryNameLocalized, citiesOfCountry, flagOf } from "@/lib/country-data";
+import { flagGradient } from "@/lib/flag-gradient";
+import { Country } from "country-state-city";
 
 export const Route = createFileRoute("/_authenticated/trips/$tripId")({
   component: TripLayout,
@@ -39,6 +46,7 @@ function TripLayout() {
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = useState(false);
   const [signedPhoto, setSignedPhoto] = useState<string | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
 
   if (trip.isLoading || !trip.data) {
     return <main className="mx-auto max-w-5xl px-4 py-8 text-sm text-muted-foreground">{t("loading")}</main>;
@@ -50,12 +58,20 @@ function TripLayout() {
     cover_bg?: string | null;
     countries?: string[];
     cities?: Array<{ name: string; country: string; lat?: number; lng?: number }>;
+    trip_type?: "vacation" | "business";
   };
   const coverType = (tripRow.cover_type ?? "auto") as "auto" | "map" | "photo" | "color";
   const cities = Array.isArray(tripRow.cities) ? tripRow.cities : [];
   const countries = Array.isArray(tripRow.countries) ? tripRow.countries : [];
+  const tripType = (tripRow.trip_type ?? "vacation") as "vacation" | "business";
   const lang = i18n.language || "it";
-  const localizedCountry = countries[0] ? countryNameLocalized(countries[0], lang) : tripRow.country;
+  const localizedCountries = countries.length > 0
+    ? countries.map((iso) => countryNameLocalized(iso, lang)).join(" · ")
+    : tripRow.country;
+  const citiesLabel = cities.length > 0
+    ? cities.map((c) => c.name).join(" · ")
+    : tripRow.destination;
+  const autoGradient = flagGradient(countries);
 
   async function setCoverType(next: "auto" | "map" | "photo" | "color") {
     if (next === coverType) return;
@@ -103,43 +119,70 @@ function TripLayout() {
     }
   }
 
-  const tabs: {
-    to: "/trips/$tripId" | "/trips/$tripId/timeline" | "/trips/$tripId/expenses";
-    label: string;
-    exact?: boolean;
-  }[] = [
-    { to: "/trips/$tripId", label: t("overview"), exact: true },
-    { to: "/trips/$tripId/timeline", label: t("timeline") },
-    { to: "/trips/$tripId/expenses", label: t("expenses") },
+  const tabs: { to: "/trips/$tripId" | "/trips/$tripId/timeline" | "/trips/$tripId/expenses"; label: string; icon: React.ComponentType<{ className?: string }>; exact?: boolean }[] = [
+    { to: "/trips/$tripId", label: t("overview"), icon: LayoutDashboard, exact: true },
+    { to: "/trips/$tripId/timeline", label: t("timeline"), icon: CalendarDays },
+    { to: "/trips/$tripId/expenses", label: t("expenses"), icon: Wallet },
   ];
 
+  const isPhoto = coverType === "photo";
+
   return (
-    <div className="relative min-h-screen">
-      {/* Full-bleed cover background that fades into the page */}
-      <div aria-hidden className="pointer-events-none fixed inset-x-0 top-0 -z-10 h-full overflow-hidden">
-        {coverType === "color" ? (
-          <div
-            className="absolute inset-0"
-            style={{
-              background: tripRow.cover_bg || "linear-gradient(135deg, oklch(0.78 0.1 55), oklch(0.66 0.14 38))",
-            }}
-          />
-        ) : (
+    <div className="relative min-h-screen isolate">
+      {/* Full-bleed gradient that stays behind the entire page */}
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-0 z-0"
+        style={{
+          background:
+            coverType === "color"
+              ? tripRow.cover_bg ||
+                "linear-gradient(135deg, oklch(0.78 0.1 55), oklch(0.66 0.14 38))"
+              : autoGradient,
+        }}
+      />
+      {/* In photo mode, override the flag gradient behind the page with a
+          theme-aware solid so the photo fades into dark/light, not into the
+          flag colors. Rendered BEFORE the focal photo so it sits beneath it. */}
+      {isPhoto && (
+        <div aria-hidden className="pointer-events-none fixed inset-0 z-0 bg-background" />
+      )}
+      {/* Header-only focal media (photo), centered, fades into the
+          gradient below the first information block. */}
+      {coverType === "photo" && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 z-[1] h-[58vh] overflow-hidden"
+          style={{
+            WebkitMaskImage:
+              "linear-gradient(to bottom, black 0%, black 60%, transparent 100%)",
+            maskImage:
+              "linear-gradient(to bottom, black 0%, black 60%, transparent 100%)",
+          }}
+        >
           <CoverContent
             tripId={tripId}
             coverType={coverType}
             coverUrl={tripRow.cover_url ?? null}
             cities={cities}
-            fallbackQuery={cities[0]?.name || tripRow.destination || countries[0] || tripRow.country || tripRow.title}
+            gradient={autoGradient}
             signedPhoto={signedPhoto}
             setSignedPhoto={setSignedPhoto}
           />
-        )}
-        {/* Fade to background so details below stay readable */}
-        <div className="absolute inset-x-0 bottom-0 top-1/3 bg-gradient-to-b from-transparent via-background/70 to-background" />
-      </div>
+        </div>
+      )}
 
-      <main className="mx-auto max-w-5xl px-4 pb-12 pt-4">
+      {/* Blurred copy of the photo continuing underneath the info blocks. */}
+      {isPhoto && (
+        <PhotoBlurBackdrop
+          tripId={tripId}
+          coverUrl={tripRow.cover_url ?? null}
+          signedPhoto={signedPhoto}
+          setSignedPhoto={setSignedPhoto}
+        />
+      )}
+
+      <main className="relative z-10 mx-auto flex min-h-screen max-w-5xl flex-col px-4 pb-12 pt-4">
         <div className="flex items-center justify-between gap-2">
           <Link
             to="/trips"
@@ -150,25 +193,35 @@ function TripLayout() {
           </Link>
           {/* Always-visible cover selector */}
           <div className="flex items-center gap-1 rounded-full border border-border/60 bg-background/70 p-1 text-xs shadow-soft backdrop-blur">
-            <CoverPill
-              active={coverType === "auto"}
-              onClick={() => setCoverType("auto")}
-              icon={Sparkles}
-              label={t("cover_auto")}
-            />
-            <CoverPill
-              active={coverType === "map"}
-              onClick={() => setCoverType("map")}
-              icon={MapIcon}
-              label={t("cover_map")}
-            />
+            <CoverPill active={coverType === "auto"} onClick={() => setCoverType("auto")} icon={Sparkles} label={t("cover_auto")} />
+            <CoverPill active={coverType === "map"} onClick={() => setCoverType("map")} icon={MapIcon} label={t("cover_map")} />
             <CoverPill
               active={coverType === "photo"}
-              onClick={() => fileRef.current?.click()}
+              onClick={() => {
+                // If a photo already exists, switching to the photo cover
+                // just shows it — no re-upload. The user can replace it via
+                // the dedicated "Change photo" button below.
+                if (tripRow.cover_url) setCoverType("photo");
+                else fileRef.current?.click();
+              }}
               icon={ImageIcon}
               label={t("cover_photo")}
             />
-            <ColorCoverPill active={coverType === "color"} current={tripRow.cover_bg} onPick={(bg) => setCoverBg(bg)} />
+            {coverType === "photo" && tripRow.cover_url && (
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-foreground/80 transition hover:bg-foreground/10"
+              >
+                <Upload className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">{t("change_photo")}</span>
+              </button>
+            )}
+            <ColorCoverPill
+              active={coverType === "color"}
+              current={tripRow.cover_bg}
+              onPick={(bg) => setCoverBg(bg)}
+            />
           </div>
         </div>
 
@@ -185,31 +238,55 @@ function TripLayout() {
         />
         {uploading && (
           <div className="fixed inset-x-0 top-16 z-20 mx-auto w-fit rounded-full bg-black/60 px-3 py-1.5 text-xs text-white backdrop-blur">
-            <span className="inline-flex items-center gap-2">
-              <Upload className="h-3.5 w-3.5" /> {t("upload_cover")}…
-            </span>
+            <span className="inline-flex items-center gap-2"><Upload className="h-3.5 w-3.5" /> {t("upload_cover")}…</span>
           </div>
         )}
 
-        {/* Spacer so the title sits below the cover focal area */}
-        <div className="h-[26vh] sm:h-[30vh]" />
-
-        <header className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4 rounded-3xl border border-border/50 bg-background/70 p-4 shadow-soft backdrop-blur sm:flex sm:items-center sm:justify-between">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-secondary text-3xl">
-              {trip.data.cover_emoji ?? "✈️"}
-            </span>
-            <div className="min-w-0">
-              <h1 className="truncate font-serif text-2xl font-bold tracking-tight sm:text-3xl">{trip.data.title}</h1>
-              <p className="truncate text-sm text-muted-foreground">
-                {[trip.data.destination, localizedCountry].filter(Boolean).join(", ")}
-                {" · "}
-                {fmt(trip.data.start_date)} → {fmt(trip.data.end_date)}
-              </p>
-            </div>
+        {/* Map of visited cities — shown only when the user picks the map
+            cover, so pins don't leak onto photo/gradient/color backgrounds. */}
+        {coverType === "map" ? (
+          <div className="relative my-4 min-h-[40vh] flex-1 overflow-hidden rounded-2xl">
+            <TripMap
+              cities={cities}
+              countries={countries}
+              className="absolute inset-0 h-full w-full"
+              compact
+            />
           </div>
-          <div className="flex items-center gap-2">
-            {profile.data && (
+        ) : (
+          <div className="my-4 flex-1" />
+        )}
+
+        <header className="flex flex-col gap-3 rounded-3xl border border-border/50 bg-background/70 p-4 shadow-soft backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="relative grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-secondary text-3xl">
+            {trip.data.cover_emoji ?? "✈️"}
+            <span
+              aria-label={t(tripType)}
+              title={t(tripType)}
+              className={cn(
+                "absolute -bottom-1 -right-1 grid h-6 w-6 place-items-center rounded-full border-2 border-background text-primary-foreground shadow-soft",
+                tripType === "business" ? "bg-slate-700" : "bg-emerald-600",
+              )}
+            >
+              {tripType === "business" ? <Briefcase className="h-3 w-3" /> : <Palmtree className="h-3 w-3" />}
+            </span>
+          </span>
+          <div className="min-w-0">
+            <h1 className="truncate font-serif text-2xl font-bold tracking-tight sm:text-3xl">
+              {trip.data.title}
+            </h1>
+            <p className="text-sm text-muted-foreground line-clamp-2">
+              {[citiesLabel, localizedCountries].filter(Boolean).join(", ")}
+            </p>
+            <p className="truncate text-xs text-muted-foreground/80">
+              {fmt(trip.data.start_date)} → {fmt(trip.data.end_date)}
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center justify-end gap-2 sm:flex-nowrap">
+          {profile.data && (
+            <div className="flex flex-col items-end gap-1">
               <FxAverageWidget
                 from={profile.data.home_currency}
                 to={trip.data.local_currency}
@@ -217,60 +294,308 @@ function TripLayout() {
                 end={trip.data.end_date}
                 fallback={trip.data.fx_rate_fallback}
               />
-            )}
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={async () => {
-                if (!confirm(t("delete_confirm"))) return;
-                try {
-                  await delFn({ data: { id: tripId } });
-                  qc.invalidateQueries({ queryKey: ["trips"] });
-                  nav({ to: "/trips" });
-                } catch (e) {
-                  toast.error(e instanceof Error ? e.message : t("error_generic"));
-                }
-              }}
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          </div>
-        </header>
-
-        <nav className="mt-6 flex gap-1 border-b border-border">
-          {tabs.map((tab) => {
-            const active = tab.exact
-              ? loc.pathname === `/trips/${tripId}`
-              : loc.pathname.startsWith(`/trips/${tripId}${tab.to.replace("/trips/$tripId", "")}`);
-            return (
-              <Link
-                key={tab.to}
-                to={tab.to}
-                params={{ tripId }}
-                className={`relative px-4 py-2.5 text-sm font-medium transition ${
-                  active ? "text-foreground" : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {tab.label}
-                {active && <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-primary" />}
-              </Link>
-            );
-          })}
-        </nav>
-
-        <div className="pt-6">
-          <Outlet />
+              <TimezoneBadge
+                home={(profile.data as { home_country?: string | null }).home_country ?? null}
+                destinations={countries}
+                startDate={trip.data.start_date}
+              />
+            </div>
+          )}
+          <Button variant="ghost" size="icon" onClick={() => setEditOpen(true)} aria-label={t("edit_trip")}>
+            <Pencil className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={async () => {
+              if (!confirm(t("delete_confirm"))) return;
+              try {
+                await delFn({ data: { id: tripId } });
+                qc.invalidateQueries({ queryKey: ["trips"] });
+                nav({ to: "/trips" });
+              } catch (e) {
+                toast.error(e instanceof Error ? e.message : t("error_generic"));
+              }
+            }}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
         </div>
+      </header>
+
+      <nav
+        aria-label="Sezioni viaggio"
+        className="mt-5 mx-auto flex w-fit items-center gap-1 rounded-full border border-border/60 bg-background/70 p-1 text-xs shadow-soft backdrop-blur"
+      >
+        {tabs.map((tab) => {
+          const active = tab.exact
+            ? loc.pathname === `/trips/${tripId}`
+            : loc.pathname.startsWith(`/trips/${tripId}${tab.to.replace("/trips/$tripId", "")}`);
+          const Icon = tab.icon;
+          return (
+            <Link
+              key={tab.to}
+              to={tab.to}
+              params={{ tripId }}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 font-medium transition",
+                active
+                  ? "bg-primary text-primary-foreground shadow-soft"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
+              )}
+            >
+              <Icon className="h-3.5 w-3.5" />
+              <span>{tab.label}</span>
+            </Link>
+          );
+        })}
+      </nav>
+
+        <div className="pt-6"><Outlet /></div>
       </main>
+
+      <EditTripDialog
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        initialTitle={trip.data.title}
+        initialCities={cities}
+        initialCountries={countries}
+        initialType={tripType}
+        initialEmoji={trip.data.cover_emoji ?? "✈️"}
+        onSave={async (patch) => {
+          try {
+            await updateFn({ data: { id: tripId, patch } });
+            qc.invalidateQueries({ queryKey: ["trip", tripId] });
+            qc.invalidateQueries({ queryKey: ["trips"] });
+            toast.success(t("saved"));
+            setEditOpen(false);
+          } catch (e) {
+            toast.error(e instanceof Error ? e.message : t("error_generic"));
+          }
+        }}
+      />
     </div>
   );
 }
 
+function EditTripDialog({
+  open,
+  onOpenChange,
+  initialTitle,
+  initialCities,
+  initialCountries,
+  initialType,
+  initialEmoji,
+  onSave,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  initialTitle: string;
+  initialCities: Array<{ name: string; country: string; lat?: number; lng?: number }>;
+  initialCountries: string[];
+  initialType: "vacation" | "business";
+  initialEmoji: string;
+  onSave: (patch: {
+    title: string;
+    cities: Array<{ name: string; country: string; lat?: number; lng?: number }>;
+    destination: string | null;
+    trip_type: "vacation" | "business";
+    cover_emoji: string;
+  }) => Promise<void>;
+}) {
+  const { t } = useTranslation();
+  const [title, setTitle] = useState(initialTitle);
+  const [cities, setCities] = useState(initialCities);
+  const [type, setType] = useState(initialType);
+  const [emoji, setEmoji] = useState(initialEmoji);
+  const [query, setQuery] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setTitle(initialTitle);
+      setCities(initialCities);
+      setType(initialType);
+      setEmoji(initialEmoji || "✈️");
+      setQuery("");
+    }
+  }, [open, initialTitle, initialCities, initialType, initialEmoji]);
+
+  const available = initialCountries.flatMap((iso) => citiesOfCountry(iso));
+  const q = query.trim().toLowerCase();
+  const filtered = (q ? available.filter((c) => c.name.toLowerCase().includes(q)) : available).slice(0, 200);
+  const canAddCustom =
+    q.length >= 2 && !filtered.some((c) => c.name.toLowerCase() === q);
+
+  function toggle(c: { name: string; country: string; lat?: number; lng?: number }) {
+    setCities((prev) => {
+      const key = `${c.country}|${c.name}`;
+      const exists = prev.some((x) => `${x.country}|${x.name}` === key);
+      return exists
+        ? prev.filter((x) => `${x.country}|${x.name}` !== key)
+        : [...prev, c];
+    });
+  }
+
+  function addCustom() {
+    const name = query.trim();
+    if (!name) return;
+    const iso = initialCountries[0];
+    if (!iso) return;
+    toggle({ name, country: iso });
+    setQuery("");
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t("edit_trip")}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label>Icona</Label>
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                value={emoji}
+                onChange={(e) => setEmoji(e.target.value.slice(0, 4))}
+                className="w-16 text-center text-2xl"
+                maxLength={4}
+              />
+              <div className="flex flex-wrap gap-1.5">
+                {["✈️","🏖️","🗺️","🏔️","🏛️","🏙️","🚆","🚗","⛵","🎒","💼","🍷"].map((e) => (
+                  <button
+                    key={e}
+                    type="button"
+                    onClick={() => setEmoji(e)}
+                    className={cn(
+                      "grid h-9 w-9 place-items-center rounded-lg text-xl transition",
+                      emoji === e ? "bg-primary/15 ring-2 ring-primary" : "bg-secondary hover:bg-secondary/80",
+                    )}
+                  >
+                    {e}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>{t("title")}</Label>
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>{t("trip_type")}</Label>
+            <div className="inline-flex rounded-full border border-border bg-secondary/40 p-1 text-sm">
+              {(["vacation", "business"] as const).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setType(v)}
+                  className={cn(
+                    "rounded-full px-3 py-1.5 transition",
+                    type === v
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {t(v)}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>{t("destination")}</Label>
+            <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+              <PopoverTrigger asChild>
+                <Button type="button" variant="outline" className="w-full justify-between font-normal">
+                  <span className="truncate text-muted-foreground">
+                    {cities.length === 0 ? "Cerca o aggiungi città…" : `${cities.length} città`}
+                  </span>
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                <Command shouldFilter={false}>
+                  <CommandInput placeholder="Digita per cercare…" value={query} onValueChange={setQuery} />
+                  <CommandList className="max-h-72">
+                    {filtered.length === 0 && !canAddCustom && <CommandEmpty>Nessuna città</CommandEmpty>}
+                    {canAddCustom && (
+                      <CommandGroup heading="Aggiungi">
+                        <CommandItem onSelect={addCustom}>
+                          <Plus className="mr-2 h-4 w-4" />
+                          <span>Aggiungi "{query.trim()}"</span>
+                        </CommandItem>
+                      </CommandGroup>
+                    )}
+                    {filtered.length > 0 && (
+                      <CommandGroup>
+                        {filtered.map((c) => {
+                          const key = `${c.country}|${c.name}`;
+                          const sel = cities.some((x) => `${x.country}|${x.name}` === key);
+                          return (
+                            <CommandItem
+                              key={key}
+                              value={key}
+                              onSelect={() => toggle({ name: c.name, country: c.country, lat: c.lat, lng: c.lng })}
+                            >
+                              <Check className={cn("mr-2 h-4 w-4", sel ? "opacity-100" : "opacity-0")} />
+                              {initialCountries.length > 1 && <span className="mr-2">{flagOf(c.country)}</span>}
+                              <span>{c.name}</span>
+                            </CommandItem>
+                          );
+                        })}
+                      </CommandGroup>
+                    )}
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+            {cities.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 pt-2">
+                {cities.map((c) => (
+                  <Badge key={`${c.country}|${c.name}`} variant="secondary" className="gap-1 rounded-full pl-2 pr-1">
+                    <span>{flagOf(c.country)}</span>
+                    <span>{c.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => toggle(c)}
+                      className="ml-0.5 grid h-4 w-4 place-items-center rounded-full hover:bg-foreground/10"
+                      aria-label={`Remove ${c.name}`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>{t("cancel")}</Button>
+          <Button
+            onClick={() =>
+              onSave({
+                title: title.trim() || initialTitle,
+                cities,
+                destination: cities[0]?.name ?? null,
+                trip_type: type,
+                cover_emoji: emoji || "✈️",
+              })
+            }
+          >
+            {t("save")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function CoverPill({
-  active,
-  onClick,
-  icon: Icon,
-  label,
+  active, onClick, icon: Icon, label,
 }: {
   active: boolean;
   onClick: () => void;
@@ -283,7 +608,9 @@ function CoverPill({
       onClick={onClick}
       className={cn(
         "inline-flex items-center gap-1 rounded-full px-2.5 py-1 transition",
-        active ? "bg-primary text-primary-foreground" : "text-foreground/80 hover:bg-foreground/10",
+        active
+          ? "bg-primary text-primary-foreground"
+          : "text-foreground/80 hover:bg-foreground/10",
       )}
     >
       <Icon className="h-3.5 w-3.5" />
@@ -320,7 +647,9 @@ function ColorCoverPill({
           type="button"
           className={cn(
             "inline-flex items-center gap-1 rounded-full px-2.5 py-1 transition",
-            active ? "bg-primary text-primary-foreground" : "text-foreground/80 hover:bg-foreground/10",
+            active
+              ? "bg-primary text-primary-foreground"
+              : "text-foreground/80 hover:bg-foreground/10",
           )}
         >
           <Palette className="h-3.5 w-3.5" />
@@ -328,7 +657,9 @@ function ColorCoverPill({
         </button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-64 p-3">
-        <p className="mb-2 text-xs font-medium text-muted-foreground">Sfondo del viaggio</p>
+        <p className="mb-2 text-xs font-medium text-muted-foreground">
+          Sfondo del viaggio
+        </p>
         <div className="grid grid-cols-3 gap-2">
           {COVER_BG_PRESETS.map((bg) => {
             const sel = active && current === bg;
@@ -337,11 +668,16 @@ function ColorCoverPill({
                 key={bg}
                 type="button"
                 onClick={() => onPick(bg)}
-                className={cn("relative h-12 rounded-lg border border-border/60", sel && "ring-2 ring-primary")}
+                className={cn(
+                  "relative h-12 rounded-lg border border-border/60",
+                  sel && "ring-2 ring-primary",
+                )}
                 style={{ background: bg }}
                 aria-label={bg}
               >
-                {sel && <Check className="absolute right-1 top-1 h-3.5 w-3.5 text-white drop-shadow" />}
+                {sel && (
+                  <Check className="absolute right-1 top-1 h-3.5 w-3.5 text-white drop-shadow" />
+                )}
               </button>
             );
           })}
@@ -369,15 +705,15 @@ function CoverContent({
   coverType,
   coverUrl,
   cities,
-  fallbackQuery,
+  gradient,
   signedPhoto,
   setSignedPhoto,
 }: {
   tripId: string;
-  coverType: "auto" | "map" | "photo";
+  coverType: "auto" | "photo";
   coverUrl: string | null;
   cities: Array<{ name: string; country: string; lat?: number; lng?: number }>;
-  fallbackQuery: string;
+  gradient: string;
   signedPhoto: string | null;
   setSignedPhoto: (v: string | null) => void;
 }) {
@@ -398,25 +734,113 @@ function CoverContent({
     };
   }, [coverType, coverUrl, tripId, setSignedPhoto]);
 
-  if (coverType === "map") {
-    return (
-      <>
-        <TripMap cities={cities} className="absolute inset-0 h-full w-full" />
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
-      </>
-    );
-  }
-
   if (coverType === "photo") {
     const src = signedPhoto || (coverUrl && /^https?:\/\//i.test(coverUrl) ? coverUrl : null);
-    return <CityCover query={fallbackQuery} src={src} />;
+    return <CityCover src={src} gradient={gradient} />;
   }
 
   // auto
   const src = coverUrl && /^https?:\/\//i.test(coverUrl) ? coverUrl : null;
-  return <CityCover query={fallbackQuery} src={src} />;
+  return <CityCover src={src} gradient={gradient} />;
 }
 
 function fmt(d: string) {
   return new Date(d).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function PhotoBlurBackdrop({
+  tripId, coverUrl, signedPhoto, setSignedPhoto,
+}: {
+  tripId: string;
+  coverUrl: string | null;
+  signedPhoto: string | null;
+  setSignedPhoto: (v: string | null) => void;
+}) {
+  useEffect(() => {
+    let cancelled = false;
+    if (coverUrl && !/^https?:\/\//i.test(coverUrl)) {
+      supabase.storage
+        .from("trip-covers")
+        .createSignedUrl(coverUrl, 60 * 60)
+        .then(({ data }) => {
+          if (!cancelled) setSignedPhoto(data?.signedUrl ?? null);
+        });
+    }
+    return () => { cancelled = true; };
+  }, [coverUrl, tripId, setSignedPhoto]);
+  const src = signedPhoto || (coverUrl && /^https?:\/\//i.test(coverUrl) ? coverUrl : null);
+  if (!src) return null;
+  return (
+    <div
+      aria-hidden
+      className="pointer-events-none fixed inset-0 top-[58vh] z-0 overflow-hidden"
+    >
+      <img
+        src={src}
+        alt=""
+        className="h-full w-full scale-110 object-cover opacity-50"
+        style={{ filter: "blur(28px)" }}
+      />
+      <div className="absolute inset-0 bg-background/60" />
+    </div>
+  );
+}
+
+function TimezoneBadge({
+  home,
+  destinations,
+  startDate,
+}: {
+  home: string | null;
+  destinations: string[];
+  startDate?: string;
+}) {
+  if (!home || destinations.length === 0) return null;
+  const dest = destinations[0];
+  const zoneOf = (iso: string) => {
+    const c = Country.getCountryByCode(iso);
+    return c?.timezones?.[0]?.zoneName ?? null;
+  };
+  const homeZone = zoneOf(home);
+  const destZone = zoneOf(dest);
+  if (!homeZone || !destZone) return null;
+  const when = startDate ? new Date(`${startDate}T12:00:00Z`) : new Date();
+  const offsetOn = (tz: string, d: Date): number | null => {
+    try {
+      const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone: tz,
+        timeZoneName: "shortOffset",
+      }).formatToParts(d);
+      const name = parts.find((p) => p.type === "timeZoneName")?.value ?? "";
+      const m = name.match(/GMT([+-]?)(\d{1,2})(?::?(\d{2}))?/);
+      if (!m) return name === "GMT" ? 0 : null;
+      const sign = m[1] === "-" ? -1 : 1;
+      return sign * (parseInt(m[2], 10) + (m[3] ? parseInt(m[3], 10) / 60 : 0));
+    } catch {
+      return null;
+    }
+  };
+  const h = offsetOn(homeZone, when);
+  const d = offsetOn(destZone, when);
+  if (h == null || d == null) return null;
+  const fmt = (n: number) => {
+    const s = n >= 0 ? "+" : "−";
+    const abs = Math.abs(n);
+    const hh = Math.floor(abs);
+    const mm = Math.round((abs - hh) * 60);
+    return mm ? `GMT${s}${hh}:${String(mm).padStart(2, "0")}` : `GMT${s}${hh}`;
+  };
+  const diff = Math.round((d - h) * 10) / 10;
+  const diffLabel =
+    diff === 0
+      ? "stesso fuso"
+      : `${diff > 0 ? "+" : "−"}${Math.abs(diff)}h`;
+  return (
+    <div className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background/70 px-2 py-0.5 text-[11px] text-muted-foreground shadow-soft backdrop-blur">
+      <Clock className="h-3 w-3" />
+      <span className="tabular-nums">
+        {fmt(h)} → {fmt(d)} ({diffLabel})
+      </span>
+    </div>
+  );
 }
