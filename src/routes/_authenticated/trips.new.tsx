@@ -66,6 +66,7 @@ function NewTrip() {
   const [currency, setCurrency] = useState("EUR");
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
+  const [tripType, setTripType] = useState<"vacation" | "business">("vacation");
 
   // Auto-select currency based on first country and start date (historical aware).
   useEffect(() => {
@@ -134,6 +135,7 @@ function NewTrip() {
           cover_emoji: emoji,
           notes: notes || null,
           timeline_mode: "days",
+          trip_type: tripType,
         },
       });
       qc.invalidateQueries({ queryKey: ["trips"] });
@@ -297,6 +299,28 @@ function NewTrip() {
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
           />
+        </div>
+
+        {/* Trip type */}
+        <div className="space-y-1.5">
+          <Label>{t("trip_type")}</Label>
+          <div className="inline-flex rounded-full border border-border bg-secondary/40 p-1 text-sm">
+            {(["vacation", "business"] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setTripType(v)}
+                className={cn(
+                  "rounded-full px-3 py-1.5 transition",
+                  tripType === v
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {t(v)}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="flex gap-3">
