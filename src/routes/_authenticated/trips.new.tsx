@@ -422,10 +422,8 @@ function CityPicker({
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return cities.slice(0, 200);
-    return cities
-      .filter((c) => c.name.toLowerCase().includes(q))
-      .slice(0, 200);
+    if (!q) return cities;
+    return cities.filter((c) => c.name.toLowerCase().includes(q));
   }, [cities, query]);
 
   const canAddCustom =
