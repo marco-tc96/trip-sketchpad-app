@@ -3,7 +3,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
 
 export const ITEM_KINDS = [
-  "outbound","return","flight","train","car","moto","ferry","transfer",
+  "outbound","return","flight","train","bus","car","moto","ferry","transfer",
   "lodging","activity","zone","other",
 ] as const;
 
@@ -19,7 +19,7 @@ const legSchema = z.object({
 
 const metaSchema = z
   .object({
-    mode: z.enum(["car", "moto", "train", "plane", "ferry"]).optional(),
+    mode: z.enum(["car", "moto", "train", "plane", "ferry", "bus"]).optional(),
     legs: z.array(legSchema).max(20).optional(),
   })
   .passthrough();
@@ -58,6 +58,25 @@ export const createItem = createServerFn({ method: "POST" })
     const { data: row, error } = await context.supabase
       .from("itinerary_items")
       .insert({ ...data, meta: (data.meta ?? {}) as never, user_id: context.userId })
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    return row;
+  });
+
+const itemPatch = itemInput.partial().omit({ trip_id: true });
+export const updateItem = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) =>
+    z.object({ id: z.string().uuid(), patch: itemPatch }).parse(d),
+  )
+  .handler(async ({ data, context }) => {
+    const patch = { ...data.patch } as Record<string, unknown>;
+    if (patch.meta !== undefined) patch.meta = patch.meta ?? {};
+    const { data: row, error } = await context.supabase
+      .from("itinerary_items")
+      .update(patch as never)
+      .eq("id", data.id)
       .select()
       .single();
     if (error) throw new Error(error.message);
