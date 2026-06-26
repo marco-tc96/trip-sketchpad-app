@@ -282,6 +282,7 @@ function TripLayout() {
         initialCities={cities}
         initialCountries={countries}
         initialType={tripType}
+        initialEmoji={trip.data.cover_emoji ?? "✈️"}
         onSave={async (patch) => {
           try {
             await updateFn({ data: { id: tripId, patch } });
@@ -305,6 +306,7 @@ function EditTripDialog({
   initialCities,
   initialCountries,
   initialType,
+  initialEmoji,
   onSave,
 }: {
   open: boolean;
@@ -313,17 +315,20 @@ function EditTripDialog({
   initialCities: Array<{ name: string; country: string; lat?: number; lng?: number }>;
   initialCountries: string[];
   initialType: "vacation" | "business";
+  initialEmoji: string;
   onSave: (patch: {
     title: string;
     cities: Array<{ name: string; country: string; lat?: number; lng?: number }>;
     destination: string | null;
     trip_type: "vacation" | "business";
+    cover_emoji: string;
   }) => Promise<void>;
 }) {
   const { t } = useTranslation();
   const [title, setTitle] = useState(initialTitle);
   const [cities, setCities] = useState(initialCities);
   const [type, setType] = useState(initialType);
+  const [emoji, setEmoji] = useState(initialEmoji);
   const [query, setQuery] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -332,9 +337,10 @@ function EditTripDialog({
       setTitle(initialTitle);
       setCities(initialCities);
       setType(initialType);
+      setEmoji(initialEmoji || "✈️");
       setQuery("");
     }
-  }, [open, initialTitle, initialCities, initialType]);
+  }, [open, initialTitle, initialCities, initialType, initialEmoji]);
 
   const available = initialCountries.flatMap((iso) => citiesOfCountry(iso));
   const q = query.trim().toLowerCase();
@@ -368,6 +374,33 @@ function EditTripDialog({
           <DialogTitle>{t("edit_trip")}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label>Icona</Label>
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                value={emoji}
+                onChange={(e) => setEmoji(e.target.value.slice(0, 4))}
+                className="w-16 text-center text-2xl"
+                maxLength={4}
+              />
+              <div className="flex flex-wrap gap-1.5">
+                {["✈️","🏖️","🗺️","🏔️","🏛️","🏙️","🚆","🚗","⛵","🎒","💼","🍷"].map((e) => (
+                  <button
+                    key={e}
+                    type="button"
+                    onClick={() => setEmoji(e)}
+                    className={cn(
+                      "grid h-9 w-9 place-items-center rounded-lg text-xl transition",
+                      emoji === e ? "bg-primary/15 ring-2 ring-primary" : "bg-secondary hover:bg-secondary/80",
+                    )}
+                  >
+                    {e}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
           <div className="space-y-1.5">
             <Label>{t("title")}</Label>
             <Input value={title} onChange={(e) => setTitle(e.target.value)} />
@@ -470,6 +503,7 @@ function EditTripDialog({
                 cities,
                 destination: cities[0]?.name ?? null,
                 trip_type: type,
+                cover_emoji: emoji || "✈️",
               })
             }
           >
