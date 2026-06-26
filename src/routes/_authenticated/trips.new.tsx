@@ -301,6 +301,28 @@ function NewTrip() {
           />
         </div>
 
+        {/* Trip type */}
+        <div className="space-y-1.5">
+          <Label>{t("trip_type")}</Label>
+          <div className="inline-flex rounded-full border border-border bg-secondary/40 p-1 text-sm">
+            {(["vacation", "business"] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setTripType(v)}
+                className={cn(
+                  "rounded-full px-3 py-1.5 transition",
+                  tripType === v
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {t(v)}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div className="flex gap-3">
           <Button type="button" variant="ghost" onClick={() => nav({ to: "/trips" })}>
             {t("cancel")}
