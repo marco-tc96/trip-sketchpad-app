@@ -4,11 +4,11 @@ import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  Plane, Train, Car, Bike, Ship, Hotel, MapPin, Sparkles, ArrowRightLeft,
+  Plane, Train, Bus, Car, Bike, Ship, Hotel, MapPin, Sparkles, ArrowRightLeft,
   PlaneTakeoff, PlaneLanding, Plus, Trash2, ChevronsUpDown, Check, Clock,
 } from "lucide-react";
 import { toast } from "sonner";
-import { listItems, createItem, deleteItem, ITEM_KINDS } from "@/lib/itinerary.functions";
+import { listItems, createItem, updateItem, deleteItem, ITEM_KINDS } from "@/lib/itinerary.functions";
 import { getTrip } from "@/lib/trips.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,8 +22,23 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { citiesOfCountry, flagOf } from "@/lib/country-data";
 import { cn } from "@/lib/utils";
 import { useCityPhoto } from "@/hooks/use-city-photo";
+import { hubsForMode, formatHub, type Hub } from "@/lib/transport-hubs";
 
-type TransportMode = "car" | "moto" | "train" | "plane" | "ferry";
+type ItemRow = {
+  id: string;
+  trip_id: string;
+  kind: string;
+  title: string;
+  location: string | null;
+  start_at: string | null;
+  end_at: string | null;
+  day_index: number | null;
+  notes: string | null;
+  position: number;
+  meta?: unknown;
+};
+
+type TransportMode = "car" | "moto" | "train" | "plane" | "ferry" | "bus";
 type Leg = {
   from: string;
   to: string;
@@ -36,10 +51,10 @@ const emptyLeg = (): Leg => ({
   from: "", to: "", depart_at: "", arrive_at: "", carrier: "", number: "",
 });
 const MODE_LABEL: Record<TransportMode, string> = {
-  car: "Auto", moto: "Moto", train: "Treno", plane: "Aereo", ferry: "Traghetto",
+  car: "Auto", moto: "Moto", train: "Treno", plane: "Aereo", ferry: "Traghetto", bus: "Bus",
 };
 const MODE_ICON: Record<TransportMode, React.ComponentType<{ className?: string }>> = {
-  car: Car, moto: Bike, train: Train, plane: Plane, ferry: Ship,
+  car: Car, moto: Bike, train: Train, plane: Plane, ferry: Ship, bus: Bus,
 };
 
 export const Route = createFileRoute("/_authenticated/trips/$tripId/timeline")({
@@ -51,6 +66,7 @@ const KIND_ICON: Record<(typeof ITEM_KINDS)[number], React.ComponentType<{ class
   return: PlaneLanding,
   flight: Plane,
   train: Train,
+  bus: Bus,
   car: Car,
   moto: Bike,
   ferry: Ship,
@@ -149,8 +165,8 @@ function TimelineView() {
       </div>
 
       <div className="space-y-6">
-        <JourneyBlock tripId={tripId} outbound={outbound} ret={ret} />
-        <LodgingsBlock tripId={tripId} lodgings={lodgings} onDelete={del} />
+        <JourneyBlock tripId={tripId} outbound={outbound} ret={ret} tripCountries={tripCountries} />
+        <LodgingsBlock tripId={tripId} lodgings={lodgings} tripCities={tripCities} tripCountries={tripCountries} onDelete={del} />
 
         <div className="space-y-3">
           {groups.map((g) => (
@@ -166,23 +182,39 @@ function TimelineView() {
                     const dark = TRANSPORT_KINDS.has(it.kind) || it.kind === "activity";
                     return (
                       <li key={it.id}>
-                        <div className={cn("flex items-start gap-3 rounded-xl p-3", cls.card)}>
-                          <Icon className="mt-0.5 h-5 w-5 shrink-0" />
-                          <div className="min-w-0 flex-1">
-                            <p className={cn("text-[10px] uppercase tracking-widest", cls.sub)}>{t(it.kind)}</p>
-                            <p className="truncate font-medium">{it.title}</p>
-                            <p className={cn("text-xs", cls.sub)}>
-                              {it.location && <>{it.location} · </>}
-                              {it.start_at && fmtDT(it.start_at)}
-                              {it.end_at && ` → ${fmtDT(it.end_at)}`}
-                            </p>
-                            {it.notes && <p className={cn("mt-1 text-xs", cls.sub)}>{it.notes}</p>}
-                            <TransportLegs meta={it.meta as TransportMeta | null} />
-                          </div>
-                          <Button variant="ghost" size="icon" onClick={() => del(it.id)} className={cn(dark ? "text-white hover:bg-white/10 hover:text-white" : "")}>
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
+                        <AddItemDialog
+                          tripId={tripId}
+                          tripCities={tripCities}
+                          tripCountries={tripCountries}
+                          existing={it as ItemRow}
+                          trigger={
+                            <button
+                              type="button"
+                              className={cn("flex w-full items-start gap-3 rounded-xl p-3 text-left transition hover:brightness-110", cls.card)}
+                            >
+                              <Icon className="mt-0.5 h-5 w-5 shrink-0" />
+                              <div className="min-w-0 flex-1">
+                                <p className={cn("text-[10px] uppercase tracking-widest", cls.sub)}>{t(it.kind)}</p>
+                                <p className="truncate font-medium">{it.title}</p>
+                                <p className={cn("text-xs", cls.sub)}>
+                                  {it.location && <>{it.location} · </>}
+                                  {it.start_at && fmtDT(it.start_at)}
+                                  {it.end_at && ` → ${fmtDT(it.end_at)}`}
+                                </p>
+                                {it.notes && <p className={cn("mt-1 text-xs", cls.sub)}>{it.notes}</p>}
+                                <TransportLegs meta={it.meta as TransportMeta | null} />
+                              </div>
+                              <span
+                                role="button"
+                                tabIndex={0}
+                                onClick={(e) => { e.stopPropagation(); e.preventDefault(); del(it.id); }}
+                                className={cn("inline-flex h-8 w-8 items-center justify-center rounded-md", dark ? "text-white hover:bg-white/10" : "hover:bg-foreground/10")}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </span>
+                            </button>
+                          }
+                        />
                       </li>
                     );
                   })}
@@ -206,19 +238,19 @@ type JourneyItem = {
 };
 
 function JourneyBlock({
-  tripId, outbound, ret,
-}: { tripId: string; outbound: JourneyItem | undefined; ret: JourneyItem | undefined }) {
+  tripId, outbound, ret, tripCountries,
+}: { tripId: string; outbound: JourneyItem | undefined; ret: JourneyItem | undefined; tripCountries: string[] }) {
   return (
     <div className="space-y-3">
-      <JourneyLeg tripId={tripId} kind="outbound" item={outbound} />
-      <JourneyLeg tripId={tripId} kind="return" item={ret} />
+      <JourneyLeg tripId={tripId} kind="outbound" item={outbound} tripCountries={tripCountries} />
+      <JourneyLeg tripId={tripId} kind="return" item={ret} tripCountries={tripCountries} />
     </div>
   );
 }
 
 function JourneyLeg({
-  tripId, kind, item,
-}: { tripId: string; kind: "outbound" | "return"; item: JourneyItem | undefined }) {
+  tripId, kind, item, tripCountries,
+}: { tripId: string; kind: "outbound" | "return"; item: JourneyItem | undefined; tripCountries: string[] }) {
   const { t } = useTranslation();
   const meta = (item?.meta ?? null) as TransportMeta | null;
   const legs = meta?.legs ?? [];
@@ -241,6 +273,7 @@ function JourneyLeg({
     <TransportDialog
       tripId={tripId}
       kind={kind}
+      tripCountries={tripCountries}
       existing={item ? { id: item.id, meta } : undefined}
       trigger={
         <button
@@ -338,10 +371,12 @@ function JourneyLeg({
 }
 
 function LodgingsBlock({
-  tripId: _tripId, lodgings, onDelete,
+  tripId, lodgings, tripCities, tripCountries, onDelete,
 }: {
   tripId: string;
-  lodgings: Array<JourneyItem & { kind: string }>;
+  lodgings: Array<ItemRow>;
+  tripCities: Array<{ name: string; country: string }>;
+  tripCountries: string[];
   onDelete: (id: string) => void;
 }) {
   const { t } = useTranslation();
@@ -353,7 +388,14 @@ function LodgingsBlock({
       </h3>
       <div className="space-y-2">
         {lodgings.map((l) => (
-          <LodgingCard key={l.id} item={l} onDelete={() => onDelete(l.id)} />
+          <LodgingCard
+            key={l.id}
+            item={l}
+            tripId={tripId}
+            tripCities={tripCities}
+            tripCountries={tripCountries}
+            onDelete={() => onDelete(l.id)}
+          />
         ))}
       </div>
     </section>
@@ -361,12 +403,24 @@ function LodgingsBlock({
 }
 
 function LodgingCard({
-  item, onDelete,
-}: { item: JourneyItem; onDelete: () => void }) {
+  item, onDelete, tripId, tripCities, tripCountries,
+}: {
+  item: ItemRow;
+  onDelete: () => void;
+  tripId: string;
+  tripCities: Array<{ name: string; country: string }>;
+  tripCountries: string[];
+}) {
   const { t } = useTranslation();
   const photo = useCityPhoto(item.location);
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-border/40 text-white shadow-soft">
+    <AddItemDialog
+      tripId={tripId}
+      tripCities={tripCities}
+      tripCountries={tripCountries}
+      existing={item}
+      trigger={
+    <button type="button" className="relative block w-full overflow-hidden rounded-2xl border border-border/40 text-left text-white shadow-soft transition hover:brightness-110">
       <div className="absolute inset-0">
         {photo ? (
           <img src={photo} alt="" className="h-full w-full object-cover" />
@@ -386,11 +440,18 @@ function LodgingCard({
             {item.end_at && ` → ${fmtDT(item.end_at)}`}
           </p>
         </div>
-        <Button variant="ghost" size="icon" onClick={onDelete} className="text-white hover:bg-white/10 hover:text-white">
+        <span
+          role="button"
+          tabIndex={0}
+          onClick={(e) => { e.stopPropagation(); e.preventDefault(); onDelete(); }}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-white hover:bg-white/10"
+        >
           <Trash2 className="h-3.5 w-3.5" />
-        </Button>
+        </span>
       </div>
-    </div>
+    </button>
+      }
+    />
   );
 }
 
@@ -470,11 +531,13 @@ function TransportDialog({
   kind,
   existing,
   trigger,
+  tripCountries = [],
 }: {
   tripId: string;
   kind: "outbound" | "return";
   existing?: { id: string; meta: TransportMeta | null };
   trigger: React.ReactNode;
+  tripCountries?: string[];
 }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
@@ -586,11 +649,23 @@ function TransportDialog({
                 <div className="grid gap-2 sm:grid-cols-2">
                   <div className="space-y-1">
                     <Label className="text-xs">{fromLabel}</Label>
-                    <Input value={leg.from} onChange={(e) => updateLeg(i, { from: e.target.value })} />
+                    <HubCombobox
+                      mode={mode}
+                      countries={tripCountries}
+                      value={leg.from}
+                      onChange={(v) => updateLeg(i, { from: v })}
+                      placeholder={fromLabel}
+                    />
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs">{toLabel}</Label>
-                    <Input value={leg.to} onChange={(e) => updateLeg(i, { to: e.target.value })} />
+                    <HubCombobox
+                      mode={mode}
+                      countries={tripCountries}
+                      value={leg.to}
+                      onChange={(v) => updateLeg(i, { to: v })}
+                      placeholder={toLabel}
+                    />
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs">Partenza <span className="opacity-60">(opzionale)</span></Label>
@@ -680,25 +755,35 @@ function AddItemDialog({
   trigger,
   tripCities = [],
   tripCountries = [],
+  existing,
 }: {
   tripId: string;
   defaultKind?: (typeof ITEM_KINDS)[number];
   trigger?: React.ReactNode;
   tripCities?: Array<{ name: string; country: string }>;
   tripCountries?: string[];
+  existing?: ItemRow;
 }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
-  const fn = useServerFn(createItem);
+  const createFn = useServerFn(createItem);
+  const updateFn = useServerFn(updateItem);
+  const delFn = useServerFn(deleteItem);
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({
-    kind: defaultKind,
-    title: "",
-    location: "",
-    start_at: "",
-    end_at: "",
-    notes: "",
+  const seedForm = () => ({
+    kind: (existing?.kind as (typeof ITEM_KINDS)[number]) ?? defaultKind,
+    title: existing?.title ?? "",
+    location: existing?.location ?? "",
+    start_at: existing?.start_at ? existing.start_at.slice(0, 16) : "",
+    end_at: existing?.end_at ? existing.end_at.slice(0, 16) : "",
+    notes: existing?.notes ?? "",
   });
+  const [form, setForm] = useState(seedForm);
+  // Re-seed when reopening so swapping the underlying item updates the form.
+  function handleOpenChange(v: boolean) {
+    if (v) setForm(seedForm());
+    setOpen(v);
+  }
   const [locOpen, setLocOpen] = useState(false);
   const [locQuery, setLocQuery] = useState("");
 
@@ -723,34 +808,52 @@ function AddItemDialog({
   const matchExtras = (q ? extras.filter((c) => c.name.toLowerCase().includes(q)) : extras).slice(0, 200);
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         {trigger ?? (
           <Button className="rounded-full"><Plus className="mr-1.5 h-4 w-4" />{t("add_item")}</Button>
         )}
       </DialogTrigger>
       <DialogContent>
-        <DialogHeader><DialogTitle>{t("add_item")}</DialogTitle></DialogHeader>
+        <DialogHeader>
+          <DialogTitle>{existing ? t("edit_trip") : t("add_item")}</DialogTitle>
+        </DialogHeader>
         <form
           className="space-y-4"
           onSubmit={async (e) => {
             e.preventDefault();
             try {
-              await fn({
-                data: {
-                  trip_id: tripId,
-                  kind: form.kind,
-                  title: form.title,
-                  location: form.location || null,
-                  start_at: form.start_at || null,
-                  end_at: form.end_at || null,
-                  notes: form.notes || null,
-                  position: 0,
-                },
-              });
+              if (existing) {
+                await updateFn({
+                  data: {
+                    id: existing.id,
+                    patch: {
+                      kind: form.kind,
+                      title: form.title,
+                      location: form.location || null,
+                      start_at: form.start_at || null,
+                      end_at: form.end_at || null,
+                      notes: form.notes || null,
+                    },
+                  },
+                });
+              } else {
+                await createFn({
+                  data: {
+                    trip_id: tripId,
+                    kind: form.kind,
+                    title: form.title,
+                    location: form.location || null,
+                    start_at: form.start_at || null,
+                    end_at: form.end_at || null,
+                    notes: form.notes || null,
+                    position: 0,
+                  },
+                });
+              }
               qc.invalidateQueries({ queryKey: ["items", tripId] });
               setOpen(false);
-              setForm({ ...form, title: "", location: "", start_at: "", end_at: "", notes: "" });
+              if (!existing) setForm({ ...form, title: "", location: "", start_at: "", end_at: "", notes: "" });
             } catch (err) {
               toast.error(err instanceof Error ? err.message : t("error_generic"));
             }
@@ -876,9 +979,25 @@ function AddItemDialog({
             <Label>{t("notes")}</Label>
             <Textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
           </div>
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>{t("cancel")}</Button>
-            <Button type="submit">{t("save")}</Button>
+          <div className="flex items-center justify-between gap-2">
+            {existing ? (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={async () => {
+                  if (!confirm(t("delete_confirm"))) return;
+                  await delFn({ data: { id: existing.id } });
+                  qc.invalidateQueries({ queryKey: ["items", tripId] });
+                  setOpen(false);
+                }}
+              >
+                <Trash2 className="mr-1.5 h-3.5 w-3.5" /> {t("delete_confirm") ? "Elimina" : "Delete"}
+              </Button>
+            ) : <span />}
+            <div className="flex gap-2">
+              <Button type="button" variant="ghost" onClick={() => setOpen(false)}>{t("cancel")}</Button>
+              <Button type="submit">{t("save")}</Button>
+            </div>
           </div>
         </form>
       </DialogContent>
@@ -889,4 +1008,103 @@ function AddItemDialog({
 function fmtDT(s: string) {
   const d = new Date(s);
   return d.toLocaleString(undefined, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+function HubCombobox({
+  mode, countries, value, onChange, placeholder,
+}: {
+  mode: TransportMode;
+  countries: string[];
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [showAll, setShowAll] = useState(false);
+  const supports = mode === "plane" || mode === "train" || mode === "bus" || mode === "ferry";
+
+  if (!supports || countries.length === 0) {
+    return (
+      <Input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+      />
+    );
+  }
+
+  const major: Hub[] = hubsForMode(mode, countries, false);
+  const all: Hub[] = hubsForMode(mode, countries, true);
+  const list: Hub[] = showAll ? all : major;
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? all.filter((h) =>
+        [h.name, h.city, h.code].filter(Boolean).join(" ").toLowerCase().includes(q),
+      )
+    : list;
+  const hiddenCount = all.length - major.length;
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button type="button" variant="outline" className="w-full justify-between font-normal">
+          <span className={cn("truncate", !value && "text-muted-foreground")}>
+            {value || placeholder || "Seleziona"}
+          </span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+        <Command shouldFilter={false}>
+          <CommandInput placeholder="Cerca o digita…" value={query} onValueChange={setQuery} />
+          <CommandList className="max-h-72">
+            {filtered.length === 0 && !query && <CommandEmpty>Nessuna opzione</CommandEmpty>}
+            {query && (
+              <CommandGroup heading="Personalizzato">
+                <CommandItem
+                  onSelect={() => { onChange(query.trim()); setOpen(false); }}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  <span>Usa "{query.trim()}"</span>
+                </CommandItem>
+              </CommandGroup>
+            )}
+            {filtered.length > 0 && (
+              <CommandGroup heading={showAll || query ? "Tutte le opzioni" : "Principali"}>
+                {filtered.map((h, i) => {
+                  const label = formatHub(h);
+                  const sel = value === label;
+                  return (
+                    <CommandItem
+                      key={`${h.code ?? ""}-${h.name}-${i}`}
+                      value={`${h.code ?? ""}-${h.name}`}
+                      onSelect={() => { onChange(label); setOpen(false); }}
+                    >
+                      <Check className={cn("mr-2 h-4 w-4", sel ? "opacity-100" : "opacity-0")} />
+                      <span className="min-w-0 truncate">
+                        <span className="font-medium">{h.name}</span>
+                        {h.code && <span className="ml-1.5 text-xs opacity-70">({h.code})</span>}
+                        {h.city && h.city !== h.name && (
+                          <span className="ml-1.5 text-xs opacity-60">· {h.city}</span>
+                        )}
+                      </span>
+                    </CommandItem>
+                  );
+                })}
+              </CommandGroup>
+            )}
+            {!query && !showAll && hiddenCount > 0 && (
+              <CommandGroup>
+                <CommandItem onSelect={() => setShowAll(true)}>
+                  <ChevronsUpDown className="mr-2 h-4 w-4" />
+                  <span>Visualizza altri ({hiddenCount})</span>
+                </CommandItem>
+              </CommandGroup>
+            )}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
 }
