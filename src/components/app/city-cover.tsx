@@ -11,6 +11,7 @@ export function CityCover({
   gradient,
   className,
   rounded,
+  overlay,
 }: {
   // Legacy: previously triggered a Wikipedia lookup. Kept as an optional
   // hint so existing call sites compile; not used for rendering.
@@ -19,7 +20,12 @@ export function CityCover({
   gradient?: string | null;
   className?: string;
   rounded?: string;
+  /** Apply the dark legibility overlay. Defaults to `true` when a photo
+   * is shown and `false` for flag-gradient backgrounds (which already
+   * provide enough contrast on their own). */
+  overlay?: boolean;
 }) {
+  const showOverlay = overlay ?? Boolean(src);
   return (
     <div className={`absolute inset-0 overflow-hidden ${rounded ?? ""}`}>
       {src ? (
@@ -39,7 +45,7 @@ export function CityCover({
           <MapPin className="h-7 w-7 text-white/70" />
         </div>
       )}
-      <div className="absolute inset-0 bg-card-overlay" />
+      {showOverlay && <div className="absolute inset-0 bg-card-overlay" />}
     </div>
   );
 }
