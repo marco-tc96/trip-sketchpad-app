@@ -45,13 +45,25 @@ export function TripMap({
   // country. This way pins always show, even for cities saved before the
   // coordinate was captured.
   const enrichedCities = useMemo<MapCity[]>(() => {
+    const normalize = (s: string) =>
+      s
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/\s+(city|town|village)$/i, "")
+        .trim();
     return cities.map((c) => {
       if (typeof c.lat === "number" && typeof c.lng === "number") return c;
       const iso = (c.country || "").toUpperCase();
       if (!iso || !c.name) return c;
-      const match = (City.getCitiesOfCountry(iso) ?? []).find(
-        (x) => x.name.toLowerCase() === c.name.toLowerCase(),
-      );
+      const pool = City.getCitiesOfCountry(iso) ?? [];
+      const needle = normalize(c.name);
+      const candidates = pool.filter((x) => normalize(x.name) === needle);
+      // Prefer the most populated / first match for the exact normalized name.
+      const match =
+        candidates[0] ||
+        pool.find((x) => normalize(x.name).startsWith(needle)) ||
+        pool.find((x) => normalize(x.name).includes(needle));
       const lat = match?.latitude ? Number(match.latitude) : NaN;
       const lng = match?.longitude ? Number(match.longitude) : NaN;
       if (Number.isFinite(lat) && Number.isFinite(lng)) {

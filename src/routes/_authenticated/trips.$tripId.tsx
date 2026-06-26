@@ -143,7 +143,7 @@ function TripLayout() {
       />
       {/* Header-only focal media (photo or map), centered, fades into the
           gradient below the first information block. */}
-      {(coverType === "photo" || coverType === "map") && (
+      {coverType === "photo" && (
         <div
           aria-hidden
           className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[58vh] overflow-hidden"
@@ -154,19 +154,15 @@ function TripLayout() {
               "linear-gradient(to bottom, black 0%, black 60%, transparent 100%)",
           }}
         >
-          {coverType === "map" ? (
-            <TripMap cities={cities} countries={countries} className="absolute inset-0 h-full w-full" />
-          ) : (
-            <CoverContent
-              tripId={tripId}
-              coverType={coverType}
-              coverUrl={tripRow.cover_url ?? null}
-              cities={cities}
-              gradient={autoGradient}
-              signedPhoto={signedPhoto}
-              setSignedPhoto={setSignedPhoto}
-            />
-          )}
+          <CoverContent
+            tripId={tripId}
+            coverType={coverType}
+            coverUrl={tripRow.cover_url ?? null}
+            cities={cities}
+            gradient={autoGradient}
+            signedPhoto={signedPhoto}
+            setSignedPhoto={setSignedPhoto}
+          />
         </div>
       )}
 
@@ -186,7 +182,7 @@ function TripLayout() {
         </>
       )}
 
-      <main className="relative z-10 mx-auto max-w-5xl px-4 pb-12 pt-4">
+      <main className="relative z-10 mx-auto flex min-h-screen max-w-5xl flex-col px-4 pb-12 pt-4">
         <div className="flex items-center justify-between gap-2">
           <Link
             to="/trips"
@@ -248,12 +244,12 @@ function TripLayout() {
 
         {/* Map of visited cities sits in the free space between the cover
             selector row and the title/info block. */}
-        <div className="relative mt-4 h-[24vh] overflow-hidden rounded-2xl sm:h-[28vh]">
+        <div className="relative my-4 min-h-[40vh] flex-1 overflow-hidden rounded-2xl">
           <TripMap
             cities={cities}
             countries={countries}
             className="absolute inset-0 h-full w-full"
-            noTiles
+            noTiles={coverType !== "map"}
             compact
           />
         </div>

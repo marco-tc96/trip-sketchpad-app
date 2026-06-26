@@ -24,6 +24,7 @@ import { citiesOfCountry, flagOf } from "@/lib/country-data";
 import { cn } from "@/lib/utils";
 import { useCityPhoto } from "@/hooks/use-city-photo";
 import { hubsForMode, formatHub, type Hub, HUBS } from "@/lib/transport-hubs";
+import { useRemoteHubs, modeToKind } from "@/hooks/use-remote-hubs";
 
 type ItemRow = {
   id: string;
@@ -1097,6 +1098,14 @@ function HubCombobox({
   if (q && filtered.length === 0) {
     filtered = globalHubs.filter(matchQuery).slice(0, 50);
   }
+  // Worldwide on-demand search (OpenStreetMap Nominatim). Kicks in when
+  // typing 2+ chars so the user can find any airport / station / port /
+  // bus terminal globally, not just the curated table.
+  const kind = modeToKind(mode);
+  const remote = useRemoteHubs(kind, value);
+  const remoteHubs: Hub[] = (remote.data ?? []).filter(
+    (r) => !filtered.some((f) => (f.code && r.code && f.code === r.code) || f.name.toLowerCase() === r.name.toLowerCase()),
+  );
   const hiddenCount = all.length - major.length;
 
   return (
@@ -1109,7 +1118,7 @@ function HubCombobox({
         onChange={(e) => { onChange(e.target.value); setOpen(true); }}
         autoComplete="off"
       />
-      {open && (filtered.length > 0 || hiddenCount > 0) && (
+      {open && (filtered.length > 0 || hiddenCount > 0 || (q && (remoteHubs.length > 0 || remote.isFetching))) && (
         <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-72 overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
           {filtered.length === 0 && !q && (
             <div className="px-2 py-1.5 text-xs text-muted-foreground">Nessuna opzione</div>
@@ -1141,6 +1150,36 @@ function HubCombobox({
                 );
               })}
             </div>
+          )}
+          {q && remoteHubs.length > 0 && (
+            <div className="border-t border-border/60 py-1">
+              <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                Risultati globali
+              </p>
+              {remoteHubs.map((h, i) => {
+                const label = formatHub(h);
+                return (
+                  <button
+                    type="button"
+                    key={`remote-${h.code ?? ""}-${h.name}-${i}`}
+                    onMouseDown={(e) => { e.preventDefault(); onChange(label); setOpen(false); }}
+                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                  >
+                    <Check className="h-4 w-4 shrink-0 opacity-0" />
+                    <span className="min-w-0 flex-1 truncate">
+                      <span className="font-medium">{h.name}</span>
+                      {h.code && <span className="ml-1.5 text-xs opacity-70">({h.code})</span>}
+                      {h.city && h.city !== h.name && (
+                        <span className="ml-1.5 text-xs opacity-60">· {h.city}</span>
+                      )}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {q && remote.isFetching && remoteHubs.length === 0 && (
+            <div className="px-2 py-1.5 text-xs text-muted-foreground">Ricerca globale…</div>
           )}
           {!q && !showAll && hiddenCount > 0 && (
             <button
