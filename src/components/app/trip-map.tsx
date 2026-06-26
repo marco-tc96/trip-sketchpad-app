@@ -32,10 +32,14 @@ export function TripMap({
   cities,
   countries,
   className,
+  noTiles,
+  compact,
 }: {
   cities: MapCity[];
   countries?: string[];
   className?: string;
+  noTiles?: boolean;
+  compact?: boolean;
 }) {
   const points = useMemo<[number, number][]>(
     () =>
@@ -83,8 +87,15 @@ export function TripMap({
       zoomControl={false}
       className={className}
       style={{ background: "transparent" }}
+      dragging={!compact}
+      doubleClickZoom={!compact}
+      touchZoom={!compact}
+      boxZoom={!compact}
+      keyboard={!compact}
     >
-      <TileLayer url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" />
+      {!noTiles && (
+        <TileLayer url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" />
+      )}
       {cities
         .filter(
           (c): c is Required<Pick<MapCity, "lat" | "lng">> & MapCity =>
