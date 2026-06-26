@@ -125,11 +125,11 @@ function TripLayout() {
   ];
 
   return (
-    <div className="relative min-h-screen">
+    <div className="relative min-h-screen isolate">
       {/* Full-bleed cover background that fades into the page */}
       <div
         aria-hidden
-        className="pointer-events-none fixed inset-x-0 top-0 -z-10 h-[70vh] overflow-hidden"
+        className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[70vh] overflow-hidden"
       >
         {coverType === "color" ? (
           <div
@@ -160,7 +160,7 @@ function TripLayout() {
         <div className="absolute inset-x-0 bottom-0 top-1/3 bg-gradient-to-b from-transparent via-background/70 to-background" />
       </div>
 
-      <main className="mx-auto max-w-5xl px-4 pb-12 pt-4">
+      <main className="relative z-10 mx-auto max-w-5xl px-4 pb-12 pt-4">
         <div className="flex items-center justify-between gap-2">
           <Link
             to="/trips"
