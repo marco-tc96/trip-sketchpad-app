@@ -1,7 +1,7 @@
 import { createFileRoute, Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowLeft, Trash2, Image as ImageIcon, Map as MapIcon, Sparkles, Upload, Palette, Check } from "lucide-react";
+import { ArrowLeft, Trash2, Image as ImageIcon, Map as MapIcon, Sparkles, Upload, Palette, Check, Pencil, X, Plus, ChevronsUpDown } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useEffect, useRef, useState } from "react";
@@ -9,6 +9,11 @@ import { getTrip, deleteTrip, updateTrip } from "@/lib/trips.functions";
 import { getProfile } from "@/lib/profile.functions";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { FxAverageWidget } from "@/components/app/fx-avg-widget";
 import { CityCover } from "@/components/app/city-cover";
 import { TripMap } from "@/components/app/trip-map";
@@ -16,7 +21,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "@tanstack/react-router";
-import { countryNameLocalized } from "@/lib/country-data";
+import { countryNameLocalized, citiesOfCountry, flagOf } from "@/lib/country-data";
 
 export const Route = createFileRoute("/_authenticated/trips/$tripId")({
   component: TripLayout,
@@ -50,10 +55,13 @@ function TripLayout() {
     cover_bg?: string | null;
     countries?: string[];
     cities?: Array<{ name: string; country: string; lat?: number; lng?: number }>;
+    trip_type?: "vacation" | "business";
   };
   const coverType = (tripRow.cover_type ?? "auto") as "auto" | "map" | "photo" | "color";
   const cities = Array.isArray(tripRow.cities) ? tripRow.cities : [];
   const countries = Array.isArray(tripRow.countries) ? tripRow.countries : [];
+  const tripType = (tripRow.trip_type ?? "vacation") as "vacation" | "business";
+  const [editOpen, setEditOpen] = useState(false);
   const lang = i18n.language || "it";
   const localizedCountry = countries[0]
     ? countryNameLocalized(countries[0], lang)
@@ -211,6 +219,9 @@ function TripLayout() {
               fallback={trip.data.fx_rate_fallback}
             />
           )}
+          <Button variant="ghost" size="icon" onClick={() => setEditOpen(true)} aria-label={t("edit_trip")}>
+            <Pencil className="h-4 w-4" />
+          </Button>
           <Button
             variant="ghost"
             size="icon"
@@ -253,7 +264,210 @@ function TripLayout() {
 
         <div className="pt-6"><Outlet /></div>
       </main>
+
+      <EditTripDialog
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        initialTitle={trip.data.title}
+        initialCities={cities}
+        initialCountries={countries}
+        initialType={tripType}
+        onSave={async (patch) => {
+          try {
+            await updateFn({ data: { id: tripId, patch } });
+            qc.invalidateQueries({ queryKey: ["trip", tripId] });
+            qc.invalidateQueries({ queryKey: ["trips"] });
+            toast.success(t("saved"));
+            setEditOpen(false);
+          } catch (e) {
+            toast.error(e instanceof Error ? e.message : t("error_generic"));
+          }
+        }}
+      />
     </div>
+  );
+}
+
+function EditTripDialog({
+  open,
+  onOpenChange,
+  initialTitle,
+  initialCities,
+  initialCountries,
+  initialType,
+  onSave,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  initialTitle: string;
+  initialCities: Array<{ name: string; country: string; lat?: number; lng?: number }>;
+  initialCountries: string[];
+  initialType: "vacation" | "business";
+  onSave: (patch: {
+    title: string;
+    cities: Array<{ name: string; country: string; lat?: number; lng?: number }>;
+    destination: string | null;
+    trip_type: "vacation" | "business";
+  }) => Promise<void>;
+}) {
+  const { t } = useTranslation();
+  const [title, setTitle] = useState(initialTitle);
+  const [cities, setCities] = useState(initialCities);
+  const [type, setType] = useState(initialType);
+  const [query, setQuery] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setTitle(initialTitle);
+      setCities(initialCities);
+      setType(initialType);
+      setQuery("");
+    }
+  }, [open, initialTitle, initialCities, initialType]);
+
+  const available = initialCountries.flatMap((iso) => citiesOfCountry(iso));
+  const q = query.trim().toLowerCase();
+  const filtered = (q ? available.filter((c) => c.name.toLowerCase().includes(q)) : available).slice(0, 200);
+  const canAddCustom =
+    q.length >= 2 && !filtered.some((c) => c.name.toLowerCase() === q);
+
+  function toggle(c: { name: string; country: string; lat?: number; lng?: number }) {
+    setCities((prev) => {
+      const key = `${c.country}|${c.name}`;
+      const exists = prev.some((x) => `${x.country}|${x.name}` === key);
+      return exists
+        ? prev.filter((x) => `${x.country}|${x.name}` !== key)
+        : [...prev, c];
+    });
+  }
+
+  function addCustom() {
+    const name = query.trim();
+    if (!name) return;
+    const iso = initialCountries[0];
+    if (!iso) return;
+    toggle({ name, country: iso });
+    setQuery("");
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t("edit_trip")}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label>{t("title")}</Label>
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>{t("trip_type")}</Label>
+            <div className="inline-flex rounded-full border border-border bg-secondary/40 p-1 text-sm">
+              {(["vacation", "business"] as const).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setType(v)}
+                  className={cn(
+                    "rounded-full px-3 py-1.5 transition",
+                    type === v
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {t(v)}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>{t("destination")}</Label>
+            <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+              <PopoverTrigger asChild>
+                <Button type="button" variant="outline" className="w-full justify-between font-normal">
+                  <span className="truncate text-muted-foreground">
+                    {cities.length === 0 ? "Cerca o aggiungi città…" : `${cities.length} città`}
+                  </span>
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                <Command shouldFilter={false}>
+                  <CommandInput placeholder="Digita per cercare…" value={query} onValueChange={setQuery} />
+                  <CommandList className="max-h-72">
+                    {filtered.length === 0 && !canAddCustom && <CommandEmpty>Nessuna città</CommandEmpty>}
+                    {canAddCustom && (
+                      <CommandGroup heading="Aggiungi">
+                        <CommandItem onSelect={addCustom}>
+                          <Plus className="mr-2 h-4 w-4" />
+                          <span>Aggiungi "{query.trim()}"</span>
+                        </CommandItem>
+                      </CommandGroup>
+                    )}
+                    {filtered.length > 0 && (
+                      <CommandGroup>
+                        {filtered.map((c) => {
+                          const key = `${c.country}|${c.name}`;
+                          const sel = cities.some((x) => `${x.country}|${x.name}` === key);
+                          return (
+                            <CommandItem
+                              key={key}
+                              value={key}
+                              onSelect={() => toggle({ name: c.name, country: c.country, lat: c.lat, lng: c.lng })}
+                            >
+                              <Check className={cn("mr-2 h-4 w-4", sel ? "opacity-100" : "opacity-0")} />
+                              {initialCountries.length > 1 && <span className="mr-2">{flagOf(c.country)}</span>}
+                              <span>{c.name}</span>
+                            </CommandItem>
+                          );
+                        })}
+                      </CommandGroup>
+                    )}
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+            {cities.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 pt-2">
+                {cities.map((c) => (
+                  <Badge key={`${c.country}|${c.name}`} variant="secondary" className="gap-1 rounded-full pl-2 pr-1">
+                    <span>{flagOf(c.country)}</span>
+                    <span>{c.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => toggle(c)}
+                      className="ml-0.5 grid h-4 w-4 place-items-center rounded-full hover:bg-foreground/10"
+                      aria-label={`Remove ${c.name}`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>{t("cancel")}</Button>
+          <Button
+            onClick={() =>
+              onSave({
+                title: title.trim() || initialTitle,
+                cities,
+                destination: cities[0]?.name ?? null,
+                trip_type: type,
+              })
+            }
+          >
+            {t("save")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
