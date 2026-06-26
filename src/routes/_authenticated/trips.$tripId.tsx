@@ -63,9 +63,12 @@ function TripLayout() {
   const countries = Array.isArray(tripRow.countries) ? tripRow.countries : [];
   const tripType = (tripRow.trip_type ?? "vacation") as "vacation" | "business";
   const lang = i18n.language || "it";
-  const localizedCountry = countries[0]
-    ? countryNameLocalized(countries[0], lang)
+  const localizedCountries = countries.length > 0
+    ? countries.map((iso) => countryNameLocalized(iso, lang)).join(" · ")
     : tripRow.country;
+  const citiesLabel = cities.length > 0
+    ? cities.map((c) => c.name).join(" · ")
+    : tripRow.destination;
 
   async function setCoverType(next: "auto" | "map" | "photo" | "color") {
     if (next === coverType) return;
@@ -194,7 +197,7 @@ function TripLayout() {
         {/* Spacer so the title sits below the cover focal area */}
         <div className="h-[26vh] sm:h-[30vh]" />
 
-        <header className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4 rounded-3xl border border-border/50 bg-background/70 p-4 shadow-soft backdrop-blur sm:flex sm:items-center sm:justify-between">
+        <header className="flex flex-col gap-3 rounded-3xl border border-border/50 bg-background/70 p-4 shadow-soft backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div className="flex min-w-0 items-center gap-3">
           <span className="relative grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-secondary text-3xl">
             {trip.data.cover_emoji ?? "✈️"}
@@ -213,13 +216,15 @@ function TripLayout() {
             <h1 className="truncate font-serif text-2xl font-bold tracking-tight sm:text-3xl">
               {trip.data.title}
             </h1>
-            <p className="truncate text-sm text-muted-foreground">
-              {[trip.data.destination, localizedCountry].filter(Boolean).join(", ")}
-              {" · "}{fmt(trip.data.start_date)} → {fmt(trip.data.end_date)}
+            <p className="text-sm text-muted-foreground line-clamp-2">
+              {[citiesLabel, localizedCountries].filter(Boolean).join(", ")}
+            </p>
+            <p className="truncate text-xs text-muted-foreground/80">
+              {fmt(trip.data.start_date)} → {fmt(trip.data.end_date)}
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2 sm:flex-nowrap">
           {profile.data && (
             <FxAverageWidget
               from={profile.data.home_currency}

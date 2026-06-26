@@ -115,7 +115,7 @@ function Section({
         </h2>
         <span className="text-xs text-muted-foreground/70">· {trips.length}</span>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 sm:mx-0 sm:grid sm:snap-none sm:grid-cols-3 sm:overflow-visible sm:px-0 sm:pb-0 lg:grid-cols-4">
         {trips.map((tr) => (
           <TripCard key={tr.id} trip={tr} />
         ))}
@@ -163,7 +163,7 @@ function TripCard({ trip }: { trip: Trip }) {
     <Link
       to="/trips/$tripId"
       params={{ tripId: trip.id }}
-      className="group relative flex aspect-[3/4] flex-col justify-end overflow-hidden rounded-3xl border border-border shadow-soft transition hover:-translate-y-1 hover:shadow-xl"
+      className="group relative flex aspect-[9/16] w-[58vw] max-w-[240px] shrink-0 snap-start flex-col justify-end overflow-hidden rounded-2xl border border-border shadow-soft transition hover:-translate-y-1 hover:shadow-xl sm:w-auto sm:max-w-none"
     >
       <CityCover
         query={coverQuery}

@@ -5,7 +5,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Plane, Train, Car, Bike, Ship, Hotel, MapPin, Sparkles, ArrowRightLeft,
-  PlaneTakeoff, PlaneLanding, Plus, Trash2,
+  PlaneTakeoff, PlaneLanding, Plus, Trash2, ChevronsUpDown, Check,
 } from "lucide-react";
 import { toast } from "sonner";
 import { listItems, createItem, deleteItem, ITEM_KINDS } from "@/lib/itinerary.functions";
@@ -17,9 +17,10 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { citiesOfCountry, flagOf } from "@/lib/country-data";
+import { cn } from "@/lib/utils";
 
 type TransportMode = "car" | "moto" | "train" | "plane" | "ferry";
 type Leg = {
@@ -59,6 +60,47 @@ const KIND_ICON: Record<(typeof ITEM_KINDS)[number], React.ComponentType<{ class
   other: MapPin,
 };
 
+// Category groups → visual palettes. Transport and lodging share the warm
+// gradient family; activities use a distinct emerald palette; meta items
+// (zone/other) stay neutral.
+const TRANSPORT_KINDS = new Set([
+  "outbound", "return", "flight", "train", "car", "moto", "ferry", "transfer",
+]);
+function kindClasses(kind: string) {
+  if (TRANSPORT_KINDS.has(kind)) {
+    return {
+      card: "bg-warm-gradient text-primary-foreground border-transparent",
+      sub: "text-primary-foreground/85",
+      dot: "bg-primary text-primary-foreground",
+    };
+  }
+  if (kind === "lodging") {
+    return {
+      card: "bg-gradient-to-br from-indigo-500 to-blue-600 text-white border-transparent",
+      sub: "text-white/85",
+      dot: "bg-indigo-500 text-white",
+    };
+  }
+  if (kind === "activity") {
+    return {
+      card: "bg-gradient-to-br from-emerald-500 to-teal-600 text-white border-transparent",
+      sub: "text-white/85",
+      dot: "bg-emerald-600 text-white",
+    };
+  }
+  return {
+    card: "bg-muted/40 text-foreground",
+    sub: "text-muted-foreground",
+    dot: "bg-muted-foreground/50 text-background",
+  };
+}
+
+function lodgingDateRange(it: { start_at: string | null; end_at: string | null }) {
+  const s = it.start_at?.slice(0, 10) ?? null;
+  const e = it.end_at?.slice(0, 10) ?? s;
+  return { s, e };
+}
+
 function TimelineView() {
   const { tripId } = Route.useParams();
   const { t } = useTranslation();
@@ -73,6 +115,12 @@ function TimelineView() {
   if (!trip.data) return <p className="text-sm text-muted-foreground">{t("loading")}</p>;
 
   const mode = trip.data.timeline_mode;
+  const tripRow = trip.data as typeof trip.data & {
+    cities?: Array<{ name: string; country: string }>;
+    countries?: string[];
+  };
+  const tripCities = Array.isArray(tripRow.cities) ? tripRow.cities : [];
+  const tripCountries = Array.isArray(tripRow.countries) ? tripRow.countries : [];
   const list = items.data ?? [];
   const outbound = list.find((i) => i.kind === "outbound");
   const ret = list.find((i) => i.kind === "return");
@@ -134,30 +182,30 @@ function TimelineView() {
           >{t("by_activities")}</button>
         </div>
         <div className="ml-auto">
-          <AddItemDialog tripId={tripId} />
+          <AddItemDialog tripId={tripId} tripCities={tripCities} tripCountries={tripCountries} />
         </div>
       </div>
 
       <div className="space-y-3">
         <TripBoundaryRow item={outbound} tripId={tripId} kind="outbound" />
 
-        {lodgings.length > 0 && (
+        {mode === "activities" && lodgings.length > 0 && (
           <section className="rounded-2xl border border-border bg-card p-4 shadow-soft">
             <h3 className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
               <Hotel className="h-3.5 w-3.5" /> Alloggi ({lodgings.length})
             </h3>
             <ul className="space-y-2">
               {lodgings.map((it) => (
-                <li key={it.id} className="flex items-start justify-between gap-3 rounded-xl bg-muted/40 p-3">
+                <li key={it.id} className="flex items-start justify-between gap-3 rounded-xl bg-gradient-to-br from-indigo-500 to-blue-600 p-3 text-white">
                   <div className="min-w-0">
                     <p className="truncate font-medium">{it.title}</p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-xs text-white/80">
                       {it.location && <>{it.location} · </>}
                       {it.start_at && fmtDT(it.start_at)}
                       {it.end_at && ` → ${fmtDT(it.end_at)}`}
                     </p>
                   </div>
-                  <Button variant="ghost" size="icon" onClick={() => del(it.id)}>
+                  <Button variant="ghost" size="icon" onClick={() => del(it.id)} className="text-white hover:bg-white/10 hover:text-white">
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
                 </li>
@@ -166,33 +214,90 @@ function TimelineView() {
           </section>
         )}
 
-        {groups.map((g) => (
+        {groups.map((g) => {
+          // Compute lodging context for this day in days mode.
+          let dayIso: string | null = null;
+          if (mode === "days") {
+            const idx = groups.indexOf(g);
+            const start = new Date(trip.data!.start_date);
+            dayIso = new Date(start.getTime() + idx * 86400000).toISOString().slice(0, 10);
+          }
+          const activeLodgings = dayIso
+            ? lodgings.filter((l) => {
+                const { s, e } = lodgingDateRange(l);
+                return s && e && s <= dayIso! && dayIso! <= e;
+              })
+            : [];
+          return (
           <section key={g.label} className="rounded-2xl border border-border bg-card p-4 shadow-soft">
             <h3 className="mb-3 text-xs font-semibold uppercase tracking-widest text-muted-foreground">{g.label}</h3>
+            {mode === "days" && activeLodgings.map((l) => {
+              const { s, e } = lodgingDateRange(l);
+              const isFirst = s === dayIso;
+              const isLast = e === dayIso;
+              if (isFirst) {
+                return (
+                  <div key={`lodg-${l.id}`} className={cn(
+                    "mb-3 flex items-start justify-between gap-3 rounded-2xl bg-gradient-to-br from-indigo-500 to-blue-600 p-3 text-white shadow-soft",
+                    !isLast && "rounded-b-none",
+                  )}>
+                    <div className="flex min-w-0 items-start gap-2">
+                      <Hotel className="mt-0.5 h-4 w-4 shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-[10px] uppercase tracking-widest opacity-80">{t("lodging")}</p>
+                        <p className="truncate font-medium">{l.title}</p>
+                        <p className="text-xs text-white/80">
+                          {l.location && <>{l.location} · </>}
+                          {l.start_at && fmtDT(l.start_at)}
+                          {l.end_at && ` → ${fmtDT(l.end_at)}`}
+                        </p>
+                      </div>
+                    </div>
+                    <Button variant="ghost" size="icon" onClick={() => del(l.id)} className="text-white hover:bg-white/10 hover:text-white">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                );
+              }
+              // Continuation band — small slim strip
+              return (
+                <div
+                  key={`lodg-${l.id}`}
+                  aria-hidden
+                  className={cn(
+                    "mb-3 h-2 bg-gradient-to-br from-indigo-500 to-blue-600",
+                    isLast ? "rounded-b-2xl" : "",
+                    "rounded-t-none",
+                  )}
+                  title={l.title}
+                />
+              );
+            })}
             {g.items.filter((it) => mode !== "days" || it.kind !== "lodging").length === 0 ? (
-              <p className="text-sm text-muted-foreground">—</p>
+              activeLodgings.length === 0 ? <p className="text-sm text-muted-foreground">—</p> : null
             ) : (
               <ul className="relative space-y-3 border-l border-border pl-5">
                 {g.items.filter((it) => mode !== "days" || it.kind !== "lodging").map((it) => {
                   const Icon = KIND_ICON[it.kind as keyof typeof KIND_ICON] ?? MapPin;
+                  const cls = kindClasses(it.kind);
                   return (
                     <li key={it.id} className="relative">
-                      <span className="absolute -left-[27px] top-1 grid h-5 w-5 place-items-center rounded-full bg-primary text-primary-foreground">
+                      <span className={cn("absolute -left-[27px] top-1 grid h-5 w-5 place-items-center rounded-full", cls.dot)}>
                         <Icon className="h-3 w-3" />
                       </span>
-                      <div className="flex items-start gap-3">
+                      <div className={cn("flex items-start gap-3 rounded-xl p-3", cls.card)}>
                         <div className="min-w-0 flex-1">
-                          <p className="text-xs uppercase tracking-wider text-muted-foreground">{t(it.kind)}</p>
+                          <p className={cn("text-[10px] uppercase tracking-widest", cls.sub)}>{t(it.kind)}</p>
                           <p className="truncate font-medium">{it.title}</p>
-                          <p className="text-xs text-muted-foreground">
+                          <p className={cn("text-xs", cls.sub)}>
                             {it.location && <>{it.location} · </>}
                             {it.start_at && fmtDT(it.start_at)}
                             {it.end_at && ` → ${fmtDT(it.end_at)}`}
                           </p>
-                          {it.notes && <p className="mt-1 text-xs text-muted-foreground">{it.notes}</p>}
+                          {it.notes && <p className={cn("mt-1 text-xs", cls.sub)}>{it.notes}</p>}
                           <TransportLegs meta={it.meta as TransportMeta | null} />
                         </div>
-                        <Button variant="ghost" size="icon" onClick={() => del(it.id)}>
+                        <Button variant="ghost" size="icon" onClick={() => del(it.id)} className={cn(TRANSPORT_KINDS.has(it.kind) || it.kind === "activity" ? "text-white hover:bg-white/10 hover:text-white" : "")}>
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </div>
@@ -202,7 +307,8 @@ function TimelineView() {
               </ul>
             )}
           </section>
-        ))}
+          );
+        })}
 
         <TripBoundaryRow item={ret} tripId={tripId} kind="return" />
       </div>
@@ -504,11 +610,17 @@ function TransportDialog({
 }
 
 function AddItemDialog({
-  tripId, defaultKind = "activity", trigger,
+  tripId,
+  defaultKind = "activity",
+  trigger,
+  tripCities = [],
+  tripCountries = [],
 }: {
   tripId: string;
   defaultKind?: (typeof ITEM_KINDS)[number];
   trigger?: React.ReactNode;
+  tripCities?: Array<{ name: string; country: string }>;
+  tripCountries?: string[];
 }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
@@ -522,6 +634,29 @@ function AddItemDialog({
     end_at: "",
     notes: "",
   });
+  const [locOpen, setLocOpen] = useState(false);
+  const [locQuery, setLocQuery] = useState("");
+
+  const CATEGORY_BUTTONS: { kind: (typeof ITEM_KINDS)[number]; icon: React.ComponentType<{ className?: string }>; label: string }[] = [
+    { kind: "activity", icon: Sparkles, label: t("activity") },
+    { kind: "lodging", icon: Hotel, label: t("lodging") },
+    { kind: "flight", icon: Plane, label: t("flight") },
+    { kind: "train", icon: Train, label: t("train") },
+    { kind: "car", icon: Car, label: t("car") },
+    { kind: "ferry", icon: Ship, label: t("ferry") },
+    { kind: "transfer", icon: ArrowRightLeft, label: t("transfer") },
+    { kind: "zone", icon: MapPin, label: t("zone") },
+    { kind: "other", icon: MapPin, label: t("other") },
+  ];
+
+  // Suggested locations: trip cities first, then other cities from same countries.
+  const tripKeys = new Set(tripCities.map((c) => `${c.country}|${c.name}`));
+  const countryCities = tripCountries.flatMap((iso) => citiesOfCountry(iso));
+  const extras = countryCities.filter((c) => !tripKeys.has(`${c.country}|${c.name}`));
+  const q = locQuery.trim().toLowerCase();
+  const matchTrip = (q ? tripCities.filter((c) => c.name.toLowerCase().includes(q)) : tripCities);
+  const matchExtras = (q ? extras.filter((c) => c.name.toLowerCase().includes(q)) : extras).slice(0, 200);
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -558,12 +693,27 @@ function AddItemDialog({
         >
           <div className="space-y-1.5">
             <Label>{t("category")}</Label>
-            <Select value={form.kind} onValueChange={(v) => setForm({ ...form, kind: v as (typeof ITEM_KINDS)[number] })}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {ITEM_KINDS.map((k) => <SelectItem key={k} value={k}>{t(k)}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-5">
+              {CATEGORY_BUTTONS.map(({ kind, icon: Icon, label }) => {
+                const active = form.kind === kind;
+                return (
+                  <button
+                    type="button"
+                    key={kind}
+                    onClick={() => setForm({ ...form, kind })}
+                    className={cn(
+                      "flex flex-col items-center gap-1 rounded-xl border p-2 text-[11px] transition",
+                      active
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border bg-card hover:bg-muted",
+                    )}
+                  >
+                    <Icon className="h-4 w-4" />
+                    <span className="truncate">{label}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
           <div className="space-y-1.5">
             <Label>{t("title")}</Label>
@@ -571,15 +721,89 @@ function AddItemDialog({
           </div>
           <div className="space-y-1.5">
             <Label>{t("location")}</Label>
-            <Input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} />
+            <Popover open={locOpen} onOpenChange={setLocOpen}>
+              <PopoverTrigger asChild>
+                <Button type="button" variant="outline" className="w-full justify-between font-normal">
+                  <span className={cn("truncate", !form.location && "text-muted-foreground")}>
+                    {form.location || t("location")}
+                  </span>
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                <Command shouldFilter={false}>
+                  <CommandInput placeholder="Cerca o digita…" value={locQuery} onValueChange={setLocQuery} />
+                  <CommandList className="max-h-72">
+                    {matchTrip.length === 0 && matchExtras.length === 0 && !locQuery && (
+                      <CommandEmpty>Nessuna città</CommandEmpty>
+                    )}
+                    {locQuery && (
+                      <CommandGroup heading="Personalizzato">
+                        <CommandItem
+                          onSelect={() => {
+                            setForm({ ...form, location: locQuery.trim() });
+                            setLocOpen(false);
+                          }}
+                        >
+                          <Plus className="mr-2 h-4 w-4" />
+                          <span>Usa "{locQuery.trim()}"</span>
+                        </CommandItem>
+                      </CommandGroup>
+                    )}
+                    {matchTrip.length > 0 && (
+                      <CommandGroup heading="Tappe del viaggio">
+                        {matchTrip.map((c) => {
+                          const sel = form.location === c.name;
+                          return (
+                            <CommandItem
+                              key={`trip-${c.country}-${c.name}`}
+                              value={`trip-${c.country}-${c.name}`}
+                              onSelect={() => {
+                                setForm({ ...form, location: c.name });
+                                setLocOpen(false);
+                              }}
+                            >
+                              <Check className={cn("mr-2 h-4 w-4", sel ? "opacity-100" : "opacity-0")} />
+                              <span className="mr-2">{flagOf(c.country)}</span>
+                              <span>{c.name}</span>
+                            </CommandItem>
+                          );
+                        })}
+                      </CommandGroup>
+                    )}
+                    {matchExtras.length > 0 && (
+                      <CommandGroup heading="Altre città">
+                        {matchExtras.map((c) => {
+                          const sel = form.location === c.name;
+                          return (
+                            <CommandItem
+                              key={`x-${c.country}-${c.name}`}
+                              value={`x-${c.country}-${c.name}`}
+                              onSelect={() => {
+                                setForm({ ...form, location: c.name });
+                                setLocOpen(false);
+                              }}
+                            >
+                              <Check className={cn("mr-2 h-4 w-4", sel ? "opacity-100" : "opacity-0")} />
+                              <span className="mr-2">{flagOf(c.country)}</span>
+                              <span>{c.name}</span>
+                            </CommandItem>
+                          );
+                        })}
+                      </CommandGroup>
+                    )}
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label>{t("starts_at")}</Label>
+              <Label className="text-muted-foreground">{t("starts_at")} <span className="text-xs opacity-70">(opzionale)</span></Label>
               <Input type="datetime-local" value={form.start_at} onChange={(e) => setForm({ ...form, start_at: e.target.value })} />
             </div>
             <div className="space-y-1.5">
-              <Label>{t("ends_at")}</Label>
+              <Label className="text-muted-foreground">{t("ends_at")} <span className="text-xs opacity-70">(opzionale)</span></Label>
               <Input type="datetime-local" value={form.end_at} onChange={(e) => setForm({ ...form, end_at: e.target.value })} />
             </div>
           </div>

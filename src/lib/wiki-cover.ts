@@ -3,6 +3,10 @@
 
 const memory = new Map<string, string | null>();
 
+// Reject Wikipedia thumbnails that are obviously flags, maps, coats of arms or
+// other non-photographic page imagery — we only want photos for trip covers.
+const BAD_IMAGE = /flag_of|flag-|\/flag|map_of|locator|location_map|orthographic|coat_of_arms|emblem|seal_of|globe/i;
+
 function localePrefix(): string {
   if (typeof navigator === "undefined") return "en";
   const lang = (navigator.language || "en").slice(0, 2).toLowerCase();
@@ -22,7 +26,10 @@ async function lookupOnce(lang: string, query: string): Promise<string | null> {
       originalimage?: { source: string };
       thumbnail?: { source: string };
     };
-    return j.originalimage?.source ?? j.thumbnail?.source ?? null;
+    const candidate = j.originalimage?.source ?? j.thumbnail?.source ?? null;
+    if (!candidate) return null;
+    if (BAD_IMAGE.test(candidate)) return null;
+    return candidate;
   } catch {
     return null;
   }
