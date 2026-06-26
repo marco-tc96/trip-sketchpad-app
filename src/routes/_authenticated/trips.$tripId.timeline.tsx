@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { listItems, createItem, deleteItem, ITEM_KINDS } from "@/lib/itinerary.functions";
-import { getTrip, updateTrip } from "@/lib/trips.functions";
+import { getTrip } from "@/lib/trips.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -202,24 +202,47 @@ function TimelineView() {
   );
 }
 
-function TripBoundaryRow({
-  item, tripId, kind,
-}: {
-  item:
-    | {
-        id: string;
-        title: string;
-        location: string | null;
-        start_at: string | null;
-        meta?: unknown;
-      }
-    | undefined;
-  tripId: string;
-  kind: "outbound" | "return";
-}) {
+type JourneyItem = {
+  id: string;
+  title: string;
+  location: string | null;
+  start_at: string | null;
+  end_at: string | null;
+  meta?: unknown;
+};
+
+function JourneyBlock({
+  tripId, outbound, ret,
+}: { tripId: string; outbound: JourneyItem | undefined; ret: JourneyItem | undefined }) {
+  return (
+    <div className="space-y-3">
+      <JourneyLeg tripId={tripId} kind="outbound" item={outbound} />
+      <JourneyLeg tripId={tripId} kind="return" item={ret} />
+    </div>
+  );
+}
+
+function JourneyLeg({
+  tripId, kind, item,
+}: { tripId: string; kind: "outbound" | "return"; item: JourneyItem | undefined }) {
   const { t } = useTranslation();
   const meta = (item?.meta ?? null) as TransportMeta | null;
+  const legs = meta?.legs ?? [];
+  const first = legs[0];
+  const last = legs[legs.length - 1] ?? first;
+  const fromCity = first?.from?.trim() ?? "";
+  const toCity = last?.to?.trim() ?? "";
+  const fromPhoto = useCityPhoto(fromCity);
+  const toPhoto = useCityPhoto(toCity);
   const ModeIcon = meta?.mode ? MODE_ICON[meta.mode] : kind === "outbound" ? PlaneTakeoff : PlaneLanding;
+
+  const departISO = first?.depart_at || item?.start_at || null;
+  const arriveISO = last?.arrive_at || item?.end_at || null;
+  const countdown = kind === "outbound" && departISO ? daysUntil(departISO) : null;
+  const stops = legs.length > 1
+    ? legs.slice(0, -1).map((l) => l.to).filter(Boolean).join(", ")
+    : "";
+
   return (
     <TransportDialog
       tripId={tripId}
@@ -228,24 +251,186 @@ function TripBoundaryRow({
       trigger={
         <button
           type="button"
-          className="flex w-full items-start gap-3 rounded-2xl border border-primary/40 bg-warm-gradient p-4 text-left text-primary-foreground shadow-soft transition hover:brightness-105"
+          className="relative block w-full overflow-hidden rounded-2xl border border-border/40 text-left shadow-soft transition hover:brightness-110"
         >
-          <ModeIcon className="mt-0.5 h-5 w-5 shrink-0" />
-          <div className="min-w-0 flex-1">
-            <p className="text-xs uppercase tracking-widest opacity-90">{t(kind)}</p>
-            {item ? (
-              <>
-                <p className="truncate font-medium">{item.title}</p>
-                <TransportLegs meta={meta} compact />
-              </>
+          {/* Split background: from-city photo on the left, to-city photo on the right */}
+          <div className="absolute inset-0">
+            {fromPhoto ? (
+              <img src={fromPhoto} alt="" className="absolute inset-y-0 left-0 h-full w-1/2 object-cover" />
             ) : (
-              <p className="text-sm underline opacity-95">{t("add_item")}</p>
+              <div className="absolute inset-y-0 left-0 h-full w-1/2 bg-gradient-to-br from-slate-700 to-slate-900" />
+            )}
+            {toPhoto ? (
+              <img src={toPhoto} alt="" className="absolute inset-y-0 right-0 h-full w-1/2 object-cover" />
+            ) : (
+              <div className="absolute inset-y-0 right-0 h-full w-1/2 bg-gradient-to-bl from-slate-700 to-slate-900" />
+            )}
+            <div className="absolute inset-0 bg-slate-950/70" />
+            <div className="absolute inset-y-0 left-1/4 right-1/4 bg-gradient-to-r from-transparent via-slate-950/80 to-transparent" />
+          </div>
+
+          <div className="relative p-4 text-white">
+            <div className="flex items-start justify-between gap-2 text-[11px] font-semibold uppercase tracking-widest">
+              <span className="opacity-90">{t(kind)}</span>
+              {departISO && <span className="opacity-80">{fmtDate(departISO)}</span>}
+            </div>
+
+            {!item ? (
+              <p className="mt-6 pb-4 text-center text-sm underline opacity-90">{t("add_item")}</p>
+            ) : (
+              <>
+                <div className="mt-1 flex flex-wrap items-center gap-x-2 text-xs opacity-90">
+                  {first?.carrier && <span className="font-medium">{first.carrier}</span>}
+                  <span className="opacity-80">
+                    {legs.map((l) => l.number).filter(Boolean).join(" + ")}
+                  </span>
+                </div>
+
+                <div className="mt-4 grid grid-cols-[1fr_auto_1fr] items-end gap-3">
+                  <div>
+                    <p className="font-mono text-2xl font-bold tabular-nums tracking-tight sm:text-3xl">
+                      {fmtTime(departISO) || "—"}
+                    </p>
+                    <div className="mt-1 inline-block rounded-md bg-white/10 px-2 py-0.5 font-mono text-[11px] font-semibold tracking-[0.2em]">
+                      {codeOf(fromCity)}
+                    </div>
+                    <p className="mt-0.5 truncate text-[11px] opacity-80">{fromCity || "—"}</p>
+                  </div>
+
+                  <div className="flex flex-col items-center gap-1 text-[11px] opacity-90">
+                    <span>{durationLabel(departISO, arriveISO) || "—"}</span>
+                    <div className="flex items-center gap-1">
+                      <span className="h-1.5 w-1.5 rounded-full bg-white/70" />
+                      <span className="h-px w-8 bg-white/40 sm:w-12" />
+                      <ModeIcon className="h-4 w-4" />
+                      <span className="h-px w-8 bg-white/40 sm:w-12" />
+                      <span className="h-1.5 w-1.5 rounded-full bg-white/70" />
+                    </div>
+                    {legs.length > 1 ? (
+                      <span className="rounded-full bg-amber-400/90 px-2 text-[10px] font-semibold text-amber-950">
+                        {legs.length - 1} scalo{legs.length > 2 ? "i" : ""}
+                        {stops ? ` · ${stops}` : ""}
+                      </span>
+                    ) : (
+                      <span className="opacity-70">diretto</span>
+                    )}
+                  </div>
+
+                  <div className="text-right">
+                    <p className="font-mono text-2xl font-bold tabular-nums tracking-tight sm:text-3xl">
+                      {fmtTime(arriveISO) || "—"}
+                      <span className="ml-1 align-top text-xs text-amber-300">{plusDays(departISO, arriveISO)}</span>
+                    </p>
+                    <div className="mt-1 inline-block rounded-md bg-white/10 px-2 py-0.5 font-mono text-[11px] font-semibold tracking-[0.2em]">
+                      {codeOf(toCity)}
+                    </div>
+                    <p className="mt-0.5 truncate text-[11px] opacity-80">{toCity || "—"}</p>
+                  </div>
+                </div>
+
+                {countdown !== null && countdown > 0 && (
+                  <div className="mt-3 inline-flex items-center gap-1 rounded-full bg-amber-400/90 px-2.5 py-1 text-[11px] font-semibold text-amber-950">
+                    <Clock className="h-3 w-3" />
+                    Fra {countdown} {countdown === 1 ? "giorno" : "giorni"} alla partenza
+                  </div>
+                )}
+              </>
             )}
           </div>
         </button>
       }
     />
   );
+}
+
+function LodgingsBlock({
+  tripId: _tripId, lodgings, onDelete,
+}: {
+  tripId: string;
+  lodgings: Array<JourneyItem & { kind: string }>;
+  onDelete: (id: string) => void;
+}) {
+  const { t } = useTranslation();
+  if (lodgings.length === 0) return null;
+  return (
+    <section className="space-y-2">
+      <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+        {t("lodging")}
+      </h3>
+      <div className="space-y-2">
+        {lodgings.map((l) => (
+          <LodgingCard key={l.id} item={l} onDelete={() => onDelete(l.id)} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function LodgingCard({
+  item, onDelete,
+}: { item: JourneyItem; onDelete: () => void }) {
+  const { t } = useTranslation();
+  const photo = useCityPhoto(item.location);
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-border/40 text-white shadow-soft">
+      <div className="absolute inset-0">
+        {photo ? (
+          <img src={photo} alt="" className="h-full w-full object-cover" />
+        ) : (
+          <div className="absolute inset-0 bg-gradient-to-br from-indigo-500 to-blue-600" />
+        )}
+        <div className="absolute inset-0 bg-slate-950/55" />
+      </div>
+      <div className="relative flex items-start gap-3 p-4">
+        <Hotel className="mt-0.5 h-5 w-5 shrink-0" />
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] uppercase tracking-widest opacity-80">{t("lodging")}</p>
+          <p className="truncate font-medium">{item.title}</p>
+          <p className="text-xs opacity-85">
+            {item.location && <>{item.location} · </>}
+            {item.start_at && fmtDT(item.start_at)}
+            {item.end_at && ` → ${fmtDT(item.end_at)}`}
+          </p>
+        </div>
+        <Button variant="ghost" size="icon" onClick={onDelete} className="text-white hover:bg-white/10 hover:text-white">
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function codeOf(city: string): string {
+  const clean = city.replace(/[^a-zA-Z]/g, "");
+  return (clean.slice(0, 3) || "···").toUpperCase();
+}
+function fmtTime(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+function fmtDate(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, { weekday: "short", day: "2-digit", month: "short" });
+}
+function durationLabel(a: string | null, b: string | null): string {
+  if (!a || !b) return "";
+  const ms = new Date(b).getTime() - new Date(a).getTime();
+  if (!Number.isFinite(ms) || ms <= 0) return "";
+  const h = Math.floor(ms / 3_600_000);
+  const m = Math.floor((ms % 3_600_000) / 60_000);
+  return `${h}h ${m}m`;
+}
+function plusDays(a: string | null, b: string | null): string {
+  if (!a || !b) return "";
+  const da = new Date(a); da.setHours(0, 0, 0, 0);
+  const db = new Date(b); db.setHours(0, 0, 0, 0);
+  const diff = Math.round((db.getTime() - da.getTime()) / 86_400_000);
+  return diff > 0 ? `+${diff}` : "";
+}
+function daysUntil(iso: string): number {
+  const now = new Date(); now.setHours(0, 0, 0, 0);
+  const d = new Date(iso); d.setHours(0, 0, 0, 0);
+  return Math.round((d.getTime() - now.getTime()) / 86_400_000);
 }
 
 type TransportMeta = { mode?: TransportMode; legs?: Leg[] };
