@@ -740,25 +740,35 @@ function AddItemDialog({
   trigger,
   tripCities = [],
   tripCountries = [],
+  existing,
 }: {
   tripId: string;
   defaultKind?: (typeof ITEM_KINDS)[number];
   trigger?: React.ReactNode;
   tripCities?: Array<{ name: string; country: string }>;
   tripCountries?: string[];
+  existing?: ItemRow;
 }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
-  const fn = useServerFn(createItem);
+  const createFn = useServerFn(createItem);
+  const updateFn = useServerFn(updateItem);
+  const delFn = useServerFn(deleteItem);
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({
-    kind: defaultKind,
-    title: "",
-    location: "",
-    start_at: "",
-    end_at: "",
-    notes: "",
+  const seedForm = () => ({
+    kind: (existing?.kind as (typeof ITEM_KINDS)[number]) ?? defaultKind,
+    title: existing?.title ?? "",
+    location: existing?.location ?? "",
+    start_at: existing?.start_at ? existing.start_at.slice(0, 16) : "",
+    end_at: existing?.end_at ? existing.end_at.slice(0, 16) : "",
+    notes: existing?.notes ?? "",
   });
+  const [form, setForm] = useState(seedForm);
+  // Re-seed when reopening so swapping the underlying item updates the form.
+  function handleOpenChange(v: boolean) {
+    if (v) setForm(seedForm());
+    setOpen(v);
+  }
   const [locOpen, setLocOpen] = useState(false);
   const [locQuery, setLocQuery] = useState("");
 
@@ -783,34 +793,52 @@ function AddItemDialog({
   const matchExtras = (q ? extras.filter((c) => c.name.toLowerCase().includes(q)) : extras).slice(0, 200);
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         {trigger ?? (
           <Button className="rounded-full"><Plus className="mr-1.5 h-4 w-4" />{t("add_item")}</Button>
         )}
       </DialogTrigger>
       <DialogContent>
-        <DialogHeader><DialogTitle>{t("add_item")}</DialogTitle></DialogHeader>
+        <DialogHeader>
+          <DialogTitle>{existing ? t("edit_trip") : t("add_item")}</DialogTitle>
+        </DialogHeader>
         <form
           className="space-y-4"
           onSubmit={async (e) => {
             e.preventDefault();
             try {
-              await fn({
-                data: {
-                  trip_id: tripId,
-                  kind: form.kind,
-                  title: form.title,
-                  location: form.location || null,
-                  start_at: form.start_at || null,
-                  end_at: form.end_at || null,
-                  notes: form.notes || null,
-                  position: 0,
-                },
-              });
+              if (existing) {
+                await updateFn({
+                  data: {
+                    id: existing.id,
+                    patch: {
+                      kind: form.kind,
+                      title: form.title,
+                      location: form.location || null,
+                      start_at: form.start_at || null,
+                      end_at: form.end_at || null,
+                      notes: form.notes || null,
+                    },
+                  },
+                });
+              } else {
+                await createFn({
+                  data: {
+                    trip_id: tripId,
+                    kind: form.kind,
+                    title: form.title,
+                    location: form.location || null,
+                    start_at: form.start_at || null,
+                    end_at: form.end_at || null,
+                    notes: form.notes || null,
+                    position: 0,
+                  },
+                });
+              }
               qc.invalidateQueries({ queryKey: ["items", tripId] });
               setOpen(false);
-              setForm({ ...form, title: "", location: "", start_at: "", end_at: "", notes: "" });
+              if (!existing) setForm({ ...form, title: "", location: "", start_at: "", end_at: "", notes: "" });
             } catch (err) {
               toast.error(err instanceof Error ? err.message : t("error_generic"));
             }
@@ -936,9 +964,25 @@ function AddItemDialog({
             <Label>{t("notes")}</Label>
             <Textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
           </div>
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>{t("cancel")}</Button>
-            <Button type="submit">{t("save")}</Button>
+          <div className="flex items-center justify-between gap-2">
+            {existing ? (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={async () => {
+                  if (!confirm(t("delete_confirm"))) return;
+                  await delFn({ data: { id: existing.id } });
+                  qc.invalidateQueries({ queryKey: ["items", tripId] });
+                  setOpen(false);
+                }}
+              >
+                <Trash2 className="mr-1.5 h-3.5 w-3.5" /> {t("delete_confirm") ? "Elimina" : "Delete"}
+              </Button>
+            ) : <span />}
+            <div className="flex gap-2">
+              <Button type="button" variant="ghost" onClick={() => setOpen(false)}>{t("cancel")}</Button>
+              <Button type="submit">{t("save")}</Button>
+            </div>
           </div>
         </form>
       </DialogContent>
