@@ -1090,14 +1090,40 @@ function HubCombobox({
   // the user picks a station/airport in a city we didn't preload.
   const allCountries = Object.keys(HUBS);
   const globalHubs: Hub[] = hubsForMode(mode, allCountries, true);
-  const list: Hub[] = showAll ? all : major;
+  // For planes, augment with the global OpenFlights/OurAirports dataset
+  // (lazy-loaded) so EVERY airport of the trip countries is selectable.
+  const isPlane = mode === "plane";
+  const airportsData = useAirports(isPlane);
+  const countryAirports: Hub[] = isPlane
+    ? airportsForCountries(airportsData, countries)
+    : [];
+  // Merge curated hubs first (better localized names) then dataset airports
+  // dedup'd by IATA/name.
+  const mergedAll: Hub[] = (() => {
+    if (!isPlane) return all;
+    const seen = new Set<string>();
+    const out: Hub[] = [];
+    for (const h of [...all, ...countryAirports]) {
+      const k = `${h.code ?? ""}|${h.name.toLowerCase()}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(h);
+    }
+    return out;
+  })();
+  const mergedMajor: Hub[] = isPlane
+    ? mergedAll.filter((h) => h.major).slice(0, 30)
+    : major;
+  const list: Hub[] = showAll ? mergedAll : mergedMajor;
   const q = value.trim().toLowerCase();
   const matchQuery = (h: Hub) =>
     [h.name, h.city, h.code].filter(Boolean).join(" ").toLowerCase().includes(q) &&
     formatHub(h).toLowerCase() !== q;
-  let filtered: Hub[] = q ? all.filter(matchQuery) : list;
+  let filtered: Hub[] = q ? mergedAll.filter(matchQuery).slice(0, 80) : list;
   if (q && filtered.length === 0) {
-    filtered = globalHubs.filter(matchQuery).slice(0, 50);
+    const fromCurated = globalHubs.filter(matchQuery);
+    const fromDataset = isPlane ? airportsSearch(airportsData, value, 50) : [];
+    filtered = [...fromCurated, ...fromDataset].slice(0, 80);
   }
   // Worldwide on-demand search (OpenStreetMap Nominatim). Kicks in when
   // typing 2+ chars so the user can find any airport / station / port /
@@ -1107,7 +1133,7 @@ function HubCombobox({
   const remoteHubs: Hub[] = (remote.data ?? []).filter(
     (r) => !filtered.some((f) => (f.code && r.code && f.code === r.code) || f.name.toLowerCase() === r.name.toLowerCase()),
   );
-  const hiddenCount = all.length - major.length;
+  const hiddenCount = mergedAll.length - mergedMajor.length;
 
   return (
     <div className="relative">
