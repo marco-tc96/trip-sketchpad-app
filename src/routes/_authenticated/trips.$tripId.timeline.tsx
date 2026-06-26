@@ -1009,3 +1009,102 @@ function fmtDT(s: string) {
   const d = new Date(s);
   return d.toLocaleString(undefined, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 }
+
+function HubCombobox({
+  mode, countries, value, onChange, placeholder,
+}: {
+  mode: TransportMode;
+  countries: string[];
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [showAll, setShowAll] = useState(false);
+  const supports = mode === "plane" || mode === "train" || mode === "bus" || mode === "ferry";
+
+  if (!supports || countries.length === 0) {
+    return (
+      <Input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+      />
+    );
+  }
+
+  const major: Hub[] = hubsForMode(mode, countries, false);
+  const all: Hub[] = hubsForMode(mode, countries, true);
+  const list: Hub[] = showAll ? all : major;
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? all.filter((h) =>
+        [h.name, h.city, h.code].filter(Boolean).join(" ").toLowerCase().includes(q),
+      )
+    : list;
+  const hiddenCount = all.length - major.length;
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button type="button" variant="outline" className="w-full justify-between font-normal">
+          <span className={cn("truncate", !value && "text-muted-foreground")}>
+            {value || placeholder || "Seleziona"}
+          </span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+        <Command shouldFilter={false}>
+          <CommandInput placeholder="Cerca o digita…" value={query} onValueChange={setQuery} />
+          <CommandList className="max-h-72">
+            {filtered.length === 0 && !query && <CommandEmpty>Nessuna opzione</CommandEmpty>}
+            {query && (
+              <CommandGroup heading="Personalizzato">
+                <CommandItem
+                  onSelect={() => { onChange(query.trim()); setOpen(false); }}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  <span>Usa "{query.trim()}"</span>
+                </CommandItem>
+              </CommandGroup>
+            )}
+            {filtered.length > 0 && (
+              <CommandGroup heading={showAll || query ? "Tutte le opzioni" : "Principali"}>
+                {filtered.map((h, i) => {
+                  const label = formatHub(h);
+                  const sel = value === label;
+                  return (
+                    <CommandItem
+                      key={`${h.code ?? ""}-${h.name}-${i}`}
+                      value={`${h.code ?? ""}-${h.name}`}
+                      onSelect={() => { onChange(label); setOpen(false); }}
+                    >
+                      <Check className={cn("mr-2 h-4 w-4", sel ? "opacity-100" : "opacity-0")} />
+                      <span className="min-w-0 truncate">
+                        <span className="font-medium">{h.name}</span>
+                        {h.code && <span className="ml-1.5 text-xs opacity-70">({h.code})</span>}
+                        {h.city && h.city !== h.name && (
+                          <span className="ml-1.5 text-xs opacity-60">· {h.city}</span>
+                        )}
+                      </span>
+                    </CommandItem>
+                  );
+                })}
+              </CommandGroup>
+            )}
+            {!query && !showAll && hiddenCount > 0 && (
+              <CommandGroup>
+                <CommandItem onSelect={() => setShowAll(true)}>
+                  <ChevronsUpDown className="mr-2 h-4 w-4" />
+                  <span>Visualizza altri ({hiddenCount})</span>
+                </CommandItem>
+              </CommandGroup>
+            )}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
