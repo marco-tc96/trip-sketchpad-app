@@ -134,6 +134,26 @@ function TripLayout() {
   ];
 
   const isPhoto = coverType === "photo";
+  // When `coverType === "photo"`, we reuse `cover_bg` to persist the focal
+  // point as `"<x>% <y>%"`. Keeps the column from needing a migration.
+  const initialFocal =
+    isPhoto && tripRow.cover_bg && /^\d+(\.\d+)?%\s+\d+(\.\d+)?%$/.test(tripRow.cover_bg)
+      ? tripRow.cover_bg
+      : "50% 50%";
+  const [focal, setFocal] = useState<string>(initialFocal);
+  useEffect(() => {
+    setFocal(initialFocal);
+  }, [initialFocal]);
+
+  async function saveFocal(next: string) {
+    if (!isPhoto) return;
+    try {
+      await updateFn({ data: { id: tripId, patch: { cover_bg: next } } });
+      qc.invalidateQueries({ queryKey: ["trip", tripId] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("error_generic"));
+    }
+  }
 
   return (
     <div className="relative min-h-screen isolate">
@@ -149,48 +169,26 @@ function TripLayout() {
               : autoGradient,
         }}
       />
-      {/* In photo mode, override the flag gradient behind the page with a
-          theme-aware solid so the photo fades into dark/light, not into the
-          flag colors. Rendered BEFORE the focal photo so it sits beneath it. */}
+      {/* Full-screen draggable photo cover. Sits fixed behind everything so
+          the header floats over it; user can drag to reposition the focal
+          point. The result is persisted to `cover_bg`. */}
       {isPhoto && (
-        <div aria-hidden className="pointer-events-none fixed inset-0 z-0 bg-background" />
-      )}
-      {/* Header-only focal media (photo), centered, fades into the
-          gradient below the first information block. */}
-      {coverType === "photo" && (
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 z-[1] h-[58vh] overflow-hidden"
-          style={{
-            WebkitMaskImage:
-              "linear-gradient(to bottom, black 0%, black 60%, transparent 100%)",
-            maskImage:
-              "linear-gradient(to bottom, black 0%, black 60%, transparent 100%)",
-          }}
-        >
-          <CoverContent
-            tripId={tripId}
-            coverType={coverType}
-            coverUrl={tripRow.cover_url ?? null}
-            cities={cities}
-            gradient={autoGradient}
-            signedPhoto={signedPhoto}
-            setSignedPhoto={setSignedPhoto}
-          />
-        </div>
-      )}
-
-      {/* Blurred copy of the photo continuing underneath the info blocks. */}
-      {isPhoto && (
-        <PhotoBlurBackdrop
+        <FullScreenPhoto
           tripId={tripId}
           coverUrl={tripRow.cover_url ?? null}
           signedPhoto={signedPhoto}
           setSignedPhoto={setSignedPhoto}
+          focal={focal}
+          onFocalChange={setFocal}
+          onCommit={saveFocal}
         />
       )}
 
-      <main className="relative z-10 mx-auto flex min-h-screen max-w-5xl flex-col px-4 pb-12 pt-4">
+      <main className="relative z-10 mx-auto max-w-5xl px-4 pb-12 pt-4">
+        {/* First viewport: cover + header. Tabs/outlet are pushed below the
+            fold so the trip page opens with the presentation card alone and
+            reveals the rest as the user swipes/scrolls up. */}
+        <section className="flex min-h-[100svh] flex-col">
         <div className="flex items-center justify-between gap-2">
           <Link
             to="/trips"
@@ -330,10 +328,23 @@ function TripLayout() {
           </Button>
         </div>
       </header>
+        {/* Swipe-up hint shown only on the first screen */}
+        <button
+          type="button"
+          onClick={() => {
+            window.scrollTo({ top: window.innerHeight * 0.85, behavior: "smooth" });
+          }}
+          aria-label="Mostra contenuti"
+          className="mx-auto mt-2 inline-flex items-center gap-1 rounded-full bg-background/60 px-3 py-1 text-[11px] text-muted-foreground backdrop-blur transition hover:text-foreground"
+        >
+          <ChevronDown className="h-3.5 w-3.5 animate-bounce" />
+          <span>Scorri per i dettagli</span>
+        </button>
+        </section>
 
       <nav
         aria-label="Sezioni viaggio"
-        className="mt-5 mx-auto flex w-fit items-center gap-1 rounded-full border border-border/60 bg-background/70 p-1 text-xs shadow-soft backdrop-blur"
+        className="mt-8 mx-auto flex w-fit items-center gap-1 rounded-full border border-border/60 bg-background/70 p-1 text-xs shadow-soft backdrop-blur"
       >
         {tabs.map((tab) => {
           const active = tab.exact
