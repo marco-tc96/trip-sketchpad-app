@@ -274,10 +274,10 @@ function TripLayout() {
               title={t(tripType)}
               className={cn(
                 "absolute -bottom-1 -right-1 grid h-6 w-6 place-items-center rounded-full border-2 border-background text-primary-foreground shadow-soft",
-                tripType === "business" ? "bg-slate-700" : "bg-emerald-600",
+                typeColor,
               )}
             >
-              {tripType === "business" ? <Briefcase className="h-3 w-3" /> : <Palmtree className="h-3 w-3" />}
+              <TypeIcon className="h-3 w-3" />
             </span>
           </span>
           <div className="min-w-0">
