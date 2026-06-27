@@ -797,6 +797,7 @@ function TimezoneBadge({
 }) {
   if (!home || destinations.length === 0) return null;
   const dest = destinations[0];
+  if (dest.toUpperCase() === home.toUpperCase()) return null;
   const zoneOf = (iso: string) => {
     const c = Country.getCountryByCode(iso);
     return c?.timezones?.[0]?.zoneName ?? null;
@@ -820,26 +821,42 @@ function TimezoneBadge({
       return null;
     }
   };
+  const abbrOn = (tz: string, d: Date): string | null => {
+    try {
+      const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone: tz,
+        timeZoneName: "short",
+      }).formatToParts(d);
+      return parts.find((p) => p.type === "timeZoneName")?.value ?? null;
+    } catch {
+      return null;
+    }
+  };
   const h = offsetOn(homeZone, when);
   const d = offsetOn(destZone, when);
   if (h == null || d == null) return null;
-  const fmt = (n: number) => {
+  if (Math.abs(d - h) < 0.01) return null;
+  const utcFmt = (n: number) => {
     const s = n >= 0 ? "+" : "−";
     const abs = Math.abs(n);
     const hh = Math.floor(abs);
     const mm = Math.round((abs - hh) * 60);
-    return mm ? `GMT${s}${hh}:${String(mm).padStart(2, "0")}` : `GMT${s}${hh}`;
+    return mm ? `UTC${s}${hh}:${String(mm).padStart(2, "0")}` : `UTC${s}${hh}`;
+  };
+  const label = (tz: string, off: number) => {
+    const abbr = abbrOn(tz, when);
+    const utc = utcFmt(off);
+    // If abbr is just a GMT/UTC form, only show that once.
+    if (!abbr || /^(GMT|UTC)/i.test(abbr)) return utc;
+    return `${abbr} (${utc})`;
   };
   const diff = Math.round((d - h) * 10) / 10;
-  const diffLabel =
-    diff === 0
-      ? "stesso fuso"
-      : `${diff > 0 ? "+" : "−"}${Math.abs(diff)}h`;
+  const diffLabel = `${diff > 0 ? "+" : "−"}${Math.abs(diff)}h`;
   return (
     <div className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background/70 px-2 py-0.5 text-[11px] text-muted-foreground shadow-soft backdrop-blur">
       <Clock className="h-3 w-3" />
       <span className="tabular-nums">
-        {fmt(h)} → {fmt(d)} ({diffLabel})
+        {label(homeZone, h)} → {label(destZone, d)} ({diffLabel})
       </span>
     </div>
   );
