@@ -362,6 +362,8 @@ function TripLayout() {
         initialCountries={countries}
         initialType={tripType}
         initialEmoji={trip.data.cover_emoji ?? "✈️"}
+        initialStartDate={trip.data.start_date}
+        initialEndDate={trip.data.end_date}
         onSave={async (patch) => {
           try {
             await updateFn({ data: { id: tripId, patch } });
