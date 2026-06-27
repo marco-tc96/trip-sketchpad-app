@@ -1,7 +1,7 @@
 import { createFileRoute, Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowLeft, Trash2, Image as ImageIcon, Map as MapIcon, Sparkles, Upload, Palette, Check, Pencil, X, Plus, ChevronsUpDown, Briefcase, Palmtree, LayoutDashboard, CalendarDays, Wallet, Clock } from "lucide-react";
+import { ArrowLeft, Trash2, Image as ImageIcon, Map as MapIcon, Sparkles, Upload, Palette, Check, Pencil, X, Plus, ChevronsUpDown, Briefcase, Palmtree, Footprints, LayoutDashboard, CalendarDays, Wallet, Clock, ChevronDown, Move } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useEffect, useRef, useState } from "react";
@@ -58,12 +58,20 @@ function TripLayout() {
     cover_bg?: string | null;
     countries?: string[];
     cities?: Array<{ name: string; country: string; lat?: number; lng?: number }>;
-    trip_type?: "vacation" | "business";
+    trip_type?: "vacation" | "business" | "daytrip";
   };
   const coverType = (tripRow.cover_type ?? "auto") as "auto" | "map" | "photo" | "color";
   const cities = Array.isArray(tripRow.cities) ? tripRow.cities : [];
   const countries = Array.isArray(tripRow.countries) ? tripRow.countries : [];
-  const tripType = (tripRow.trip_type ?? "vacation") as "vacation" | "business";
+  const tripType = (tripRow.trip_type ?? "vacation") as "vacation" | "business" | "daytrip";
+  const typeIcon = tripType === "business" ? Briefcase : tripType === "daytrip" ? Footprints : Palmtree;
+  const typeColor =
+    tripType === "business"
+      ? "bg-slate-700"
+      : tripType === "daytrip"
+        ? "bg-amber-600"
+        : "bg-emerald-600";
+  const TypeIcon = typeIcon;
   const lang = i18n.language || "it";
   const localizedCountries = countries.length > 0
     ? countries.map((iso) => countryNameLocalized(iso, lang)).join(" · ")
@@ -126,6 +134,26 @@ function TripLayout() {
   ];
 
   const isPhoto = coverType === "photo";
+  // When `coverType === "photo"`, we reuse `cover_bg` to persist the focal
+  // point as `"<x>% <y>%"`. Keeps the column from needing a migration.
+  const initialFocal =
+    isPhoto && tripRow.cover_bg && /^\d+(\.\d+)?%\s+\d+(\.\d+)?%$/.test(tripRow.cover_bg)
+      ? tripRow.cover_bg
+      : "50% 50%";
+  const [focal, setFocal] = useState<string>(initialFocal);
+  useEffect(() => {
+    setFocal(initialFocal);
+  }, [initialFocal]);
+
+  async function saveFocal(next: string) {
+    if (!isPhoto) return;
+    try {
+      await updateFn({ data: { id: tripId, patch: { cover_bg: next } } });
+      qc.invalidateQueries({ queryKey: ["trip", tripId] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("error_generic"));
+    }
+  }
 
   return (
     <div className="relative min-h-screen isolate">
@@ -141,48 +169,26 @@ function TripLayout() {
               : autoGradient,
         }}
       />
-      {/* In photo mode, override the flag gradient behind the page with a
-          theme-aware solid so the photo fades into dark/light, not into the
-          flag colors. Rendered BEFORE the focal photo so it sits beneath it. */}
+      {/* Full-screen draggable photo cover. Sits fixed behind everything so
+          the header floats over it; user can drag to reposition the focal
+          point. The result is persisted to `cover_bg`. */}
       {isPhoto && (
-        <div aria-hidden className="pointer-events-none fixed inset-0 z-0 bg-background" />
-      )}
-      {/* Header-only focal media (photo), centered, fades into the
-          gradient below the first information block. */}
-      {coverType === "photo" && (
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 z-[1] h-[58vh] overflow-hidden"
-          style={{
-            WebkitMaskImage:
-              "linear-gradient(to bottom, black 0%, black 60%, transparent 100%)",
-            maskImage:
-              "linear-gradient(to bottom, black 0%, black 60%, transparent 100%)",
-          }}
-        >
-          <CoverContent
-            tripId={tripId}
-            coverType={coverType}
-            coverUrl={tripRow.cover_url ?? null}
-            cities={cities}
-            gradient={autoGradient}
-            signedPhoto={signedPhoto}
-            setSignedPhoto={setSignedPhoto}
-          />
-        </div>
-      )}
-
-      {/* Blurred copy of the photo continuing underneath the info blocks. */}
-      {isPhoto && (
-        <PhotoBlurBackdrop
+        <FullScreenPhoto
           tripId={tripId}
           coverUrl={tripRow.cover_url ?? null}
           signedPhoto={signedPhoto}
           setSignedPhoto={setSignedPhoto}
+          focal={focal}
+          onFocalChange={setFocal}
+          onCommit={saveFocal}
         />
       )}
 
-      <main className="relative z-10 mx-auto flex min-h-screen max-w-5xl flex-col px-4 pb-12 pt-4">
+      <main className="relative z-10 mx-auto max-w-5xl px-4 pb-12 pt-4">
+        {/* First viewport: cover + header. Tabs/outlet are pushed below the
+            fold so the trip page opens with the presentation card alone and
+            reveals the rest as the user swipes/scrolls up. */}
+        <section className="flex min-h-[100svh] flex-col">
         <div className="flex items-center justify-between gap-2">
           <Link
             to="/trips"
@@ -266,10 +272,10 @@ function TripLayout() {
               title={t(tripType)}
               className={cn(
                 "absolute -bottom-1 -right-1 grid h-6 w-6 place-items-center rounded-full border-2 border-background text-primary-foreground shadow-soft",
-                tripType === "business" ? "bg-slate-700" : "bg-emerald-600",
+                typeColor,
               )}
             >
-              {tripType === "business" ? <Briefcase className="h-3 w-3" /> : <Palmtree className="h-3 w-3" />}
+              <TypeIcon className="h-3 w-3" />
             </span>
           </span>
           <div className="min-w-0">
@@ -322,10 +328,23 @@ function TripLayout() {
           </Button>
         </div>
       </header>
+        {/* Swipe-up hint shown only on the first screen */}
+        <button
+          type="button"
+          onClick={() => {
+            window.scrollTo({ top: window.innerHeight * 0.85, behavior: "smooth" });
+          }}
+          aria-label="Mostra contenuti"
+          className="mx-auto mt-2 inline-flex items-center gap-1 rounded-full bg-background/60 px-3 py-1 text-[11px] text-muted-foreground backdrop-blur transition hover:text-foreground"
+        >
+          <ChevronDown className="h-3.5 w-3.5 animate-bounce" />
+          <span>Scorri per i dettagli</span>
+        </button>
+        </section>
 
       <nav
         aria-label="Sezioni viaggio"
-        className="mt-5 mx-auto flex w-fit items-center gap-1 rounded-full border border-border/60 bg-background/70 p-1 text-xs shadow-soft backdrop-blur"
+        className="mt-8 mx-auto flex w-fit items-center gap-1 rounded-full border border-border/60 bg-background/70 p-1 text-xs shadow-soft backdrop-blur"
       >
         {tabs.map((tab) => {
           const active = tab.exact
@@ -397,7 +416,7 @@ function EditTripDialog({
   initialTitle: string;
   initialCities: Array<{ name: string; country: string; lat?: number; lng?: number }>;
   initialCountries: string[];
-  initialType: "vacation" | "business";
+  initialType: "vacation" | "business" | "daytrip";
   initialEmoji: string;
   initialStartDate: string;
   initialEndDate: string;
@@ -405,7 +424,7 @@ function EditTripDialog({
     title: string;
     cities: Array<{ name: string; country: string; lat?: number; lng?: number }>;
     destination: string | null;
-    trip_type: "vacation" | "business";
+    trip_type: "vacation" | "business" | "daytrip";
     cover_emoji: string;
     start_date: string;
     end_date: string;
@@ -519,7 +538,7 @@ function EditTripDialog({
           <div className="space-y-1.5">
             <Label>{t("trip_type")}</Label>
             <div className="inline-flex rounded-full border border-border bg-secondary/40 p-1 text-sm">
-              {(["vacation", "business"] as const).map((v) => (
+              {(["vacation", "business", "daytrip"] as const).map((v) => (
                 <button
                   key={v}
                   type="button"
@@ -892,5 +911,114 @@ function TimezoneBadge({
         {label(homeZone, h)} → {label(destZone, d)} ({diffLabel})
       </span>
     </div>
+  );
+}
+
+function FullScreenPhoto({
+  tripId,
+  coverUrl,
+  signedPhoto,
+  setSignedPhoto,
+  focal,
+  onFocalChange,
+  onCommit,
+}: {
+  tripId: string;
+  coverUrl: string | null;
+  signedPhoto: string | null;
+  setSignedPhoto: (v: string | null) => void;
+  focal: string;
+  onFocalChange: (v: string) => void;
+  onCommit: (v: string) => void;
+}) {
+  useEffect(() => {
+    let cancelled = false;
+    setSignedPhoto(null);
+    if (coverUrl && !/^https?:\/\//i.test(coverUrl)) {
+      supabase.storage
+        .from("trip-covers")
+        .createSignedUrl(coverUrl, 60 * 60)
+        .then(({ data }) => {
+          if (!cancelled) setSignedPhoto(data?.signedUrl ?? null);
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [coverUrl, tripId, setSignedPhoto]);
+  const src = signedPhoto || (coverUrl && /^https?:\/\//i.test(coverUrl) ? coverUrl : null);
+  const startRef = useRef<{ x: number; y: number; fx: number; fy: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
+
+  function parseFocal(v: string): { x: number; y: number } {
+    const m = v.match(/(-?\d+(?:\.\d+)?)%\s+(-?\d+(?:\.\d+)?)%/);
+    return m ? { x: parseFloat(m[1]), y: parseFloat(m[2]) } : { x: 50, y: 50 };
+  }
+
+  function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    if (!src) return;
+    (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+    const f = parseFocal(focal);
+    startRef.current = { x: e.clientX, y: e.clientY, fx: f.x, fy: f.y };
+    setDragging(true);
+  }
+  function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    if (!startRef.current) return;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const dx = ((e.clientX - startRef.current.x) / w) * 100;
+    const dy = ((e.clientY - startRef.current.y) / h) * 100;
+    const nx = Math.max(0, Math.min(100, startRef.current.fx - dx));
+    const ny = Math.max(0, Math.min(100, startRef.current.fy - dy));
+    onFocalChange(`${nx.toFixed(1)}% ${ny.toFixed(1)}%`);
+  }
+  function onPointerUp(e: React.PointerEvent<HTMLDivElement>) {
+    if (!startRef.current) return;
+    (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId);
+    startRef.current = null;
+    setDragging(false);
+    onCommit(focal);
+  }
+
+  if (!src) {
+    return <div aria-hidden className="pointer-events-none fixed inset-0 z-0 bg-background" />;
+  }
+
+  return (
+    <>
+      <div
+        className={cn(
+          "fixed inset-0 z-0 touch-none select-none overflow-hidden",
+          dragging ? "cursor-grabbing" : "cursor-grab",
+        )}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        title="Trascina per centrare"
+      >
+        <img
+          src={src}
+          alt=""
+          draggable={false}
+          className="h-full w-full object-cover"
+          style={{ objectPosition: focal }}
+        />
+        {/* Legibility overlay for content above */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0"
+          style={{
+            background:
+              "linear-gradient(to bottom, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0) 35%, rgba(0,0,0,0) 55%, rgba(0,0,0,0.55) 100%)",
+          }}
+        />
+      </div>
+      <div className="pointer-events-none fixed bottom-4 left-1/2 z-20 -translate-x-1/2 rounded-full bg-black/55 px-3 py-1 text-[11px] text-white backdrop-blur">
+        <span className="inline-flex items-center gap-1">
+          <Move className="h-3 w-3" /> Trascina la foto per centrarla
+        </span>
+      </div>
+    </>
   );
 }
