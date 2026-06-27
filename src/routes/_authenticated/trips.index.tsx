@@ -223,3 +223,22 @@ function TripCard({ trip }: { trip: Trip }) {
 function fmt(d: string) {
   return new Date(d).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "2-digit" });
 }
+
+function TripTypePill({ tripType }: { tripType: "vacation" | "business" | "daytrip" }) {
+  const { t } = useTranslation();
+  const cfg =
+    tripType === "business"
+      ? { bg: "bg-slate-800/70", Icon: Briefcase }
+      : tripType === "daytrip"
+        ? { bg: "bg-amber-700/70", Icon: Footprints }
+        : { bg: "bg-emerald-700/70", Icon: Palmtree };
+  const Icon = cfg.Icon;
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-white backdrop-blur ${cfg.bg}`}
+    >
+      <Icon className="h-3 w-3" />
+      {t(tripType)}
+    </span>
+  );
+}
