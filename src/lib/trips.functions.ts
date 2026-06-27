@@ -28,7 +28,7 @@ const tripInput = z.object({
   timeline_mode: z.enum(["days", "activities"]).default("days"),
   cover_emoji: z.string().max(8).optional().nullable(),
   notes: z.string().max(4000).optional().nullable(),
-  trip_type: z.enum(["vacation", "business"]).optional(),
+  trip_type: z.enum(["vacation", "business", "daytrip"]).optional(),
 });
 
 export const listTrips = createServerFn({ method: "GET" })
