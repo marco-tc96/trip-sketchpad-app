@@ -1,7 +1,7 @@
 import { createFileRoute, Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowLeft, Trash2, Image as ImageIcon, Map as MapIcon, Sparkles, Upload, Palette, Check, Pencil, X, Plus, ChevronsUpDown, Briefcase, Palmtree, LayoutDashboard, CalendarDays, Wallet, Clock } from "lucide-react";
+import { ArrowLeft, Trash2, Image as ImageIcon, Map as MapIcon, Sparkles, Upload, Palette, Check, Pencil, X, Plus, ChevronsUpDown, Briefcase, Palmtree, Footprints, LayoutDashboard, CalendarDays, Wallet, Clock, ChevronDown, Move } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useEffect, useRef, useState } from "react";
@@ -58,12 +58,20 @@ function TripLayout() {
     cover_bg?: string | null;
     countries?: string[];
     cities?: Array<{ name: string; country: string; lat?: number; lng?: number }>;
-    trip_type?: "vacation" | "business";
+    trip_type?: "vacation" | "business" | "daytrip";
   };
   const coverType = (tripRow.cover_type ?? "auto") as "auto" | "map" | "photo" | "color";
   const cities = Array.isArray(tripRow.cities) ? tripRow.cities : [];
   const countries = Array.isArray(tripRow.countries) ? tripRow.countries : [];
-  const tripType = (tripRow.trip_type ?? "vacation") as "vacation" | "business";
+  const tripType = (tripRow.trip_type ?? "vacation") as "vacation" | "business" | "daytrip";
+  const typeIcon = tripType === "business" ? Briefcase : tripType === "daytrip" ? Footprints : Palmtree;
+  const typeColor =
+    tripType === "business"
+      ? "bg-slate-700"
+      : tripType === "daytrip"
+        ? "bg-amber-600"
+        : "bg-emerald-600";
+  const TypeIcon = typeIcon;
   const lang = i18n.language || "it";
   const localizedCountries = countries.length > 0
     ? countries.map((iso) => countryNameLocalized(iso, lang)).join(" · ")
