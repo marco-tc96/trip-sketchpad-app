@@ -913,3 +913,112 @@ function TimezoneBadge({
     </div>
   );
 }
+
+function FullScreenPhoto({
+  tripId,
+  coverUrl,
+  signedPhoto,
+  setSignedPhoto,
+  focal,
+  onFocalChange,
+  onCommit,
+}: {
+  tripId: string;
+  coverUrl: string | null;
+  signedPhoto: string | null;
+  setSignedPhoto: (v: string | null) => void;
+  focal: string;
+  onFocalChange: (v: string) => void;
+  onCommit: (v: string) => void;
+}) {
+  useEffect(() => {
+    let cancelled = false;
+    setSignedPhoto(null);
+    if (coverUrl && !/^https?:\/\//i.test(coverUrl)) {
+      supabase.storage
+        .from("trip-covers")
+        .createSignedUrl(coverUrl, 60 * 60)
+        .then(({ data }) => {
+          if (!cancelled) setSignedPhoto(data?.signedUrl ?? null);
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [coverUrl, tripId, setSignedPhoto]);
+  const src = signedPhoto || (coverUrl && /^https?:\/\//i.test(coverUrl) ? coverUrl : null);
+  const startRef = useRef<{ x: number; y: number; fx: number; fy: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
+
+  function parseFocal(v: string): { x: number; y: number } {
+    const m = v.match(/(-?\d+(?:\.\d+)?)%\s+(-?\d+(?:\.\d+)?)%/);
+    return m ? { x: parseFloat(m[1]), y: parseFloat(m[2]) } : { x: 50, y: 50 };
+  }
+
+  function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    if (!src) return;
+    (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+    const f = parseFocal(focal);
+    startRef.current = { x: e.clientX, y: e.clientY, fx: f.x, fy: f.y };
+    setDragging(true);
+  }
+  function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    if (!startRef.current) return;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const dx = ((e.clientX - startRef.current.x) / w) * 100;
+    const dy = ((e.clientY - startRef.current.y) / h) * 100;
+    const nx = Math.max(0, Math.min(100, startRef.current.fx - dx));
+    const ny = Math.max(0, Math.min(100, startRef.current.fy - dy));
+    onFocalChange(`${nx.toFixed(1)}% ${ny.toFixed(1)}%`);
+  }
+  function onPointerUp(e: React.PointerEvent<HTMLDivElement>) {
+    if (!startRef.current) return;
+    (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId);
+    startRef.current = null;
+    setDragging(false);
+    onCommit(focal);
+  }
+
+  if (!src) {
+    return <div aria-hidden className="pointer-events-none fixed inset-0 z-0 bg-background" />;
+  }
+
+  return (
+    <>
+      <div
+        className={cn(
+          "fixed inset-0 z-0 touch-none select-none overflow-hidden",
+          dragging ? "cursor-grabbing" : "cursor-grab",
+        )}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        title="Trascina per centrare"
+      >
+        <img
+          src={src}
+          alt=""
+          draggable={false}
+          className="h-full w-full object-cover"
+          style={{ objectPosition: focal }}
+        />
+        {/* Legibility overlay for content above */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0"
+          style={{
+            background:
+              "linear-gradient(to bottom, rgba(0,0,0,0.25) 0%, rgba(0,0,0,0) 35%, rgba(0,0,0,0) 55%, rgba(0,0,0,0.55) 100%)",
+          }}
+        />
+      </div>
+      <div className="pointer-events-none fixed bottom-4 left-1/2 z-20 -translate-x-1/2 rounded-full bg-black/55 px-3 py-1 text-[11px] text-white backdrop-blur">
+        <span className="inline-flex items-center gap-1">
+          <Move className="h-3 w-3" /> Trascina la foto per centrarla
+        </span>
+      </div>
+    </>
+  );
+}
