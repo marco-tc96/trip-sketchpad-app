@@ -362,6 +362,8 @@ function TripLayout() {
         initialCountries={countries}
         initialType={tripType}
         initialEmoji={trip.data.cover_emoji ?? "✈️"}
+        initialStartDate={trip.data.start_date}
+        initialEndDate={trip.data.end_date}
         onSave={async (patch) => {
           try {
             await updateFn({ data: { id: tripId, patch } });
@@ -386,6 +388,8 @@ function EditTripDialog({
   initialCountries,
   initialType,
   initialEmoji,
+  initialStartDate,
+  initialEndDate,
   onSave,
 }: {
   open: boolean;
@@ -395,12 +399,16 @@ function EditTripDialog({
   initialCountries: string[];
   initialType: "vacation" | "business";
   initialEmoji: string;
+  initialStartDate: string;
+  initialEndDate: string;
   onSave: (patch: {
     title: string;
     cities: Array<{ name: string; country: string; lat?: number; lng?: number }>;
     destination: string | null;
     trip_type: "vacation" | "business";
     cover_emoji: string;
+    start_date: string;
+    end_date: string;
   }) => Promise<void>;
 }) {
   const { t } = useTranslation();
@@ -408,6 +416,8 @@ function EditTripDialog({
   const [cities, setCities] = useState(initialCities);
   const [type, setType] = useState(initialType);
   const [emoji, setEmoji] = useState(initialEmoji);
+  const [startDate, setStartDate] = useState(initialStartDate);
+  const [endDate, setEndDate] = useState(initialEndDate);
   const [query, setQuery] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -417,9 +427,11 @@ function EditTripDialog({
       setCities(initialCities);
       setType(initialType);
       setEmoji(initialEmoji || "✈️");
+      setStartDate(initialStartDate);
+      setEndDate(initialEndDate);
       setQuery("");
     }
-  }, [open, initialTitle, initialCities, initialType, initialEmoji]);
+  }, [open, initialTitle, initialCities, initialType, initialEmoji, initialStartDate, initialEndDate]);
 
   const available = initialCountries.flatMap((iso) => citiesOfCountry(iso));
   const q = query.trim().toLowerCase();
@@ -483,6 +495,25 @@ function EditTripDialog({
           <div className="space-y-1.5">
             <Label>{t("title")}</Label>
             <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>{t("start_date")}</Label>
+              <Input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>{t("end_date")}</Label>
+              <Input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+              />
+            </div>
           </div>
 
           <div className="space-y-1.5">
@@ -583,6 +614,8 @@ function EditTripDialog({
                 destination: cities[0]?.name ?? null,
                 trip_type: type,
                 cover_emoji: emoji || "✈️",
+                start_date: startDate || initialStartDate,
+                end_date: endDate || initialEndDate,
               })
             }
           >
@@ -797,6 +830,7 @@ function TimezoneBadge({
 }) {
   if (!home || destinations.length === 0) return null;
   const dest = destinations[0];
+  if (dest.toUpperCase() === home.toUpperCase()) return null;
   const zoneOf = (iso: string) => {
     const c = Country.getCountryByCode(iso);
     return c?.timezones?.[0]?.zoneName ?? null;
@@ -820,26 +854,42 @@ function TimezoneBadge({
       return null;
     }
   };
+  const abbrOn = (tz: string, d: Date): string | null => {
+    try {
+      const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone: tz,
+        timeZoneName: "short",
+      }).formatToParts(d);
+      return parts.find((p) => p.type === "timeZoneName")?.value ?? null;
+    } catch {
+      return null;
+    }
+  };
   const h = offsetOn(homeZone, when);
   const d = offsetOn(destZone, when);
   if (h == null || d == null) return null;
-  const fmt = (n: number) => {
+  if (Math.abs(d - h) < 0.01) return null;
+  const utcFmt = (n: number) => {
     const s = n >= 0 ? "+" : "−";
     const abs = Math.abs(n);
     const hh = Math.floor(abs);
     const mm = Math.round((abs - hh) * 60);
-    return mm ? `GMT${s}${hh}:${String(mm).padStart(2, "0")}` : `GMT${s}${hh}`;
+    return mm ? `UTC${s}${hh}:${String(mm).padStart(2, "0")}` : `UTC${s}${hh}`;
+  };
+  const label = (tz: string, off: number) => {
+    const abbr = abbrOn(tz, when);
+    const utc = utcFmt(off);
+    // If abbr is just a GMT/UTC form, only show that once.
+    if (!abbr || /^(GMT|UTC)/i.test(abbr)) return utc;
+    return `${abbr} (${utc})`;
   };
   const diff = Math.round((d - h) * 10) / 10;
-  const diffLabel =
-    diff === 0
-      ? "stesso fuso"
-      : `${diff > 0 ? "+" : "−"}${Math.abs(diff)}h`;
+  const diffLabel = `${diff > 0 ? "+" : "−"}${Math.abs(diff)}h`;
   return (
     <div className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background/70 px-2 py-0.5 text-[11px] text-muted-foreground shadow-soft backdrop-blur">
       <Clock className="h-3 w-3" />
       <span className="tabular-nums">
-        {fmt(h)} → {fmt(d)} ({diffLabel})
+        {label(homeZone, h)} → {label(destZone, d)} ({diffLabel})
       </span>
     </div>
   );
