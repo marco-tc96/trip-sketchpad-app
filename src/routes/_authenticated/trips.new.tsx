@@ -66,7 +66,7 @@ function NewTrip() {
   const [currency, setCurrency] = useState("EUR");
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
-  const [tripType, setTripType] = useState<"vacation" | "business">("vacation");
+  const [tripType, setTripType] = useState<"vacation" | "business" | "daytrip">("vacation");
 
   // Auto-select currency based on first country and start date (historical aware).
   useEffect(() => {
@@ -305,7 +305,7 @@ function NewTrip() {
         <div className="space-y-1.5">
           <Label>{t("trip_type")}</Label>
           <div className="inline-flex rounded-full border border-border bg-secondary/40 p-1 text-sm">
-            {(["vacation", "business"] as const).map((v) => (
+            {(["vacation", "business", "daytrip"] as const).map((v) => (
               <button
                 key={v}
                 type="button"
