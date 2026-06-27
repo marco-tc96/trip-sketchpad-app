@@ -405,7 +405,7 @@ function EditTripDialog({
   initialTitle: string;
   initialCities: Array<{ name: string; country: string; lat?: number; lng?: number }>;
   initialCountries: string[];
-  initialType: "vacation" | "business";
+  initialType: "vacation" | "business" | "daytrip";
   initialEmoji: string;
   initialStartDate: string;
   initialEndDate: string;
@@ -413,7 +413,7 @@ function EditTripDialog({
     title: string;
     cities: Array<{ name: string; country: string; lat?: number; lng?: number }>;
     destination: string | null;
-    trip_type: "vacation" | "business";
+    trip_type: "vacation" | "business" | "daytrip";
     cover_emoji: string;
     start_date: string;
     end_date: string;
@@ -527,7 +527,7 @@ function EditTripDialog({
           <div className="space-y-1.5">
             <Label>{t("trip_type")}</Label>
             <div className="inline-flex rounded-full border border-border bg-secondary/40 p-1 text-sm">
-              {(["vacation", "business"] as const).map((v) => (
+              {(["vacation", "business", "daytrip"] as const).map((v) => (
                 <button
                   key={v}
                   type="button"
