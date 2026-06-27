@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Plus, MapPin, Calendar, Briefcase, Palmtree } from "lucide-react";
+import { Plus, MapPin, Calendar, Briefcase, Palmtree, Footprints } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useEffect, useMemo, useState } from "react";
 import { listTrips } from "@/lib/trips.functions";
@@ -143,7 +143,10 @@ function TripCard({ trip }: { trip: Trip }) {
     ? ((trip as unknown as { countries: string[] }).countries)
     : [];
   const storedCover = (trip as unknown as { cover_url?: string | null }).cover_url ?? null;
-  const tripType = ((trip as unknown as { trip_type?: string }).trip_type ?? "vacation") as "vacation" | "business";
+  const tripType = ((trip as unknown as { trip_type?: string }).trip_type ?? "vacation") as
+    | "vacation"
+    | "business"
+    | "daytrip";
   const [signed, setSigned] = useState<string | null>(null);
   // Whenever the user uploaded a photo, show it on the home card too —
   // regardless of the trip's internal cover_type selection.
@@ -188,14 +191,7 @@ function TripCard({ trip }: { trip: Trip }) {
       />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/85 via-black/40 to-transparent" />
       <div className="absolute left-3 top-3 flex items-center gap-1.5">
-        <span
-          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-white backdrop-blur ${
-            tripType === "business" ? "bg-slate-800/70" : "bg-emerald-700/70"
-          }`}
-        >
-          {tripType === "business" ? <Briefcase className="h-3 w-3" /> : <Palmtree className="h-3 w-3" />}
-          {tripType === "business" ? "Lavoro" : "Vacanza"}
-        </span>
+        <TripTypePill tripType={tripType} />
       </div>
       {flagStr && (
         <div className="absolute right-3 top-3 rounded-full bg-black/45 px-2 py-0.5 text-sm leading-none backdrop-blur">
