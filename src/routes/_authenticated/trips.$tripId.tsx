@@ -388,6 +388,8 @@ function EditTripDialog({
   initialCountries,
   initialType,
   initialEmoji,
+  initialStartDate,
+  initialEndDate,
   onSave,
 }: {
   open: boolean;
@@ -397,12 +399,16 @@ function EditTripDialog({
   initialCountries: string[];
   initialType: "vacation" | "business";
   initialEmoji: string;
+  initialStartDate: string;
+  initialEndDate: string;
   onSave: (patch: {
     title: string;
     cities: Array<{ name: string; country: string; lat?: number; lng?: number }>;
     destination: string | null;
     trip_type: "vacation" | "business";
     cover_emoji: string;
+    start_date: string;
+    end_date: string;
   }) => Promise<void>;
 }) {
   const { t } = useTranslation();
@@ -410,6 +416,8 @@ function EditTripDialog({
   const [cities, setCities] = useState(initialCities);
   const [type, setType] = useState(initialType);
   const [emoji, setEmoji] = useState(initialEmoji);
+  const [startDate, setStartDate] = useState(initialStartDate);
+  const [endDate, setEndDate] = useState(initialEndDate);
   const [query, setQuery] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -419,9 +427,11 @@ function EditTripDialog({
       setCities(initialCities);
       setType(initialType);
       setEmoji(initialEmoji || "✈️");
+      setStartDate(initialStartDate);
+      setEndDate(initialEndDate);
       setQuery("");
     }
-  }, [open, initialTitle, initialCities, initialType, initialEmoji]);
+  }, [open, initialTitle, initialCities, initialType, initialEmoji, initialStartDate, initialEndDate]);
 
   const available = initialCountries.flatMap((iso) => citiesOfCountry(iso));
   const q = query.trim().toLowerCase();
@@ -485,6 +495,25 @@ function EditTripDialog({
           <div className="space-y-1.5">
             <Label>{t("title")}</Label>
             <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>{t("start_date")}</Label>
+              <Input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>{t("end_date")}</Label>
+              <Input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+              />
+            </div>
           </div>
 
           <div className="space-y-1.5">
@@ -585,6 +614,8 @@ function EditTripDialog({
                 destination: cities[0]?.name ?? null,
                 trip_type: type,
                 cover_emoji: emoji || "✈️",
+                start_date: startDate || initialStartDate,
+                end_date: endDate || initialEndDate,
               })
             }
           >
