@@ -241,6 +241,40 @@ function TimelineView() {
   );
 }
 
+function TripStats({
+  trip,
+  expenses,
+  homeCcy,
+}: {
+  trip: { start_date: string; end_date: string };
+  expenses: Array<{ amount: number; amount_home: number | null; currency: string }>;
+  homeCcy: string;
+}) {
+  const { t } = useTranslation();
+  const days = Math.max(
+    1,
+    Math.round((new Date(trip.end_date).getTime() - new Date(trip.start_date).getTime()) / 86400000) + 1,
+  );
+  const total = expenses.reduce(
+    (s, e) => s + Number(e.amount_home ?? (e.currency === homeCcy ? e.amount : 0)),
+    0,
+  );
+  return (
+    <div className="mb-4 grid gap-3 sm:grid-cols-2">
+      <div className="rounded-2xl border border-border bg-card p-4 shadow-soft">
+        <CalendarDays className="h-5 w-5 text-primary" />
+        <p className="mt-2 text-[10px] uppercase tracking-wider text-muted-foreground">{t("duration")}</p>
+        <p className="mt-0.5 font-serif text-2xl font-semibold tabular-nums">{days} {t("nights")}</p>
+      </div>
+      <div className="rounded-2xl border border-border bg-card p-4 shadow-soft">
+        <Wallet className="h-5 w-5 text-primary" />
+        <p className="mt-2 text-[10px] uppercase tracking-wider text-muted-foreground">{t("total")}</p>
+        <p className="mt-0.5 font-serif text-2xl font-semibold tabular-nums">{formatMoney(total, homeCcy)}</p>
+      </div>
+    </div>
+  );
+}
+
 type JourneyItem = {
   id: string;
   title: string;
