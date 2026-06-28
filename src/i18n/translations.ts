@@ -123,11 +123,21 @@ const it: Dict = {
   cover_photo: "Foto",
   upload_cover: "Carica foto",
   fx_average: "Cambio medio",
+  fx_unconverted_warning: "{{count}} spesa non convertita — il totale potrebbe essere incompleto",
+  fx_unconverted_warning_plural: "{{count}} spese non convertite — il totale potrebbe essere incompleto",
+  fx_not_converted: "non convertita",
+  outside_trip_dates: "Fuori dalle date del viaggio",
+  outside_trip_dates_hint: "Queste tappe hanno una data fuori dall'intervallo del viaggio — modificale per correggere la data o aggiusta le date del viaggio.",
   profile: "Profilo",
   account_details: "Dettagli account",
   display_name: "Nome visualizzato",
   home_country: "Paese di residenza",
   change_photo: "Cambia foto",
+  appearance: "Aspetto",
+  light_mode: "Giorno",
+  dark_mode: "Notte",
+  edit_settings: "Modifica impostazioni",
+  username: "Nome utente",
 };
 
 const en: Dict = {
@@ -239,11 +249,21 @@ const en: Dict = {
   cover_photo: "Photo",
   upload_cover: "Upload photo",
   fx_average: "Avg rate",
+  fx_unconverted_warning: "{{count}} expense not converted — total may be incomplete",
+  fx_unconverted_warning_plural: "{{count}} expenses not converted — total may be incomplete",
+  fx_not_converted: "not converted",
+  outside_trip_dates: "Outside trip dates",
+  outside_trip_dates_hint: "These items have a date outside the trip's start/end range — edit them to fix the date or adjust the trip dates.",
   profile: "Profile",
   account_details: "Account details",
   display_name: "Display name",
   home_country: "Country of residence",
   change_photo: "Change photo",
+  appearance: "Appearance",
+  light_mode: "Light",
+  dark_mode: "Dark",
+  edit_settings: "Edit settings",
+  username: "Username",
 };
 
 // Compact translations: fall back to English keys + light per-language overrides

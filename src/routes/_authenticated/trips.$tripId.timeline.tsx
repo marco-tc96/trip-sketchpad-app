@@ -163,6 +163,12 @@ function TimelineView() {
       ),
     };
   });
+  // Items whose start_at falls outside the trip's date range (or whose
+  // day_index doesn't correspond to any day of the trip) wouldn't match any
+  // bucket above and would otherwise vanish from the UI entirely while
+  // still existing in the database. Surface them instead of hiding them.
+  const groupedIds = new Set(groups.flatMap((g) => g.items.map((it) => it.id)));
+  const unplaced = nonLodging.filter((it) => !groupedIds.has(it.id));
 
   async function del(id: string) {
     if (!confirm(t("delete_confirm"))) return;
@@ -185,59 +191,102 @@ function TimelineView() {
           {groups.map((g) => (
             <section key={g.label} className="rounded-2xl border border-border bg-card p-4 shadow-soft">
               <h3 className="mb-3 text-xs font-semibold uppercase tracking-widest text-muted-foreground">{g.label}</h3>
-              {g.items.length === 0 ? (
-                <p className="text-sm text-muted-foreground">—</p>
-              ) : (
-                <ul className="space-y-3">
-                  {g.items.map((it) => {
-                    const Icon = KIND_ICON[it.kind as keyof typeof KIND_ICON] ?? MapPin;
-                    const cls = kindClasses(it.kind);
-                    const dark = TRANSPORT_KINDS.has(it.kind) || it.kind === "activity";
-                    return (
-                      <li key={it.id}>
-                        <AddItemDialog
-                          tripId={tripId}
-                          tripCities={tripCities}
-                          tripCountries={tripCountries}
-                          existing={it as ItemRow}
-                          trigger={
-                            <button
-                              type="button"
-                              className={cn("flex w-full items-start gap-3 rounded-xl p-3 text-left transition hover:brightness-110", cls.card)}
-                            >
-                              <Icon className="mt-0.5 h-5 w-5 shrink-0" />
-                              <div className="min-w-0 flex-1">
-                                <p className={cn("text-[10px] uppercase tracking-widest", cls.sub)}>{t(it.kind)}</p>
-                                <p className="truncate font-medium">{it.title}</p>
-                                <p className={cn("text-xs", cls.sub)}>
-                                  {it.location && <>{it.location} · </>}
-                                  {it.start_at && fmtDT(it.start_at)}
-                                  {it.end_at && ` → ${fmtDT(it.end_at)}`}
-                                </p>
-                                {it.notes && <p className={cn("mt-1 text-xs", cls.sub)}>{it.notes}</p>}
-                                <TransportLegs meta={it.meta as TransportMeta | null} />
-                              </div>
-                              <span
-                                role="button"
-                                tabIndex={0}
-                                onClick={(e) => { e.stopPropagation(); e.preventDefault(); del(it.id); }}
-                                className={cn("inline-flex h-8 w-8 items-center justify-center rounded-md", dark ? "text-white hover:bg-white/10" : "hover:bg-foreground/10")}
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </span>
-                            </button>
-                          }
-                        />
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
+              <DayItemsList
+                items={g.items}
+                tripId={tripId}
+                tripCities={tripCities}
+                tripCountries={tripCountries}
+                onDelete={del}
+              />
             </section>
           ))}
+          {unplaced.length > 0 && (
+            <section className="rounded-2xl border border-amber-400/60 bg-amber-50/60 p-4 shadow-soft dark:bg-amber-950/20">
+              <h3 className="mb-1 text-xs font-semibold uppercase tracking-widest text-amber-700 dark:text-amber-400">
+                {t("outside_trip_dates")}
+              </h3>
+              <p className="mb-3 text-xs text-amber-700/80 dark:text-amber-400/80">
+                {t("outside_trip_dates_hint")}
+              </p>
+              <DayItemsList
+                items={unplaced}
+                tripId={tripId}
+                tripCities={tripCities}
+                tripCountries={tripCountries}
+                onDelete={del}
+              />
+            </section>
+          )}
         </div>
       </div>
     </div>
+  );
+}
+
+// Renders a single day's (or "outside trip dates") list of itinerary items.
+// Extracted so the same markup can be reused for the unplaced-items section.
+function DayItemsList({
+  items,
+  tripId,
+  tripCities,
+  tripCountries,
+  onDelete,
+}: {
+  items: ItemRow[];
+  tripId: string;
+  tripCities: Array<{ name: string; country: string }>;
+  tripCountries: string[];
+  onDelete: (id: string) => void;
+}) {
+  const { t } = useTranslation();
+  if (items.length === 0) {
+    return <p className="text-sm text-muted-foreground">—</p>;
+  }
+  return (
+    <ul className="space-y-3">
+      {items.map((it) => {
+        const Icon = KIND_ICON[it.kind as keyof typeof KIND_ICON] ?? MapPin;
+        const cls = kindClasses(it.kind);
+        const dark = TRANSPORT_KINDS.has(it.kind) || it.kind === "activity";
+        return (
+          <li key={it.id}>
+            <AddItemDialog
+              tripId={tripId}
+              tripCities={tripCities}
+              tripCountries={tripCountries}
+              existing={it as ItemRow}
+              trigger={
+                <button
+                  type="button"
+                  className={cn("flex w-full items-start gap-3 rounded-xl p-3 text-left transition hover:brightness-110", cls.card)}
+                >
+                  <Icon className="mt-0.5 h-5 w-5 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className={cn("text-[10px] uppercase tracking-widest", cls.sub)}>{t(it.kind)}</p>
+                    <p className="truncate font-medium">{it.title}</p>
+                    <p className={cn("text-xs", cls.sub)}>
+                      {it.location && <>{it.location} · </>}
+                      {it.start_at && fmtDT(it.start_at)}
+                      {it.end_at && ` → ${fmtDT(it.end_at)}`}
+                    </p>
+                    {it.notes && <p className={cn("mt-1 text-xs", cls.sub)}>{it.notes}</p>}
+                    <TransportLegs meta={it.meta as TransportMeta | null} />
+                  </div>
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); onDelete(it.id); }}
+                    className={cn("inline-flex h-8 w-8 items-center justify-center rounded-md", dark ? "text-white hover:bg-white/10" : "hover:bg-foreground/10")}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </span>
+                </button>
+              }
+            />
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
@@ -259,6 +308,9 @@ function TripStats({
     (s, e) => s + Number(e.amount_home ?? (e.currency === homeCcy ? e.amount : 0)),
     0,
   );
+  const unconvertedCount = expenses.filter(
+    (e) => e.currency !== homeCcy && e.amount_home == null,
+  ).length;
   return (
     <div className="mb-4 grid gap-3 sm:grid-cols-2">
       <div className="rounded-2xl border border-border bg-card p-4 shadow-soft">
@@ -270,6 +322,11 @@ function TripStats({
         <Wallet className="h-5 w-5 text-primary" />
         <p className="mt-2 text-[10px] uppercase tracking-wider text-muted-foreground">{t("total")}</p>
         <p className="mt-0.5 font-serif text-2xl font-semibold tabular-nums">{formatMoney(total, homeCcy)}</p>
+        {unconvertedCount > 0 && (
+          <p className="mt-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+            {t("fx_unconverted_warning", { count: unconvertedCount })}
+          </p>
+        )}
       </div>
     </div>
   );
@@ -589,6 +646,7 @@ function TransportDialog({
   const { t } = useTranslation();
   const qc = useQueryClient();
   const createFn = useServerFn(createItem);
+  const updateFn = useServerFn(updateItem);
   const delFn = useServerFn(deleteItem);
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<TransportMode>((existing?.meta?.mode as TransportMode) ?? "plane");
@@ -610,22 +668,24 @@ function TransportDialog({
       const first = legs[0];
       const last = legs[legs.length - 1];
       const title = `${MODE_LABEL[mode]} ${[first?.from, last?.to].filter(Boolean).join(" → ") || ""}`.trim();
+      const payload = {
+        title,
+        location: null,
+        start_at: first?.depart_at || null,
+        end_at: last?.arrive_at || null,
+        notes: null,
+        meta: { mode, legs },
+      };
+      // Update in place when editing an existing leg — never delete before
+      // the replacement is confirmed saved, so a failed save can't wipe out
+      // the user's existing flight/train details.
       if (existing) {
-        await delFn({ data: { id: existing.id } });
+        await updateFn({ data: { id: existing.id, patch: payload } });
+      } else {
+        await createFn({
+          data: { trip_id: tripId, kind, position: 0, ...payload },
+        });
       }
-      await createFn({
-        data: {
-          trip_id: tripId,
-          kind,
-          title,
-          location: null,
-          start_at: first?.depart_at || null,
-          end_at: last?.arrive_at || null,
-          notes: null,
-          position: 0,
-          meta: { mode, legs },
-        },
-      });
       qc.invalidateQueries({ queryKey: ["items", tripId] });
       setOpen(false);
     } catch (err) {

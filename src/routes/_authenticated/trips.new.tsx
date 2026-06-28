@@ -77,15 +77,14 @@ function NewTrip() {
   }, [pickedCountries, startDate]);
 
   function toggleCountry(iso: string) {
+    const removing = pickedCountries.includes(iso);
     setPickedCountries((cs) =>
-      cs.includes(iso) ? cs.filter((c) => c !== iso) : [...cs, iso],
+      removing ? cs.filter((c) => c !== iso) : [...cs, iso],
     );
-    // Drop cities whose country no longer selected.
-    setPickedCities((cities) =>
-      cities.filter(
-        (c) => c.country !== iso || pickedCountries.includes(iso),
-      ),
-    );
+    // Drop cities whose country is no longer selected.
+    if (removing) {
+      setPickedCities((cities) => cities.filter((c) => c.country !== iso));
+    }
   }
 
   function removeCountry(iso: string) {
