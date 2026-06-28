@@ -1,17 +1,22 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { createFileRoute } from "@tanstack/react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  BarChart3, Globe2, MapPin, CalendarDays, Briefcase, Palmtree, Footprints,
-  Settings as SettingsIcon,
-} from "lucide-react";
-import { getProfile } from "@/lib/profile.functions";
+import { toast } from "sonner";
+import { BarChart3, Globe2, MapPin, CalendarDays, User, Briefcase, Palmtree, Footprints } from "lucide-react";
+import { getProfile, updateProfile } from "@/lib/profile.functions";
 import { listTrips } from "@/lib/trips.functions";
-import { flagOf, countryNameLocalized } from "@/lib/country-data";
-import { useAuth } from "@/lib/auth-context";
+import { CURRENCIES } from "@/lib/currencies";
+import { LANGUAGES, type Lang } from "@/i18n/translations";
+import { setLanguage } from "@/i18n";
+import { allCountries, flagOf, countryNameLocalized } from "@/lib/country-data";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 
 export const Route = createFileRoute("/_authenticated/profile")({
   component: ProfilePage,
@@ -30,11 +35,48 @@ function getCities(t: Trip): City[] {
 
 function ProfilePage() {
   const { t, i18n } = useTranslation();
-  const { user } = useAuth();
+  const qc = useQueryClient();
   const profFn = useServerFn(getProfile);
+  const updFn = useServerFn(updateProfile);
   const tripsFn = useServerFn(listTrips);
   const prof = useQuery({ queryKey: ["profile"], queryFn: () => profFn() });
   const trips = useQuery({ queryKey: ["trips"], queryFn: () => tripsFn() });
+
+  const [form, setForm] = useState({
+    home_currency: "EUR",
+    language: "it" as Lang,
+    display_name: "",
+    home_country: "" as string,
+  });
+
+  useEffect(() => {
+    if (prof.data) {
+      setForm({
+        home_currency: prof.data.home_currency,
+        language: prof.data.language as Lang,
+        display_name: prof.data.display_name ?? "",
+        home_country: (prof.data as { home_country?: string | null }).home_country ?? "",
+      });
+    }
+  }, [prof.data]);
+
+  async function save() {
+    try {
+      await updFn({
+        data: {
+          home_currency: form.home_currency,
+          language: form.language,
+          display_name: form.display_name,
+          home_country: form.home_country || null,
+        },
+      });
+      setLanguage(form.language);
+      qc.invalidateQueries({ queryKey: ["profile"] });
+      toast.success(t("saved"));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("error_generic"));
+    }
+  }
 
   // ---- Stats ----
   const stats = useMemo(() => {
@@ -104,36 +146,74 @@ function ProfilePage() {
   }, [trips.data]);
 
   const lang = i18n.language || "it";
-  const homeCountry = (prof.data as { home_country?: string | null } | undefined)?.home_country ?? null;
-  const displayName = prof.data?.display_name || user?.email?.split("@")[0] || "—";
-  const username = user?.email ? `@${user.email.split("@")[0]}` : null;
+  const countries = useMemo(
+    () =>
+      allCountries()
+        .map((c) => ({ ...c, label: countryNameLocalized(c.iso, lang) }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    [lang],
+  );
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-6 sm:py-8">
-      {/* Profile header: name, username, country, then settings button */}
-      <div className="flex flex-wrap items-start justify-between gap-3 rounded-3xl border border-border bg-card p-5 shadow-soft sm:p-6">
-        <div className="min-w-0">
-          <h1 className="truncate font-serif text-2xl font-bold tracking-tight sm:text-3xl">
-            {displayName}
-          </h1>
-          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
-            {username && <span>{username}</span>}
-            {homeCountry && (
-              <span className="inline-flex items-center gap-1">
-                {username && <span className="opacity-50">·</span>}
-                <span>{flagOf(homeCountry)}</span>
-                <span>{countryNameLocalized(homeCountry, lang)}</span>
-              </span>
-            )}
+      <div className="flex items-center gap-2">
+        <User className="h-5 w-5 text-primary" />
+        <h1 className="font-serif text-3xl font-bold tracking-tight sm:text-4xl">
+          {t("profile")}
+        </h1>
+      </div>
+
+      {/* Editable profile */}
+      <section className="mt-6 space-y-5 rounded-3xl border border-border bg-card p-5 shadow-soft sm:p-6">
+        <h2 className="font-serif text-lg font-semibold">{t("account_details")}</h2>
+        <div className="space-y-1.5">
+          <Label>{t("display_name")}</Label>
+          <Input
+            value={form.display_name}
+            onChange={(e) => setForm({ ...form, display_name: e.target.value })}
+          />
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label>{t("home_currency")}</Label>
+            <Select value={form.home_currency} onValueChange={(v) => setForm({ ...form, home_currency: v })}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent className="max-h-60">
+                {CURRENCIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>{t("language")}</Label>
+            <Select value={form.language} onValueChange={(v) => setForm({ ...form, language: v as Lang })}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {LANGUAGES.map((l) => (
+                  <SelectItem key={l.code} value={l.code}>{l.flag} {l.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
-        <Button asChild variant="outline" size="sm" className="gap-1.5 shrink-0">
-          <Link to="/settings">
-            <SettingsIcon className="h-3.5 w-3.5" />
-            {t("edit_settings")}
-          </Link>
-        </Button>
-      </div>
+        <div className="space-y-1.5">
+          <Label>{t("home_country")}</Label>
+          <Select
+            value={form.home_country || "_none"}
+            onValueChange={(v) => setForm({ ...form, home_country: v === "_none" ? "" : v })}
+          >
+            <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+            <SelectContent className="max-h-72">
+              <SelectItem value="_none">—</SelectItem>
+              {countries.map((c) => (
+                <SelectItem key={c.iso} value={c.iso}>
+                  {c.flag} {c.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <Button onClick={save} className="w-full sm:w-auto">{t("save")}</Button>
+      </section>
 
       {/* Stats */}
       <section className="mt-6">

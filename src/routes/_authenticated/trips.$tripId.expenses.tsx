@@ -43,14 +43,8 @@ function ExpensesView() {
   if (!trip.data || !profile.data) return <p className="text-sm text-muted-foreground">{t("loading")}</p>;
   const homeCcy = profile.data.home_currency;
   const expenses = list.data ?? [];
-  // Expenses we can actually convert (same currency as home, or with a
-  // stored amount_home from a successful FX lookup at save time).
-  const unconverted = expenses.filter(
-    (e) => e.currency !== homeCcy && e.amount_home == null,
-  );
   const total = expenses.reduce(
-    (s, e) =>
-      s + Number(e.amount_home ?? (e.currency === homeCcy ? e.amount : 0)),
+    (s, e) => s + Number(e.amount_home ?? (e.currency === homeCcy ? e.amount : 0)),
     0,
   );
 
@@ -60,11 +54,6 @@ function ExpensesView() {
         <div>
           <p className="text-xs uppercase tracking-wider text-muted-foreground">{t("total")}</p>
           <p className="font-serif text-2xl font-semibold tabular-nums">{formatMoney(total, homeCcy)}</p>
-          {unconverted.length > 0 && (
-            <p className="mt-1 text-xs font-medium text-amber-600 dark:text-amber-400">
-              {t("fx_unconverted_warning", { count: unconverted.length })}
-            </p>
-          )}
         </div>
         <AddExpenseDialog
           tripId={tripId}
@@ -90,14 +79,9 @@ function ExpensesView() {
               </div>
               <div className="text-right">
                 <p className="text-sm font-semibold tabular-nums">{formatMoney(Number(e.amount), e.currency)}</p>
-                {e.amount_home != null && e.currency !== homeCcy && (
+                {e.amount_home && e.currency !== homeCcy && (
                   <p className="text-xs text-muted-foreground tabular-nums">
                     ≈ {formatMoney(Number(e.amount_home), homeCcy)}
-                  </p>
-                )}
-                {e.amount_home == null && e.currency !== homeCcy && (
-                  <p className="text-xs font-medium text-amber-600 dark:text-amber-400">
-                    {t("fx_not_converted")}
                   </p>
                 )}
               </div>

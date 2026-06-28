@@ -198,18 +198,16 @@ function TripLayout() {
       )}
 
       {/* Compact pinned header that appears after the user scrolls past the
-          presentation card. Shows icon, title, visited cities and dates —
-          no fx rate / timezone here, those only live in the full header. */}
+          presentation card. Shows only icon, title and dates. */}
       {scrolled && (
         <div className="pointer-events-none fixed inset-x-0 top-2 z-30 mx-auto flex max-w-5xl justify-center px-4">
           <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-border/60 bg-background/85 px-3 py-1.5 shadow-soft backdrop-blur">
-            <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-secondary text-base">
+            <span className="grid h-7 w-7 place-items-center rounded-full bg-secondary text-base">
               {trip.data.cover_emoji ?? "✈️"}
             </span>
             <div className="min-w-0">
               <p className="truncate font-serif text-sm font-semibold leading-tight">{trip.data.title}</p>
               <p className="truncate text-[10px] text-muted-foreground leading-tight">
-                {citiesLabel && <span>{citiesLabel} · </span>}
                 {fmt(trip.data.start_date)} → {fmt(trip.data.end_date)}
               </p>
             </div>
@@ -406,7 +404,7 @@ function TripLayout() {
         })}
       </nav>
 
-        <div className="pb-24 pt-6"><Outlet /></div>
+        <div className="pt-6"><Outlet /></div>
       </section>
       </main>
 

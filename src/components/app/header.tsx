@@ -1,7 +1,9 @@
 import { Link } from "@tanstack/react-router";
-import { LogOut, Compass } from "lucide-react";
+import { LogOut, Settings as SettingsIcon, Compass } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
+import { LanguageSwitcher } from "./language-switcher";
+import { ThemeToggle } from "./theme-toggle";
 import { useAuth } from "@/lib/auth-context";
 
 export function AppHeader({ right }: { right?: React.ReactNode }) {
@@ -20,10 +22,17 @@ export function AppHeader({ right }: { right?: React.ReactNode }) {
         </Link>
         <div className="ml-auto flex items-center gap-1 sm:gap-2">
           {right}
+          <ThemeToggle />
+          <LanguageSwitcher />
           {user && (
-            <Button variant="ghost" size="icon" onClick={() => signOut()} aria-label={t("sign_out")}>
-              <LogOut className="h-4 w-4" />
-            </Button>
+            <>
+              <Button asChild variant="ghost" size="icon" aria-label={t("settings")}>
+                <Link to="/settings"><SettingsIcon className="h-4 w-4" /></Link>
+              </Button>
+              <Button variant="ghost" size="icon" onClick={() => signOut()} aria-label={t("sign_out")}>
+                <LogOut className="h-4 w-4" />
+              </Button>
+            </>
           )}
         </div>
       </div>
