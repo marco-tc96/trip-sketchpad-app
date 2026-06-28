@@ -6,11 +6,14 @@ import { useTranslation } from "react-i18next";
 import {
   Plane, Train, Bus, Car, Bike, Ship, Hotel, MapPin, Sparkles, ArrowRightLeft,
   PlaneTakeoff, PlaneLanding, Plus, Trash2, ChevronsUpDown, Check, Clock,
+  CalendarDays, Wallet,
 } from "lucide-react";
 import { toast } from "sonner";
 import { listItems, createItem, updateItem, deleteItem, ITEM_KINDS } from "@/lib/itinerary.functions";
 import { getTrip } from "@/lib/trips.functions";
 import { getProfile } from "@/lib/profile.functions";
+import { listExpenses } from "@/lib/expenses.functions";
+import { formatMoney } from "@/lib/currencies";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -126,6 +129,8 @@ function TimelineView() {
   const trip = useQuery({ queryKey: ["trip", tripId], queryFn: () => tripFn({ data: { id: tripId } }) });
   const items = useQuery({ queryKey: ["items", tripId], queryFn: () => itemFn({ data: { trip_id: tripId } }) });
   const profile = useQuery({ queryKey: ["profile"], queryFn: () => profFn() });
+  const expFn = useServerFn(listExpenses);
+  const expenses = useQuery({ queryKey: ["expenses", tripId], queryFn: () => expFn({ data: { trip_id: tripId } }) });
 
   if (!trip.data) return <p className="text-sm text-muted-foreground">{t("loading")}</p>;
 
@@ -167,6 +172,7 @@ function TimelineView() {
 
   return (
     <div>
+      <TripStats trip={trip.data} expenses={expenses.data ?? []} homeCcy={profile.data?.home_currency ?? "EUR"} />
       <div className="mb-4 flex items-center justify-end">
           <AddItemDialog tripId={tripId} tripCities={tripCities} tripCountries={tripCountries} />
       </div>

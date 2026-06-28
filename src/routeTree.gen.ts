@@ -20,6 +20,7 @@ import { Route as AuthenticatedProfileRouteImport } from './routes/_authenticate
 import { Route as AuthenticatedTripsIndexRouteImport } from './routes/_authenticated/trips.index'
 import { Route as AuthenticatedTripsNewRouteImport } from './routes/_authenticated/trips.new'
 import { Route as AuthenticatedTripsTripIdRouteImport } from './routes/_authenticated/trips.$tripId'
+import { Route as AuthenticatedTripsTripIdIndexRouteImport } from './routes/_authenticated/trips.$tripId.index'
 import { Route as AuthenticatedTripsTripIdTimelineRouteImport } from './routes/_authenticated/trips.$tripId.timeline'
 import { Route as AuthenticatedTripsTripIdExpensesRouteImport } from './routes/_authenticated/trips.$tripId.expenses'
 
@@ -78,6 +79,12 @@ const AuthenticatedTripsTripIdRoute =
     path: '/$tripId',
     getParentRoute: () => AuthenticatedTripsRoute,
   } as any)
+const AuthenticatedTripsTripIdIndexRoute =
+  AuthenticatedTripsTripIdIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedTripsTripIdRoute,
+  } as any)
 const AuthenticatedTripsTripIdTimelineRoute =
   AuthenticatedTripsTripIdTimelineRouteImport.update({
     id: '/timeline',
@@ -104,6 +111,7 @@ export interface FileRoutesByFullPath {
   '/trips/': typeof AuthenticatedTripsIndexRoute
   '/trips/$tripId/expenses': typeof AuthenticatedTripsTripIdExpensesRoute
   '/trips/$tripId/timeline': typeof AuthenticatedTripsTripIdTimelineRoute
+  '/trips/$tripId/': typeof AuthenticatedTripsTripIdIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -112,11 +120,11 @@ export interface FileRoutesByTo {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/profile': typeof AuthenticatedProfileRoute
   '/settings': typeof AuthenticatedSettingsRoute
-  '/trips/$tripId': typeof AuthenticatedTripsTripIdRouteWithChildren
   '/trips/new': typeof AuthenticatedTripsNewRoute
   '/trips': typeof AuthenticatedTripsIndexRoute
   '/trips/$tripId/expenses': typeof AuthenticatedTripsTripIdExpensesRoute
   '/trips/$tripId/timeline': typeof AuthenticatedTripsTripIdTimelineRoute
+  '/trips/$tripId': typeof AuthenticatedTripsTripIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -133,6 +141,7 @@ export interface FileRoutesById {
   '/_authenticated/trips/': typeof AuthenticatedTripsIndexRoute
   '/_authenticated/trips/$tripId/expenses': typeof AuthenticatedTripsTripIdExpensesRoute
   '/_authenticated/trips/$tripId/timeline': typeof AuthenticatedTripsTripIdTimelineRoute
+  '/_authenticated/trips/$tripId/': typeof AuthenticatedTripsTripIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -149,6 +158,7 @@ export interface FileRouteTypes {
     | '/trips/'
     | '/trips/$tripId/expenses'
     | '/trips/$tripId/timeline'
+    | '/trips/$tripId/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -157,11 +167,11 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/profile'
     | '/settings'
-    | '/trips/$tripId'
     | '/trips/new'
     | '/trips'
     | '/trips/$tripId/expenses'
     | '/trips/$tripId/timeline'
+    | '/trips/$tripId'
   id:
     | '__root__'
     | '/'
@@ -177,6 +187,7 @@ export interface FileRouteTypes {
     | '/_authenticated/trips/'
     | '/_authenticated/trips/$tripId/expenses'
     | '/_authenticated/trips/$tripId/timeline'
+    | '/_authenticated/trips/$tripId/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -266,6 +277,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedTripsTripIdRouteImport
       parentRoute: typeof AuthenticatedTripsRoute
     }
+    '/_authenticated/trips/$tripId/': {
+      id: '/_authenticated/trips/$tripId/'
+      path: '/'
+      fullPath: '/trips/$tripId/'
+      preLoaderRoute: typeof AuthenticatedTripsTripIdIndexRouteImport
+      parentRoute: typeof AuthenticatedTripsTripIdRoute
+    }
     '/_authenticated/trips/$tripId/timeline': {
       id: '/_authenticated/trips/$tripId/timeline'
       path: '/timeline'
@@ -286,6 +304,7 @@ declare module '@tanstack/react-router' {
 interface AuthenticatedTripsTripIdRouteChildren {
   AuthenticatedTripsTripIdExpensesRoute: typeof AuthenticatedTripsTripIdExpensesRoute
   AuthenticatedTripsTripIdTimelineRoute: typeof AuthenticatedTripsTripIdTimelineRoute
+  AuthenticatedTripsTripIdIndexRoute: typeof AuthenticatedTripsTripIdIndexRoute
 }
 
 const AuthenticatedTripsTripIdRouteChildren: AuthenticatedTripsTripIdRouteChildren =
@@ -294,6 +313,7 @@ const AuthenticatedTripsTripIdRouteChildren: AuthenticatedTripsTripIdRouteChildr
       AuthenticatedTripsTripIdExpensesRoute,
     AuthenticatedTripsTripIdTimelineRoute:
       AuthenticatedTripsTripIdTimelineRoute,
+    AuthenticatedTripsTripIdIndexRoute: AuthenticatedTripsTripIdIndexRoute,
   }
 
 const AuthenticatedTripsTripIdRouteWithChildren =
