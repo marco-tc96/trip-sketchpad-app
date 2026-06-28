@@ -198,24 +198,39 @@ function TripLayout() {
       )}
 
       {/* Compact pinned header that appears after the user scrolls past the
-          presentation card. Shows only icon, title and dates. */}
-      {scrolled && (
-        <div className="pointer-events-none fixed inset-x-0 top-2 z-30 mx-auto flex max-w-5xl justify-center px-4">
-          <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-border/60 bg-background/85 px-3 py-1.5 shadow-soft backdrop-blur">
-            <span className="grid h-7 w-7 place-items-center rounded-full bg-secondary text-base">
-              {trip.data.cover_emoji ?? "✈️"}
-            </span>
-            <div className="min-w-0">
-              <p className="truncate font-serif text-sm font-semibold leading-tight">{trip.data.title}</p>
-              <p className="truncate text-[10px] text-muted-foreground leading-tight">
-                {fmt(trip.data.start_date)} → {fmt(trip.data.end_date)}
-              </p>
-            </div>
+          presentation card. Shows only icon, title, city and dates — fx
+          rate and timezone are intentionally omitted here to keep it slim.
+          Sits below the BottomDock (z-40) and below the app header context,
+          but above page content (z-30). Fades/slides in smoothly so the
+          transition between expanded and collapsed states feels continuous. */}
+      <div
+        aria-hidden={!scrolled}
+        className={cn(
+          "pointer-events-none fixed inset-x-0 top-2 z-30 mx-auto flex max-w-5xl justify-center px-4 transition-all duration-300 ease-out",
+          scrolled
+            ? "translate-y-0 opacity-100"
+            : "-translate-y-3 opacity-0",
+        )}
+      >
+        <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-border/60 bg-background/85 px-3 py-1.5 shadow-soft backdrop-blur">
+          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-secondary text-base">
+            {trip.data.cover_emoji ?? "✈️"}
+          </span>
+          <div className="min-w-0">
+            <p className="truncate font-serif text-sm font-semibold leading-tight">{trip.data.title}</p>
+            <p className="truncate text-[10px] text-muted-foreground leading-tight">
+              {citiesLabel ? `${citiesLabel} · ` : ""}{fmt(trip.data.start_date)} → {fmt(trip.data.end_date)}
+            </p>
           </div>
         </div>
-      )}
+      </div>
 
-      <main className="relative z-10 mx-auto max-w-5xl px-4 pb-12 pt-4">
+      {/* pb-32 (instead of pb-12) guarantees the last content of this inner
+          scroller — which scrolls independently from the outer app shell —
+          never ends up hidden behind the fixed BottomDock (h-~14 + bottom-3
+          margin + safe-area). Without this extra bottom padding, content at
+          the very end of the page could sit underneath the dock. */}
+      <main className="relative z-10 mx-auto max-w-5xl px-4 pb-32 pt-4">
         {/* First viewport: cover + header. Tabs/outlet sit in a second snap
             section so the page swipes between presentation and details. */}
         <section className="flex min-h-[100svh] snap-start flex-col">

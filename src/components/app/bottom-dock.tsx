@@ -21,7 +21,8 @@ export function BottomDock() {
   return (
     <nav
       aria-label="Primary"
-      className="fixed inset-x-0 bottom-3 z-40 mx-auto flex w-fit max-w-[calc(100vw-1.5rem)] items-center gap-1 rounded-full border border-border/60 bg-card/85 px-2 py-1.5 shadow-soft backdrop-blur-xl"
+      className="fixed inset-x-0 z-40 mx-auto flex w-fit max-w-[calc(100vw-1.5rem)] items-center gap-1 rounded-full border border-border/60 bg-card/85 px-2 py-1.5 shadow-soft backdrop-blur-xl"
+      style={{ bottom: "calc(0.75rem + env(safe-area-inset-bottom, 0px))" }}
     >
       {ITEMS.map(({ to, icon: Icon, labelKey, match }) => {
         const active = match(loc.pathname);
