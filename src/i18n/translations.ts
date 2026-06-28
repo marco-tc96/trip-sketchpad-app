@@ -49,6 +49,7 @@ const it: Dict = {
   timeline: "Timeline",
   expenses: "Spese",
   settings: "Impostazioni",
+  edit_settings: "Modifica impostazioni",
   language: "Lingua",
   view_mode: "Vista",
   by_days: "Per giornate",
@@ -126,8 +127,12 @@ const it: Dict = {
   profile: "Profilo",
   account_details: "Dettagli account",
   display_name: "Nome visualizzato",
+  username: "Nome utente",
   home_country: "Paese di residenza",
   change_photo: "Cambia foto",
+  appearance: "Aspetto",
+  light_mode: "Giorno",
+  dark_mode: "Notte",
 };
 
 const en: Dict = {
@@ -165,6 +170,7 @@ const en: Dict = {
   timeline: "Timeline",
   expenses: "Expenses",
   settings: "Settings",
+  edit_settings: "Edit settings",
   language: "Language",
   view_mode: "View",
   by_days: "By days",
@@ -242,8 +248,12 @@ const en: Dict = {
   profile: "Profile",
   account_details: "Account details",
   display_name: "Display name",
+  username: "Username",
   home_country: "Country of residence",
   change_photo: "Change photo",
+  appearance: "Appearance",
+  light_mode: "Light",
+  dark_mode: "Dark",
 };
 
 // Compact translations: fall back to English keys + light per-language overrides

@@ -32,6 +32,7 @@ export const updateProfile = createServerFn({ method: "POST" })
         home_currency: z.string().length(3).optional(),
         language: z.string().min(2).max(5).optional(),
         display_name: z.string().max(80).optional().nullable(),
+        username: z.string().max(40).optional().nullable(),
         home_country: z.string().max(3).optional().nullable(),
       })
       .parse(d),
