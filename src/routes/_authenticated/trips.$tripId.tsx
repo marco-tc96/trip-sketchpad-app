@@ -374,6 +374,7 @@ function TripLayout() {
       </nav>
 
         <div className="pt-6"><Outlet /></div>
+      </section>
       </main>
 
       <EditTripDialog
