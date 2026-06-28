@@ -47,6 +47,19 @@ function TripLayout() {
   const [uploading, setUploading] = useState(false);
   const [signedPhoto, setSignedPhoto] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
+  // Focal point for the photo cover. Declared BEFORE any early return so the
+  // hook order stays stable across renders — otherwise React throws once the
+  // trip query resolves.
+  const [focal, setFocal] = useState<string>("50% 50%");
+  useEffect(() => {
+    const row = trip.data as { cover_type?: string; cover_bg?: string | null } | undefined;
+    if (!row) return;
+    if (row.cover_type === "photo" && row.cover_bg && /^\d+(\.\d+)?%\s+\d+(\.\d+)?%$/.test(row.cover_bg)) {
+      setFocal(row.cover_bg);
+    } else {
+      setFocal("50% 50%");
+    }
+  }, [trip.data]);
 
   if (trip.isLoading || !trip.data) {
     return <main className="mx-auto max-w-5xl px-4 py-8 text-sm text-muted-foreground">{t("loading")}</main>;
@@ -134,17 +147,6 @@ function TripLayout() {
   ];
 
   const isPhoto = coverType === "photo";
-  // When `coverType === "photo"`, we reuse `cover_bg` to persist the focal
-  // point as `"<x>% <y>%"`. Keeps the column from needing a migration.
-  const initialFocal =
-    isPhoto && tripRow.cover_bg && /^\d+(\.\d+)?%\s+\d+(\.\d+)?%$/.test(tripRow.cover_bg)
-      ? tripRow.cover_bg
-      : "50% 50%";
-  const [focal, setFocal] = useState<string>(initialFocal);
-  useEffect(() => {
-    setFocal(initialFocal);
-  }, [initialFocal]);
-
   async function saveFocal(next: string) {
     if (!isPhoto) return;
     try {
