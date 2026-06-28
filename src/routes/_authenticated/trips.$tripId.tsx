@@ -972,6 +972,8 @@ function FullScreenPhoto({
   focal,
   onFocalChange,
   onCommit,
+  repositioning,
+  onDone,
 }: {
   tripId: string;
   coverUrl: string | null;
@@ -980,6 +982,8 @@ function FullScreenPhoto({
   focal: string;
   onFocalChange: (v: string) => void;
   onCommit: (v: string) => void;
+  repositioning: boolean;
+  onDone: () => void;
 }) {
   useEffect(() => {
     let cancelled = false;
@@ -1038,20 +1042,21 @@ function FullScreenPhoto({
     <>
       <div
         className={cn(
-          "fixed inset-0 z-0 touch-none select-none overflow-hidden",
+          "fixed inset-0 touch-none select-none overflow-hidden",
+          repositioning ? "z-40" : "z-0 pointer-events-none",
           dragging ? "cursor-grabbing" : "cursor-grab",
         )}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
+        onPointerDown={repositioning ? onPointerDown : undefined}
+        onPointerMove={repositioning ? onPointerMove : undefined}
+        onPointerUp={repositioning ? onPointerUp : undefined}
+        onPointerCancel={repositioning ? onPointerUp : undefined}
         title="Trascina per centrare"
       >
         <img
           src={src}
           alt=""
           draggable={false}
-          className="h-full w-full object-cover"
+          className="pointer-events-none h-full w-full object-cover"
           style={{ objectPosition: focal }}
         />
         {/* Legibility overlay for content above */}
@@ -1064,11 +1069,19 @@ function FullScreenPhoto({
           }}
         />
       </div>
-      <div className="pointer-events-none fixed bottom-4 left-1/2 z-20 -translate-x-1/2 rounded-full bg-black/55 px-3 py-1 text-[11px] text-white backdrop-blur">
-        <span className="inline-flex items-center gap-1">
-          <Move className="h-3 w-3" /> Trascina la foto per centrarla
-        </span>
-      </div>
+      {repositioning && (
+        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 flex items-center gap-2 rounded-full bg-black/70 px-3 py-1.5 text-[12px] text-white backdrop-blur">
+          <Move className="h-3.5 w-3.5" />
+          <span>Trascina la foto per centrarla</span>
+          <button
+            type="button"
+            onClick={onDone}
+            className="ml-2 rounded-full bg-white/15 px-2.5 py-0.5 text-xs font-medium text-white hover:bg-white/25"
+          >
+            Fatto
+          </button>
+        </div>
+      )}
     </>
   );
 }
