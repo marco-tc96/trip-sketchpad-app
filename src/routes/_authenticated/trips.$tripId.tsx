@@ -1,7 +1,7 @@
 import { createFileRoute, Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowLeft, Trash2, Image as ImageIcon, Map as MapIcon, Sparkles, Upload, Palette, Check, Pencil, X, Plus, ChevronsUpDown, Briefcase, Palmtree, Footprints, LayoutDashboard, CalendarDays, Wallet, Clock, ChevronDown, Move } from "lucide-react";
+import { ArrowLeft, Trash2, Image as ImageIcon, Map as MapIcon, Sparkles, Upload, Palette, Check, Pencil, X, Plus, ChevronsUpDown, Briefcase, Palmtree, Footprints, CalendarDays, Wallet, Clock, Move } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useEffect, useRef, useState } from "react";
@@ -51,6 +51,8 @@ function TripLayout() {
   // hook order stays stable across renders — otherwise React throws once the
   // trip query resolves.
   const [focal, setFocal] = useState<string>("50% 50%");
+  const [repositioning, setRepositioning] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
   useEffect(() => {
     const row = trip.data as { cover_type?: string; cover_bg?: string | null } | undefined;
     if (!row) return;
@@ -59,6 +61,14 @@ function TripLayout() {
     } else {
       setFocal("50% 50%");
     }
+  }, [trip.data]);
+  useEffect(() => {
+    const root = document.querySelector<HTMLElement>("[data-trip-scroller]");
+    if (!root) return;
+    const onScroll = () => setScrolled(root.scrollTop > 80);
+    onScroll();
+    root.addEventListener("scroll", onScroll, { passive: true });
+    return () => root.removeEventListener("scroll", onScroll);
   }, [trip.data]);
 
   if (trip.isLoading || !trip.data) {
@@ -140,8 +150,7 @@ function TripLayout() {
     }
   }
 
-  const tabs: { to: "/trips/$tripId" | "/trips/$tripId/timeline" | "/trips/$tripId/expenses"; label: string; icon: React.ComponentType<{ className?: string }>; exact?: boolean }[] = [
-    { to: "/trips/$tripId", label: t("overview"), icon: LayoutDashboard, exact: true },
+  const tabs: { to: "/trips/$tripId/timeline" | "/trips/$tripId/expenses"; label: string; icon: React.ComponentType<{ className?: string }>; exact?: boolean }[] = [
     { to: "/trips/$tripId/timeline", label: t("timeline"), icon: CalendarDays },
     { to: "/trips/$tripId/expenses", label: t("expenses"), icon: Wallet },
   ];
@@ -183,7 +192,27 @@ function TripLayout() {
           focal={focal}
           onFocalChange={setFocal}
           onCommit={saveFocal}
+          repositioning={repositioning}
+          onDone={() => setRepositioning(false)}
         />
+      )}
+
+      {/* Compact pinned header that appears after the user scrolls past the
+          presentation card. Shows only icon, title and dates. */}
+      {scrolled && (
+        <div className="pointer-events-none fixed inset-x-0 top-2 z-30 mx-auto flex max-w-5xl justify-center px-4">
+          <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-border/60 bg-background/85 px-3 py-1.5 shadow-soft backdrop-blur">
+            <span className="grid h-7 w-7 place-items-center rounded-full bg-secondary text-base">
+              {trip.data.cover_emoji ?? "✈️"}
+            </span>
+            <div className="min-w-0">
+              <p className="truncate font-serif text-sm font-semibold leading-tight">{trip.data.title}</p>
+              <p className="truncate text-[10px] text-muted-foreground leading-tight">
+                {fmt(trip.data.start_date)} → {fmt(trip.data.end_date)}
+              </p>
+            </div>
+          </div>
+        </div>
       )}
 
       <main className="relative z-10 mx-auto max-w-5xl px-4 pb-12 pt-4">
@@ -215,14 +244,29 @@ function TripLayout() {
               label={t("cover_photo")}
             />
             {coverType === "photo" && tripRow.cover_url && (
-              <button
-                type="button"
-                onClick={() => fileRef.current?.click()}
-                className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-foreground/80 transition hover:bg-foreground/10"
-              >
-                <Upload className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">{t("change_photo")}</span>
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => setRepositioning((v) => !v)}
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded-full px-2.5 py-1 transition",
+                    repositioning
+                      ? "bg-primary text-primary-foreground"
+                      : "text-foreground/80 hover:bg-foreground/10",
+                  )}
+                >
+                  <Move className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Sposta</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => fileRef.current?.click()}
+                  className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-foreground/80 transition hover:bg-foreground/10"
+                >
+                  <Upload className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">{t("change_photo")}</span>
+                </button>
+              </>
             )}
             <ColorCoverPill
               active={coverType === "color"}
@@ -264,7 +308,7 @@ function TripLayout() {
           <div className="my-4 flex-1" />
         )}
 
-        <header className="flex flex-col gap-3 rounded-3xl border border-border/50 bg-background/70 p-4 shadow-soft backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <header className="mb-24 flex flex-col gap-3 rounded-3xl border border-border/50 bg-background/70 p-4 shadow-soft backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div className="flex min-w-0 items-center gap-3">
           <span className="relative grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-secondary text-3xl">
             {trip.data.cover_emoji ?? "✈️"}
@@ -329,19 +373,6 @@ function TripLayout() {
           </Button>
         </div>
       </header>
-        {/* Swipe-up hint shown only on the first screen */}
-        <button
-          type="button"
-          onClick={() => {
-            const root = document.querySelector<HTMLElement>("[data-trip-scroller]");
-            root?.scrollTo({ top: window.innerHeight, behavior: "smooth" });
-          }}
-          aria-label="Mostra contenuti"
-          className="mx-auto mt-2 inline-flex items-center gap-1 rounded-full bg-background/60 px-3 py-1 text-[11px] text-muted-foreground backdrop-blur transition hover:text-foreground"
-        >
-          <ChevronDown className="h-3.5 w-3.5 animate-bounce" />
-          <span>Scorri per i dettagli</span>
-        </button>
         </section>
 
       <section className="flex min-h-[100svh] snap-start flex-col pt-6">
@@ -941,6 +972,8 @@ function FullScreenPhoto({
   focal,
   onFocalChange,
   onCommit,
+  repositioning,
+  onDone,
 }: {
   tripId: string;
   coverUrl: string | null;
@@ -949,6 +982,8 @@ function FullScreenPhoto({
   focal: string;
   onFocalChange: (v: string) => void;
   onCommit: (v: string) => void;
+  repositioning: boolean;
+  onDone: () => void;
 }) {
   useEffect(() => {
     let cancelled = false;
@@ -1007,20 +1042,21 @@ function FullScreenPhoto({
     <>
       <div
         className={cn(
-          "fixed inset-0 z-0 touch-none select-none overflow-hidden",
+          "fixed inset-0 touch-none select-none overflow-hidden",
+          repositioning ? "z-40" : "z-0 pointer-events-none",
           dragging ? "cursor-grabbing" : "cursor-grab",
         )}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
+        onPointerDown={repositioning ? onPointerDown : undefined}
+        onPointerMove={repositioning ? onPointerMove : undefined}
+        onPointerUp={repositioning ? onPointerUp : undefined}
+        onPointerCancel={repositioning ? onPointerUp : undefined}
         title="Trascina per centrare"
       >
         <img
           src={src}
           alt=""
           draggable={false}
-          className="h-full w-full object-cover"
+          className="pointer-events-none h-full w-full object-cover"
           style={{ objectPosition: focal }}
         />
         {/* Legibility overlay for content above */}
@@ -1033,11 +1069,19 @@ function FullScreenPhoto({
           }}
         />
       </div>
-      <div className="pointer-events-none fixed bottom-4 left-1/2 z-20 -translate-x-1/2 rounded-full bg-black/55 px-3 py-1 text-[11px] text-white backdrop-blur">
-        <span className="inline-flex items-center gap-1">
-          <Move className="h-3 w-3" /> Trascina la foto per centrarla
-        </span>
-      </div>
+      {repositioning && (
+        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 flex items-center gap-2 rounded-full bg-black/70 px-3 py-1.5 text-[12px] text-white backdrop-blur">
+          <Move className="h-3.5 w-3.5" />
+          <span>Trascina la foto per centrarla</span>
+          <button
+            type="button"
+            onClick={onDone}
+            className="ml-2 rounded-full bg-white/15 px-2.5 py-0.5 text-xs font-medium text-white hover:bg-white/25"
+          >
+            Fatto
+          </button>
+        </div>
+      )}
     </>
   );
 }

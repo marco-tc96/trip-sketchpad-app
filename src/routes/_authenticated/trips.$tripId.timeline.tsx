@@ -6,11 +6,14 @@ import { useTranslation } from "react-i18next";
 import {
   Plane, Train, Bus, Car, Bike, Ship, Hotel, MapPin, Sparkles, ArrowRightLeft,
   PlaneTakeoff, PlaneLanding, Plus, Trash2, ChevronsUpDown, Check, Clock,
+  CalendarDays, Wallet,
 } from "lucide-react";
 import { toast } from "sonner";
 import { listItems, createItem, updateItem, deleteItem, ITEM_KINDS } from "@/lib/itinerary.functions";
 import { getTrip } from "@/lib/trips.functions";
 import { getProfile } from "@/lib/profile.functions";
+import { listExpenses } from "@/lib/expenses.functions";
+import { formatMoney } from "@/lib/currencies";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -126,6 +129,8 @@ function TimelineView() {
   const trip = useQuery({ queryKey: ["trip", tripId], queryFn: () => tripFn({ data: { id: tripId } }) });
   const items = useQuery({ queryKey: ["items", tripId], queryFn: () => itemFn({ data: { trip_id: tripId } }) });
   const profile = useQuery({ queryKey: ["profile"], queryFn: () => profFn() });
+  const expFn = useServerFn(listExpenses);
+  const expenses = useQuery({ queryKey: ["expenses", tripId], queryFn: () => expFn({ data: { trip_id: tripId } }) });
 
   if (!trip.data) return <p className="text-sm text-muted-foreground">{t("loading")}</p>;
 
@@ -167,6 +172,7 @@ function TimelineView() {
 
   return (
     <div>
+      <TripStats trip={trip.data} expenses={expenses.data ?? []} homeCcy={profile.data?.home_currency ?? "EUR"} />
       <div className="mb-4 flex items-center justify-end">
           <AddItemDialog tripId={tripId} tripCities={tripCities} tripCountries={tripCountries} />
       </div>
@@ -230,6 +236,40 @@ function TimelineView() {
             </section>
           ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function TripStats({
+  trip,
+  expenses,
+  homeCcy,
+}: {
+  trip: { start_date: string; end_date: string };
+  expenses: Array<{ amount: number; amount_home: number | null; currency: string }>;
+  homeCcy: string;
+}) {
+  const { t } = useTranslation();
+  const days = Math.max(
+    1,
+    Math.round((new Date(trip.end_date).getTime() - new Date(trip.start_date).getTime()) / 86400000) + 1,
+  );
+  const total = expenses.reduce(
+    (s, e) => s + Number(e.amount_home ?? (e.currency === homeCcy ? e.amount : 0)),
+    0,
+  );
+  return (
+    <div className="mb-4 grid gap-3 sm:grid-cols-2">
+      <div className="rounded-2xl border border-border bg-card p-4 shadow-soft">
+        <CalendarDays className="h-5 w-5 text-primary" />
+        <p className="mt-2 text-[10px] uppercase tracking-wider text-muted-foreground">{t("duration")}</p>
+        <p className="mt-0.5 font-serif text-2xl font-semibold tabular-nums">{days} {t("nights")}</p>
+      </div>
+      <div className="rounded-2xl border border-border bg-card p-4 shadow-soft">
+        <Wallet className="h-5 w-5 text-primary" />
+        <p className="mt-2 text-[10px] uppercase tracking-wider text-muted-foreground">{t("total")}</p>
+        <p className="mt-0.5 font-serif text-2xl font-semibold tabular-nums">{formatMoney(total, homeCcy)}</p>
       </div>
     </div>
   );
