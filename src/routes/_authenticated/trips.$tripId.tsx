@@ -877,11 +877,27 @@ function TimezoneBadge({
   };
   const abbrOn = (tz: string, d: Date): string | null => {
     try {
-      const parts = new Intl.DateTimeFormat("en-US", {
+      // `short` often returns "GMT+2" instead of "CEST". Fall back to the
+      // long name and build an acronym (e.g. "Central European Summer Time"
+      // -> "CEST", "Korea Standard Time" -> "KST").
+      const shortParts = new Intl.DateTimeFormat("en-US", {
         timeZone: tz,
         timeZoneName: "short",
       }).formatToParts(d);
-      return parts.find((p) => p.type === "timeZoneName")?.value ?? null;
+      const short = shortParts.find((p) => p.type === "timeZoneName")?.value ?? "";
+      if (short && !/^(GMT|UTC)/i.test(short)) return short;
+      const longParts = new Intl.DateTimeFormat("en-US", {
+        timeZone: tz,
+        timeZoneName: "long",
+      }).formatToParts(d);
+      const long = longParts.find((p) => p.type === "timeZoneName")?.value ?? "";
+      if (!long) return null;
+      const acronym = long
+        .split(/\s+/)
+        .filter((w) => /^[A-Z]/.test(w))
+        .map((w) => w[0])
+        .join("");
+      return acronym.length >= 2 ? acronym : null;
     } catch {
       return null;
     }
@@ -890,19 +906,18 @@ function TimezoneBadge({
   const d = offsetOn(destZone, when);
   if (h == null || d == null) return null;
   if (Math.abs(d - h) < 0.01) return null;
-  const utcFmt = (n: number) => {
+  const offFmt = (n: number) => {
     const s = n >= 0 ? "+" : "−";
     const abs = Math.abs(n);
     const hh = Math.floor(abs);
     const mm = Math.round((abs - hh) * 60);
-    return mm ? `UTC${s}${hh}:${String(mm).padStart(2, "0")}` : `UTC${s}${hh}`;
+    return mm ? `${s}${hh}:${String(mm).padStart(2, "0")}` : `${s}${hh}`;
   };
   const label = (tz: string, off: number) => {
     const abbr = abbrOn(tz, when);
-    const utc = utcFmt(off);
-    // If abbr is just a GMT/UTC form, only show that once.
-    if (!abbr || /^(GMT|UTC)/i.test(abbr)) return utc;
-    return `${abbr} (${utc})`;
+    const off2 = offFmt(off);
+    if (!abbr) return `UTC${off2}`;
+    return `${abbr}${off2}`;
   };
   const diff = Math.round((d - h) * 10) / 10;
   const diffLabel = `${diff > 0 ? "+" : "−"}${Math.abs(diff)}h`;
