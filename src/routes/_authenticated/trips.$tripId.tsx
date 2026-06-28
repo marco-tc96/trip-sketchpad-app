@@ -158,7 +158,7 @@ function TripLayout() {
   }
 
   return (
-    <div className="relative h-[100svh] overflow-y-auto snap-y snap-mandatory scroll-smooth isolate">
+    <div data-trip-scroller className="relative h-[100svh] overflow-y-auto snap-y snap-mandatory scroll-smooth isolate">
       {/* Full-bleed gradient that stays behind the entire page */}
       <div
         aria-hidden
