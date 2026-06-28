@@ -26,9 +26,12 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { citiesOfCountry, flagOf } from "@/lib/country-data";
 import { cn } from "@/lib/utils";
 import { useCityPhoto } from "@/hooks/use-city-photo";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { hubsForMode, formatHub, type Hub, HUBS } from "@/lib/transport-hubs";
 import { useRemoteHubs, modeToKind } from "@/hooks/use-remote-hubs";
-import { useAirports, airportsForCountries, airportsSearch } from "@/hooks/use-airports";
+import {
+  useAirports, airportsForCountries, airportsSearch, formatAirport, type AirportHub,
+} from "@/hooks/use-airports";
 
 type ItemRow = {
   id: string;
@@ -502,8 +505,16 @@ function LodgingCard({
   );
 }
 
-function codeOf(city: string): string {
-  const clean = city.replace(/[^a-zA-Z]/g, "");
+// Extracts the badge code shown on the journey card (e.g. "FCO"). Airport
+// legs now always carry a real IATA code embedded in the saved label —
+// "FCO - Roma / Roma Fiumicino" (desktop) or "FCO - Roma" (mobile) — so we
+// read it straight from there instead of guessing letters from the city
+// name. Falls back to the old heuristic for train/bus/ferry legs, which
+// don't carry a code (e.g. "Roma - Termini").
+function codeOf(label: string): string {
+  const m = label.match(/^([A-Z]{3})\s*-\s*/);
+  if (m) return m[1];
+  const clean = label.replace(/[^a-zA-Z]/g, "");
   return (clean.slice(0, 3) || "···").toUpperCase();
 }
 function fmtTime(iso: string | null): string {
@@ -1068,8 +1079,17 @@ function HubCombobox({
 }) {
   const [open, setOpen] = useState(false);
   const [showAll, setShowAll] = useState(false);
-  const isHub = mode === "plane" || mode === "train" || mode === "bus" || mode === "ferry";
+  const isMobile = useIsMobile();
+  const isPlane = mode === "plane";
+  const isHub = mode === "train" || mode === "bus" || mode === "ferry";
   const isCityMode = mode === "car" || mode === "moto";
+  // Hooks must run unconditionally on every render (Rules of Hooks), so
+  // both data hooks are always called here regardless of which mode branch
+  // below actually renders. useAirports is a cheap no-op once the dataset
+  // is cached; useRemoteHubs stays disabled (kind=null) outside the
+  // train/bus/ferry branch, so it never fires a request when not needed.
+  const airportsData = useAirports(true);
+  const remote = useRemoteHubs(isHub ? modeToKind(mode) : null, isHub ? value : "");
 
   // City-based selection for car/moto: list all cities from the trip countries.
   if (isCityMode) {
@@ -1113,6 +1133,92 @@ function HubCombobox({
     );
   }
 
+  // Airports: airports-json is now the ONLY source — no curated table, no
+  // remote fallback needed since the dataset already covers every IATA
+  // airport worldwide. Desktop shows the full name, mobile the abbreviated
+  // city + IATA form (formatAirport picks the right one).
+  if (isPlane) {
+    const q = value.trim().toLowerCase();
+    const inCountries = airportsForCountries(airportsData, countries);
+    const major = inCountries.filter((h) => h.major).slice(0, 30);
+    const list: AirportHub[] = showAll ? inCountries : major;
+    const matchQuery = (h: AirportHub) => {
+      const label = formatAirport(h, isMobile).toLowerCase();
+      if (label === q) return false; // already the selected value, hide it
+      return (
+        h.name.toLowerCase().includes(q) ||
+        (h.city ?? "").toLowerCase().includes(q) ||
+        h.code.toLowerCase().includes(q)
+      );
+    };
+    let filtered: AirportHub[] = q ? inCountries.filter(matchQuery).slice(0, 80) : list;
+    if (q && filtered.length === 0) {
+      // Nothing in the trip countries matched — widen the search to every
+      // airport in the global dataset (e.g. a layover city outside the
+      // trip's countries).
+      filtered = airportsSearch(airportsData, value, 80);
+    }
+    const hiddenCount = inCountries.length - major.length;
+
+    return (
+      <div className="relative">
+        <Input
+          value={value}
+          placeholder={placeholder || "Cerca aeroporto o IATA…"}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+          autoComplete="off"
+        />
+        {open && (filtered.length > 0 || hiddenCount > 0) && (
+          <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-72 overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+            {filtered.length === 0 && !q && (
+              <div className="px-2 py-1.5 text-xs text-muted-foreground">Nessuna opzione</div>
+            )}
+            {filtered.length > 0 && (
+              <div className="py-1">
+                <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                  {showAll || q ? "Tutte le opzioni" : "Principali"}
+                </p>
+                {filtered.map((h, i) => {
+                  const label = formatAirport(h, isMobile);
+                  const sel = value === label;
+                  return (
+                    <button
+                      type="button"
+                      key={`${h.code}-${i}`}
+                      onMouseDown={(e) => { e.preventDefault(); onChange(label); setOpen(false); }}
+                      className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                    >
+                      <Check className={cn("h-4 w-4 shrink-0", sel ? "opacity-100" : "opacity-0")} />
+                      <span className="min-w-0 flex-1 truncate">
+                        <span className="font-mono text-xs font-semibold opacity-80">{h.code}</span>
+                        <span className="ml-1.5 font-medium">{h.city ?? h.name}</span>
+                        {!isMobile && h.city && h.city !== h.name && (
+                          <span className="ml-1.5 text-xs opacity-60">/ {h.name}</span>
+                        )}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {!q && !showAll && hiddenCount > 0 && (
+              <button
+                type="button"
+                onMouseDown={(e) => { e.preventDefault(); setShowAll(true); }}
+                className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-muted-foreground hover:bg-accent"
+              >
+                <ChevronsUpDown className="h-4 w-4" />
+                <span>Visualizza altri ({hiddenCount})</span>
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   if (!isHub) {
     return (
       <Input
@@ -1123,57 +1229,29 @@ function HubCombobox({
     );
   }
 
+  // Train / bus / ferry: curated table first, then worldwide live search
+  // (OpenStreetMap Nominatim) since there is no bundled global dataset for
+  // these the way there is for airports.
   const major: Hub[] = hubsForMode(mode, countries, false);
   const all: Hub[] = hubsForMode(mode, countries, true);
-  // When the user types and nothing matches in the trip countries, expand
-  // the search across every country in the curated hubs table — useful when
-  // the user picks a station/airport in a city we didn't preload.
   const allCountries = Object.keys(HUBS);
   const globalHubs: Hub[] = hubsForMode(mode, allCountries, true);
-  // For planes, augment with the global OpenFlights/OurAirports dataset
-  // (lazy-loaded) so EVERY airport of the trip countries is selectable.
-  const isPlane = mode === "plane";
-  const airportsData = useAirports(isPlane);
-  const countryAirports: Hub[] = isPlane
-    ? airportsForCountries(airportsData, countries)
-    : [];
-  // Merge curated hubs first (better localized names) then dataset airports
-  // dedup'd by IATA/name.
-  const mergedAll: Hub[] = (() => {
-    if (!isPlane) return all;
-    const seen = new Set<string>();
-    const out: Hub[] = [];
-    for (const h of [...all, ...countryAirports]) {
-      const k = `${h.code ?? ""}|${h.name.toLowerCase()}`;
-      if (seen.has(k)) continue;
-      seen.add(k);
-      out.push(h);
-    }
-    return out;
-  })();
-  const mergedMajor: Hub[] = isPlane
-    ? mergedAll.filter((h) => h.major).slice(0, 30)
-    : major;
-  const list: Hub[] = showAll ? mergedAll : mergedMajor;
+  const list: Hub[] = showAll ? all : major;
   const q = value.trim().toLowerCase();
   const matchQuery = (h: Hub) =>
-    [h.name, h.city, h.code].filter(Boolean).join(" ").toLowerCase().includes(q) &&
+    [h.name, h.city].filter(Boolean).join(" ").toLowerCase().includes(q) &&
     formatHub(h).toLowerCase() !== q;
-  let filtered: Hub[] = q ? mergedAll.filter(matchQuery).slice(0, 80) : list;
+  let filtered: Hub[] = q ? all.filter(matchQuery).slice(0, 80) : list;
   if (q && filtered.length === 0) {
-    const fromCurated = globalHubs.filter(matchQuery);
-    const fromDataset = isPlane ? airportsSearch(airportsData, value, 50) : [];
-    filtered = [...fromCurated, ...fromDataset].slice(0, 80);
+    filtered = globalHubs.filter(matchQuery);
   }
   // Worldwide on-demand search (OpenStreetMap Nominatim). Kicks in when
-  // typing 2+ chars so the user can find any airport / station / port /
-  // bus terminal globally, not just the curated table.
-  const kind = modeToKind(mode);
-  const remote = useRemoteHubs(kind, value);
+  // typing 2+ chars so the user can find any station / port / bus terminal
+  // globally, not just the curated table.
   const remoteHubs: Hub[] = (remote.data ?? []).filter(
-    (r) => !filtered.some((f) => (f.code && r.code && f.code === r.code) || f.name.toLowerCase() === r.name.toLowerCase()),
+    (r) => !filtered.some((f) => f.name.toLowerCase() === r.name.toLowerCase() && f.city === r.city),
   );
-  const hiddenCount = mergedAll.length - mergedMajor.length;
+  const hiddenCount = all.length - major.length;
 
   return (
     <div className="relative">
@@ -1201,17 +1279,14 @@ function HubCombobox({
                 return (
                   <button
                     type="button"
-                    key={`${h.code ?? ""}-${h.name}-${i}`}
+                    key={`${h.city ?? ""}-${h.name}-${i}`}
                     onMouseDown={(e) => { e.preventDefault(); onChange(label); setOpen(false); }}
                     className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
                   >
                     <Check className={cn("h-4 w-4 shrink-0", sel ? "opacity-100" : "opacity-0")} />
                     <span className="min-w-0 flex-1 truncate">
-                      <span className="font-medium">{h.name}</span>
-                      {h.code && <span className="ml-1.5 text-xs opacity-70">({h.code})</span>}
-                      {h.city && h.city !== h.name && (
-                        <span className="ml-1.5 text-xs opacity-60">· {h.city}</span>
-                      )}
+                      <span className="font-medium">{h.city ?? h.name}</span>
+                      {h.city && <span className="ml-1.5 text-xs opacity-70">- {h.name}</span>}
                     </span>
                   </button>
                 );
@@ -1228,17 +1303,14 @@ function HubCombobox({
                 return (
                   <button
                     type="button"
-                    key={`remote-${h.code ?? ""}-${h.name}-${i}`}
+                    key={`remote-${h.name}-${i}`}
                     onMouseDown={(e) => { e.preventDefault(); onChange(label); setOpen(false); }}
                     className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
                   >
                     <Check className="h-4 w-4 shrink-0 opacity-0" />
                     <span className="min-w-0 flex-1 truncate">
-                      <span className="font-medium">{h.name}</span>
-                      {h.code && <span className="ml-1.5 text-xs opacity-70">({h.code})</span>}
-                      {h.city && h.city !== h.name && (
-                        <span className="ml-1.5 text-xs opacity-60">· {h.city}</span>
-                      )}
+                      <span className="font-medium">{h.city ?? h.name}</span>
+                      {h.city && <span className="ml-1.5 text-xs opacity-70">- {h.name}</span>}
                     </span>
                   </button>
                 );
