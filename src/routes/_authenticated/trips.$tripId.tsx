@@ -47,6 +47,19 @@ function TripLayout() {
   const [uploading, setUploading] = useState(false);
   const [signedPhoto, setSignedPhoto] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
+  // Focal point for the photo cover. Declared BEFORE any early return so the
+  // hook order stays stable across renders — otherwise React throws once the
+  // trip query resolves.
+  const [focal, setFocal] = useState<string>("50% 50%");
+  useEffect(() => {
+    const row = trip.data as { cover_type?: string; cover_bg?: string | null } | undefined;
+    if (!row) return;
+    if (row.cover_type === "photo" && row.cover_bg && /^\d+(\.\d+)?%\s+\d+(\.\d+)?%$/.test(row.cover_bg)) {
+      setFocal(row.cover_bg);
+    } else {
+      setFocal("50% 50%");
+    }
+  }, [trip.data]);
 
   if (trip.isLoading || !trip.data) {
     return <main className="mx-auto max-w-5xl px-4 py-8 text-sm text-muted-foreground">{t("loading")}</main>;
@@ -134,17 +147,6 @@ function TripLayout() {
   ];
 
   const isPhoto = coverType === "photo";
-  // When `coverType === "photo"`, we reuse `cover_bg` to persist the focal
-  // point as `"<x>% <y>%"`. Keeps the column from needing a migration.
-  const initialFocal =
-    isPhoto && tripRow.cover_bg && /^\d+(\.\d+)?%\s+\d+(\.\d+)?%$/.test(tripRow.cover_bg)
-      ? tripRow.cover_bg
-      : "50% 50%";
-  const [focal, setFocal] = useState<string>(initialFocal);
-  useEffect(() => {
-    setFocal(initialFocal);
-  }, [initialFocal]);
-
   async function saveFocal(next: string) {
     if (!isPhoto) return;
     try {
@@ -156,7 +158,7 @@ function TripLayout() {
   }
 
   return (
-    <div className="relative min-h-screen isolate">
+    <div data-trip-scroller className="relative h-[100svh] overflow-y-auto snap-y snap-mandatory scroll-smooth isolate">
       {/* Full-bleed gradient that stays behind the entire page */}
       <div
         aria-hidden
@@ -185,10 +187,9 @@ function TripLayout() {
       )}
 
       <main className="relative z-10 mx-auto max-w-5xl px-4 pb-12 pt-4">
-        {/* First viewport: cover + header. Tabs/outlet are pushed below the
-            fold so the trip page opens with the presentation card alone and
-            reveals the rest as the user swipes/scrolls up. */}
-        <section className="flex min-h-[100svh] flex-col">
+        {/* First viewport: cover + header. Tabs/outlet sit in a second snap
+            section so the page swipes between presentation and details. */}
+        <section className="flex min-h-[100svh] snap-start flex-col">
         <div className="flex items-center justify-between gap-2">
           <Link
             to="/trips"
@@ -332,7 +333,8 @@ function TripLayout() {
         <button
           type="button"
           onClick={() => {
-            window.scrollTo({ top: window.innerHeight * 0.85, behavior: "smooth" });
+            const root = document.querySelector<HTMLElement>("[data-trip-scroller]");
+            root?.scrollTo({ top: window.innerHeight, behavior: "smooth" });
           }}
           aria-label="Mostra contenuti"
           className="mx-auto mt-2 inline-flex items-center gap-1 rounded-full bg-background/60 px-3 py-1 text-[11px] text-muted-foreground backdrop-blur transition hover:text-foreground"
@@ -342,6 +344,7 @@ function TripLayout() {
         </button>
         </section>
 
+      <section className="flex min-h-[100svh] snap-start flex-col pt-6">
       <nav
         aria-label="Sezioni viaggio"
         className="mt-8 mx-auto flex w-fit items-center gap-1 rounded-full border border-border/60 bg-background/70 p-1 text-xs shadow-soft backdrop-blur"
@@ -371,6 +374,7 @@ function TripLayout() {
       </nav>
 
         <div className="pt-6"><Outlet /></div>
+      </section>
       </main>
 
       <EditTripDialog
@@ -875,11 +879,27 @@ function TimezoneBadge({
   };
   const abbrOn = (tz: string, d: Date): string | null => {
     try {
-      const parts = new Intl.DateTimeFormat("en-US", {
+      // `short` often returns "GMT+2" instead of "CEST". Fall back to the
+      // long name and build an acronym (e.g. "Central European Summer Time"
+      // -> "CEST", "Korea Standard Time" -> "KST").
+      const shortParts = new Intl.DateTimeFormat("en-US", {
         timeZone: tz,
         timeZoneName: "short",
       }).formatToParts(d);
-      return parts.find((p) => p.type === "timeZoneName")?.value ?? null;
+      const short = shortParts.find((p) => p.type === "timeZoneName")?.value ?? "";
+      if (short && !/^(GMT|UTC)/i.test(short)) return short;
+      const longParts = new Intl.DateTimeFormat("en-US", {
+        timeZone: tz,
+        timeZoneName: "long",
+      }).formatToParts(d);
+      const long = longParts.find((p) => p.type === "timeZoneName")?.value ?? "";
+      if (!long) return null;
+      const acronym = long
+        .split(/\s+/)
+        .filter((w) => /^[A-Z]/.test(w))
+        .map((w) => w[0])
+        .join("");
+      return acronym.length >= 2 ? acronym : null;
     } catch {
       return null;
     }
@@ -888,19 +908,18 @@ function TimezoneBadge({
   const d = offsetOn(destZone, when);
   if (h == null || d == null) return null;
   if (Math.abs(d - h) < 0.01) return null;
-  const utcFmt = (n: number) => {
+  const offFmt = (n: number) => {
     const s = n >= 0 ? "+" : "−";
     const abs = Math.abs(n);
     const hh = Math.floor(abs);
     const mm = Math.round((abs - hh) * 60);
-    return mm ? `UTC${s}${hh}:${String(mm).padStart(2, "0")}` : `UTC${s}${hh}`;
+    return mm ? `${s}${hh}:${String(mm).padStart(2, "0")}` : `${s}${hh}`;
   };
   const label = (tz: string, off: number) => {
     const abbr = abbrOn(tz, when);
-    const utc = utcFmt(off);
-    // If abbr is just a GMT/UTC form, only show that once.
-    if (!abbr || /^(GMT|UTC)/i.test(abbr)) return utc;
-    return `${abbr} (${utc})`;
+    const off2 = offFmt(off);
+    if (!abbr) return `UTC${off2}`;
+    return `${abbr}${off2}`;
   };
   const diff = Math.round((d - h) * 10) / 10;
   const diffLabel = `${diff > 0 ? "+" : "−"}${Math.abs(diff)}h`;
