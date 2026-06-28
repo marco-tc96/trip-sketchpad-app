@@ -158,7 +158,7 @@ function TripLayout() {
   }
 
   return (
-    <div className="relative min-h-screen isolate">
+    <div className="relative h-[100svh] overflow-y-auto snap-y snap-mandatory scroll-smooth isolate">
       {/* Full-bleed gradient that stays behind the entire page */}
       <div
         aria-hidden
@@ -187,10 +187,9 @@ function TripLayout() {
       )}
 
       <main className="relative z-10 mx-auto max-w-5xl px-4 pb-12 pt-4">
-        {/* First viewport: cover + header. Tabs/outlet are pushed below the
-            fold so the trip page opens with the presentation card alone and
-            reveals the rest as the user swipes/scrolls up. */}
-        <section className="flex min-h-[100svh] flex-col">
+        {/* First viewport: cover + header. Tabs/outlet sit in a second snap
+            section so the page swipes between presentation and details. */}
+        <section className="flex min-h-[100svh] snap-start flex-col">
         <div className="flex items-center justify-between gap-2">
           <Link
             to="/trips"
@@ -334,7 +333,8 @@ function TripLayout() {
         <button
           type="button"
           onClick={() => {
-            window.scrollTo({ top: window.innerHeight * 0.85, behavior: "smooth" });
+            const root = document.querySelector<HTMLElement>("[data-trip-scroller]");
+            root?.scrollTo({ top: window.innerHeight, behavior: "smooth" });
           }}
           aria-label="Mostra contenuti"
           className="mx-auto mt-2 inline-flex items-center gap-1 rounded-full bg-background/60 px-3 py-1 text-[11px] text-muted-foreground backdrop-blur transition hover:text-foreground"
@@ -344,6 +344,7 @@ function TripLayout() {
         </button>
         </section>
 
+      <section className="flex min-h-[100svh] snap-start flex-col pt-6">
       <nav
         aria-label="Sezioni viaggio"
         className="mt-8 mx-auto flex w-fit items-center gap-1 rounded-full border border-border/60 bg-background/70 p-1 text-xs shadow-soft backdrop-blur"
