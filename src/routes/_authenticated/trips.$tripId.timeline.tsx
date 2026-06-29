@@ -85,9 +85,6 @@ const KIND_ICON: Record<(typeof ITEM_KINDS)[number], React.ComponentType<{ class
   other: MapPin,
 };
 
-// Category groups → visual palettes. Transport and lodging share the warm
-// gradient family; activities use a distinct emerald palette; meta items
-// (zone/other) stay neutral.
 const TRANSPORT_KINDS = new Set([
   "outbound", "return", "flight", "train", "car", "moto", "ferry", "transfer",
 ]);
@@ -151,7 +148,6 @@ function TimelineView() {
   const lodgings = middle.filter((i) => i.kind === "lodging");
   const nonLodging = middle.filter((i) => i.kind !== "lodging");
 
-  // Group only the day-bound items (everything except lodging) by trip day.
   const start = new Date(trip.data.start_date);
   const end = new Date(trip.data.end_date);
   const dayCount = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000) + 1);
@@ -317,11 +313,6 @@ function JourneyLeg({
   const stops = legs.length > 1
     ? legs.slice(0, -1).map((l) => l.to).filter(Boolean).map((s) => nameOf(s)).join(", ")
     : "";
-  // Compact version for the badge itself — just the IATA/short codes of
-  // each layover (e.g. "TFU"), never the full airport name. The full,
-  // human-readable list still lives in `stops` for the hover tooltip, so no
-  // information is lost — it's just not forced into the narrow center
-  // column where it used to overflow onto the arrival column.
   const stopCodes = legs.length > 1
     ? legs.slice(0, -1).map((l) => l.to).filter(Boolean).map((s) => codeOf(s)).join(" · ")
     : "";
@@ -337,7 +328,6 @@ function JourneyLeg({
           type="button"
           className="relative block w-full overflow-hidden rounded-2xl border border-border/40 text-left shadow-soft transition hover:brightness-110"
         >
-          {/* Split background: from-city photo on the left, to-city photo on the right */}
           <div className="absolute inset-0">
             {fromPhoto ? (
               <img src={fromPhoto} alt="" className="absolute inset-y-0 left-0 h-full w-1/2 object-cover" />
@@ -520,11 +510,10 @@ function LodgingCard({
 }
 
 // Extracts the badge code shown on the journey card (e.g. "FCO"). Airport
-// legs now always carry a real IATA code embedded in the saved label —
-// "FCO - Roma / Roma Fiumicino" (desktop) or "FCO - Roma" (mobile) — so we
-// read it straight from there instead of guessing letters from the city
-// name. Falls back to the old heuristic for train/bus/ferry legs, which
-// don't carry a code (e.g. "Roma - Termini").
+// legs carry a real IATA code embedded in the saved label —
+// "FCO - Roma" or "MXP - Milano Malpensa" — so we read it straight from
+// there. Falls back to a heuristic for train/bus/ferry legs, which don't
+// carry a code (e.g. "Roma - Termini").
 function codeOf(label: string): string {
   const m = label.match(/^([A-Z]{3})\s*-\s*/);
   if (m) return m[1];
@@ -532,14 +521,17 @@ function codeOf(label: string): string {
   return (clean.slice(0, 3) || "···").toUpperCase();
 }
 // Strips the leading "IATA - " prefix already shown in the badge above,
-// leaving just the human-readable part for the subtitle line — e.g.
-// "MXP - Milano Malpensa" -> "Milano Malpensa". Only strips a real 3-letter
-// IATA prefix; train/bus/ferry labels ("Roma - Termini") have no IATA code
-// and are left untouched, since their badge is just a derived abbreviation
-// rather than the actual first word of the label.
+// then keeps ONLY the first word of what remains. Saved labels for
+// multi-airport cities are "City ShortName" (e.g. "Milano Malpensa",
+// "Seoul Incheon") — the narrow column under the badge only has room for
+// one short word, so showing the full "City ShortName" string overflows
+// and visually collides with the arrival column. The full text is still
+// available via the `title` attribute on hover/long-press.
 function nameOf(label: string): string {
   const m = label.match(/^[A-Z]{3}\s*-\s*(.+)$/);
-  return m ? m[1].trim() : label;
+  const rest = m ? m[1].trim() : label;
+  const firstWord = rest.split(/\s+/)[0] ?? rest;
+  return firstWord || rest;
 }
 function fmtTime(iso: string | null): string {
   if (!iso) return "";
@@ -861,7 +853,6 @@ function AddItemDialog({
     notes: existing?.notes ?? "",
   });
   const [form, setForm] = useState(seedForm);
-  // Re-seed when reopening so swapping the underlying item updates the form.
   function handleOpenChange(v: boolean) {
     if (v) setForm(seedForm());
     setOpen(v);
@@ -881,7 +872,6 @@ function AddItemDialog({
     { kind: "other", icon: MapPin, label: t("other") },
   ];
 
-  // Suggested locations: trip cities first, then other cities from same countries.
   const tripKeys = new Set(tripCities.map((c) => `${c.country}|${c.name}`));
   const countryCities = tripCountries.flatMap((iso) => citiesOfCountry(iso));
   const extras = countryCities.filter((c) => !tripKeys.has(`${c.country}|${c.name}`));
@@ -1106,15 +1096,9 @@ function HubCombobox({
   const isPlane = mode === "plane";
   const isHub = mode === "train" || mode === "bus" || mode === "ferry";
   const isCityMode = mode === "car" || mode === "moto";
-  // Hooks must run unconditionally on every render (Rules of Hooks), so
-  // both data hooks are always called here regardless of which mode branch
-  // below actually renders. useAirports is a cheap no-op once the dataset
-  // is cached; useRemoteHubs stays disabled (kind=null) outside the
-  // train/bus/ferry branch, so it never fires a request when not needed.
   const airportsData = useAirports(true);
   const remote = useRemoteHubs(isHub ? modeToKind(mode) : null, isHub ? value : "");
 
-  // City-based selection for car/moto: list all cities from the trip countries.
   if (isCityMode) {
     const cityList = countries.flatMap((iso) =>
       citiesOfCountry(iso).map((c) => ({ name: c.name, country: c.country })),
@@ -1156,11 +1140,6 @@ function HubCombobox({
     );
   }
 
-  // Airports: airports-json is now the ONLY source — no curated table, no
-  // remote fallback needed since the dataset already covers every IATA
-  // airport worldwide. Single format everywhere: "IATA - City" when the
-  // city has just one commercial airport, "IATA - City ShortName" when it
-  // has several (e.g. Milano Malpensa vs Milano Linate).
   if (isPlane) {
     const q = value.trim().toLowerCase();
     const inCountries = airportsForCountries(airportsData, countries);
@@ -1168,7 +1147,7 @@ function HubCombobox({
     const list: AirportHub[] = showAll ? inCountries : major;
     const matchQuery = (h: AirportHub) => {
       const label = formatAirport(h).toLowerCase();
-      if (label === q) return false; // already the selected value, hide it
+      if (label === q) return false;
       return (
         h.name.toLowerCase().includes(q) ||
         (h.city ?? "").toLowerCase().includes(q) ||
@@ -1177,9 +1156,6 @@ function HubCombobox({
     };
     let filtered: AirportHub[] = q ? inCountries.filter(matchQuery).slice(0, 80) : list;
     if (q && filtered.length === 0) {
-      // Nothing in the trip countries matched — widen the search to every
-      // airport in the global dataset (e.g. a layover city outside the
-      // trip's countries).
       filtered = airportsSearch(airportsData, value, 80);
     }
     const hiddenCount = inCountries.length - major.length;
@@ -1247,9 +1223,6 @@ function HubCombobox({
     );
   }
 
-  // Train / bus / ferry: curated table first, then worldwide live search
-  // (OpenStreetMap Nominatim) since there is no bundled global dataset for
-  // these the way there is for airports.
   const major: Hub[] = hubsForMode(mode, countries, false);
   const all: Hub[] = hubsForMode(mode, countries, true);
   const allCountries = Object.keys(HUBS);
@@ -1263,9 +1236,6 @@ function HubCombobox({
   if (q && filtered.length === 0) {
     filtered = globalHubs.filter(matchQuery);
   }
-  // Worldwide on-demand search (OpenStreetMap Nominatim). Kicks in when
-  // typing 2+ chars so the user can find any station / port / bus terminal
-  // globally, not just the curated table.
   const remoteHubs: Hub[] = (remote.data ?? []).filter(
     (r) => !filtered.some((f) => f.name.toLowerCase() === r.name.toLowerCase() && f.city === r.city),
   );

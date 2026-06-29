@@ -47,22 +47,10 @@ function TripLayout() {
   const [uploading, setUploading] = useState(false);
   const [signedPhoto, setSignedPhoto] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
-  // Cover menu (hamburger) open state — the cover-selector options are now
-  // tucked behind a single icon button instead of being shown inline, so
-  // the top bar stays compact and never visually crowds the title card.
   const [coverMenuOpen, setCoverMenuOpen] = useState(false);
-  // Focal point for the photo cover. Declared BEFORE any early return so the
-  // hook order stays stable across renders — otherwise React throws once the
-  // trip query resolves.
   const [focal, setFocal] = useState<string>("50% 50%");
   const [repositioning, setRepositioning] = useState(false);
   const [scrolled, setScrolled] = useState(false);
-  // Marks the end of the title card — the compact pinned header should only
-  // fade in once this sentinel has scrolled out of view, not at some
-  // arbitrary scroll-distance threshold. Using IntersectionObserver instead
-  // of a scrollTop number means the trigger point always matches reality,
-  // however tall the cover/photo/map section above happens to be for a
-  // given cover type.
   const titleSentinelRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const row = trip.data as { cover_type?: string; cover_bg?: string | null } | undefined;
@@ -180,23 +168,13 @@ function TripLayout() {
     }
   }
 
-  // Reserved space above the title card for "photo"/"map" covers, so the
-  // opening screen shows mostly background (photo or map) with the title
-  // card living near the bottom of that space instead of right under the
-  // top bar. "auto"/"color" covers keep no reserved gap (flat backgrounds
-  // don't need a window).
+  // Reserved space above the title card for "photo"/"map" covers: the
+  // opening screen fills the FULL viewport with cover + title card only,
+  // everything else (tabs, days) lives one swipe/scroll below the fold.
   const hasReservedSpace = coverType === "map" || coverType === "photo";
 
   return (
-    // snap-y restores the swipe-like feel for the opening presentation
-    // block only. snap is intentionally NOT applied to the itinerary
-    // section below — that section's height is unpredictable (it grows
-    // with the number of days/activities), and combining snap-proximity
-    // with a long, variable-height section is what was causing the
-    // scroller to "snap back" to the top once the user scrolled past the
-    // last day, hiding it behind the bottom dock.
     <div data-trip-scroller className="relative h-[100svh] overflow-y-auto scroll-smooth isolate">
-      {/* Full-bleed gradient that stays behind the entire page */}
       <div
         aria-hidden
         className="pointer-events-none fixed inset-0 z-0"
@@ -208,9 +186,6 @@ function TripLayout() {
               : autoGradient,
         }}
       />
-      {/* Full-screen draggable photo cover. Sits fixed behind everything so
-          the header floats over it; user can drag to reposition the focal
-          point. The result is persisted to `cover_bg`. */}
       {isPhoto && (
         <FullScreenPhoto
           tripId={tripId}
@@ -225,16 +200,87 @@ function TripLayout() {
         />
       )}
 
-      {/* Compact pinned header. Only fades in once the title card sentinel
-          below has scrolled fully out of view (IntersectionObserver), so it
-          can never visually double up with the still-visible title block. */}
+      {/* Top bar — back arrow + hamburger. ALWAYS the same fixed element,
+          pinned to the very top of the viewport for the whole page
+          lifetime (never lives inside the scrolling section), so it can
+          never "disappear" after the swipe. Its vertical position is
+          fixed; the compact title pill below is what animates in next to
+          it once the user has scrolled past the title card, so the two
+          end up visually aligned on the same row. Own stacking context
+          well above the map/photo cover and the BottomDock. */}
+      <div
+        className="fixed inset-x-0 z-[55] isolate mx-auto flex max-w-5xl items-center justify-between gap-2 px-4"
+        style={{ top: "calc(0.75rem + env(safe-area-inset-top, 0px))" }}
+      >
+        <Link
+          to="/trips"
+          aria-label={t("back")}
+          className="inline-flex items-center justify-center rounded-full bg-background/60 p-2.5 text-foreground backdrop-blur hover:bg-background/80"
+        >
+          <ArrowLeft className="h-4 w-4" />
+        </Link>
+        {/* Hamburger trigger. Options stack top-to-bottom in a vertical
+            menu to the left of the trigger button, not as a row of pills. */}
+        <Popover open={coverMenuOpen} onOpenChange={setCoverMenuOpen}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              aria-label={t("cover_auto")}
+              className="inline-flex items-center justify-center rounded-full border border-border/60 bg-background/70 p-2.5 text-foreground shadow-soft backdrop-blur hover:bg-background/90"
+            >
+              <Menu className="h-4 w-4" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-48 p-1.5">
+            <div className="flex flex-col items-stretch gap-0.5 text-sm">
+              <CoverMenuRow active={coverType === "auto"} onClick={() => setCoverType("auto")} icon={Sparkles} label={t("cover_auto")} />
+              <CoverMenuRow active={coverType === "map"} onClick={() => setCoverType("map")} icon={MapIcon} label={t("cover_map")} />
+              <CoverMenuRow
+                active={coverType === "photo"}
+                onClick={() => {
+                  if (tripRow.cover_url) setCoverType("photo");
+                  else fileRef.current?.click();
+                }}
+                icon={ImageIcon}
+                label={t("cover_photo")}
+              />
+              {coverType === "photo" && tripRow.cover_url && (
+                <>
+                  <CoverMenuRow
+                    active={repositioning}
+                    onClick={() => {
+                      setRepositioning((v) => !v);
+                      setCoverMenuOpen(false);
+                    }}
+                    icon={Move}
+                    label="Sposta"
+                  />
+                  <CoverMenuRow
+                    active={false}
+                    onClick={() => fileRef.current?.click()}
+                    icon={Upload}
+                    label={t("change_photo")}
+                  />
+                </>
+              )}
+              <ColorCoverMenuRow
+                active={coverType === "color"}
+                current={tripRow.cover_bg}
+                onPick={(bg) => setCoverBg(bg)}
+              />
+            </div>
+          </PopoverContent>
+        </Popover>
+      </div>
+
+      {/* Compact pinned title pill — fades in once the title-card sentinel
+          scrolls out of view, vertically aligned with the fixed top bar
+          above so they read as one cohesive header once the swipe happens. */}
       <div
         aria-hidden={!scrolled}
         className={cn(
           "pointer-events-none fixed inset-x-0 z-30 mx-auto flex max-w-5xl justify-center px-4 transition-all duration-300 ease-out",
-          scrolled
-            ? "translate-y-0 opacity-100"
-            : "-translate-y-3 opacity-0",
+          scrolled ? "translate-y-0 opacity-100" : "-translate-y-3 opacity-0",
         )}
         style={{ top: "calc(0.5rem + env(safe-area-inset-top, 0px))" }}
       >
@@ -251,108 +297,20 @@ function TripLayout() {
         </div>
       </div>
 
-      {/* pb-32 guarantees the last content of this inner scroller — which
-          scrolls independently from the outer app shell — never ends up
-          hidden behind the fixed BottomDock. */}
-      <main className="relative z-10 mx-auto max-w-5xl px-4 pb-32 pt-4">
-        {/* Presentation block: cover + title card. snap-start gives it the
-            swipe-like anchor point; no min-h-[100svh] here, so its real
-            height (which varies by cover type) is what the browser snaps
-            to — never an artificial full-screen block that would trap
-            scrolling on long itineraries. For "photo"/"map" covers this
-            block is stretched to the full viewport height (minus the
-            bottom dock clearance) so the title card naturally lands near
-            the bottom, leaving the photo/map visible above it. */}
+      <main className="relative z-10 mx-auto max-w-5xl px-4 pb-32">
+        {/* Presentation block: cover + title card. For "photo"/"map"
+            covers this fills the FULL viewport (100svh) so on first paint
+            ONLY the cover and the title card are visible — everything
+            else sits one swipe below the fold, as requested. "auto"/
+            "color" covers (flat backgrounds) keep their natural, shorter
+            height. */}
         <section
           className="relative flex flex-col snap-start"
-          style={
-            hasReservedSpace
-              ? { minHeight: "calc(100svh - 6.5rem)" }
-              : undefined
-          }
+          style={hasReservedSpace ? { minHeight: "100svh" } : undefined}
         >
-        {/* Top bar: a lone back-arrow button and a hamburger that reveals
-            the cover-selector options in a popover. Pushed down with a
-            safe-area-aware top padding so it never touches the notch/edge
-            on mobile, and kept as its own stacking context (isolate +
-            z-30) so it always stays above the interactive map cover
-            beneath it — Leaflet's own panes use high internal z-indexes
-            that could otherwise swallow clicks meant for this bar. */}
-        <div
-          className="relative z-[55] isolate flex items-center justify-between gap-2"
-          style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top, 0px))" }}
-        >
-          <Link
-            to="/trips"
-            aria-label={t("back")}
-            className="inline-flex items-center justify-center rounded-full bg-background/60 p-2.5 text-foreground backdrop-blur hover:bg-background/80"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
-          {/* Hamburger trigger for the cover-selector menu */}
-          <Popover open={coverMenuOpen} onOpenChange={setCoverMenuOpen}>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                aria-label={t("cover_auto")}
-                className="inline-flex items-center justify-center rounded-full border border-border/60 bg-background/70 p-2.5 text-foreground shadow-soft backdrop-blur hover:bg-background/90"
-              >
-                <Menu className="h-4 w-4" />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-auto p-1.5">
-              <div className="flex flex-wrap items-center gap-1 text-xs">
-                <CoverPill active={coverType === "auto"} onClick={() => setCoverType("auto")} icon={Sparkles} label={t("cover_auto")} />
-                <CoverPill active={coverType === "map"} onClick={() => setCoverType("map")} icon={MapIcon} label={t("cover_map")} />
-                <CoverPill
-                  active={coverType === "photo"}
-                  onClick={() => {
-                    // If a photo already exists, switching to the photo cover
-                    // just shows it — no re-upload. The user can replace it via
-                    // the dedicated "Change photo" button below.
-                    if (tripRow.cover_url) setCoverType("photo");
-                    else fileRef.current?.click();
-                  }}
-                  icon={ImageIcon}
-                  label={t("cover_photo")}
-                />
-                {coverType === "photo" && tripRow.cover_url && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setRepositioning((v) => !v);
-                        setCoverMenuOpen(false);
-                      }}
-                      className={cn(
-                        "inline-flex items-center gap-1 rounded-full px-2.5 py-1 transition",
-                        repositioning
-                          ? "bg-primary text-primary-foreground"
-                          : "text-foreground/80 hover:bg-foreground/10",
-                      )}
-                    >
-                      <Move className="h-3.5 w-3.5" />
-                      <span>Sposta</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => fileRef.current?.click()}
-                      className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-foreground/80 transition hover:bg-foreground/10"
-                    >
-                      <Upload className="h-3.5 w-3.5" />
-                      <span>{t("change_photo")}</span>
-                    </button>
-                  </>
-                )}
-                <ColorCoverPill
-                  active={coverType === "color"}
-                  current={tripRow.cover_bg}
-                  onPick={(bg) => setCoverBg(bg)}
-                />
-              </div>
-            </PopoverContent>
-          </Popover>
-        </div>
+        {/* Spacer reserving room for the fixed top bar above, so cover
+            content never sits underneath it. */}
+        <div aria-hidden style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top, 0px) + 2.5rem)" }} />
 
         <input
           ref={fileRef}
@@ -371,11 +329,6 @@ function TripLayout() {
           </div>
         )}
 
-        {/* Map cover fills all remaining space between the top bar and the
-            title card — it's the actual background for "map" covers, not
-            just a preview window, so it should always be fully interactive
-            (drag/zoom) and sit in its own stacking context below the top
-            bar's z-30, never above it. */}
         {coverType === "map" && (
           <div className="relative z-0 my-3 flex-1 min-h-[30vh] overflow-hidden rounded-2xl">
             <TripMap
@@ -387,29 +340,29 @@ function TripLayout() {
           </div>
         )}
 
-        {/* For "photo" covers there is nothing to render here — the photo
-            itself is the fixed full-screen background behind everything
-            (see <FullScreenPhoto> above). flex-1 just lets this spacer grow
-            so the title card below is pushed down towards the bottom of
-            the reserved viewport space instead of sitting right under the
-            top bar. */}
         {coverType === "photo" && <div className="flex-1" aria-hidden />}
 
-        {/* Swipe-up hint, shown only when there's a reserved photo/map
-            space above the title card — it signals there's more to see by
-            scrolling/swiping up past this opening screen. */}
+        {/* Swipe-up hint — bigger tappable target, also scrolls the
+            content into view when tapped/clicked, not just decorative. */}
         {hasReservedSpace && (
-          <div className="flex justify-center pb-2" aria-hidden>
-            <span className="inline-flex items-center gap-1 rounded-full bg-background/50 px-2.5 py-1 text-[10px] font-medium text-foreground/80 backdrop-blur">
-              <ChevronUp className="h-3 w-3 animate-bounce" />
-            </span>
-          </div>
+          <button
+            type="button"
+            aria-label="Scorri per vedere di più"
+            onClick={() => {
+              document
+                .querySelector<HTMLElement>("[data-trip-scroller]")
+                ?.scrollBy({ top: window.innerHeight * 0.7, behavior: "smooth" });
+            }}
+            className="mx-auto -mb-1 flex h-9 w-14 items-center justify-center rounded-full bg-background/55 text-foreground/90 backdrop-blur transition hover:bg-background/70"
+          >
+            <ChevronUp className="h-5 w-5 animate-bounce" />
+          </button>
         )}
 
         <header
           className={cn(
-            "flex flex-col gap-3 rounded-3xl border border-border/50 bg-background/70 p-4 shadow-soft backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:gap-4 mb-10",
-            !hasReservedSpace && "mt-3",
+            "flex flex-col gap-3 rounded-3xl border border-border/50 bg-background/70 p-4 shadow-soft backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:gap-4",
+            hasReservedSpace ? "mt-3 mb-6" : "mt-3 mb-10",
           )}
         >
         <div className="flex min-w-0 items-center gap-3">
@@ -476,18 +429,9 @@ function TripLayout() {
           </Button>
         </div>
       </header>
-        {/* Sentinel marking the bottom edge of the title card. The compact
-            pinned header above only appears once this element scrolls out
-            of the visible viewport — see the IntersectionObserver effect. */}
         <div ref={titleSentinelRef} aria-hidden className="h-px w-full" />
         </section>
 
-      {/* Itinerary section intentionally has NO snap-start / snap classes.
-          Its height varies with the number of days/activities in the
-          trip, and pairing snap-proximity with a long, variable-height
-          block is what was causing the scroller to bounce back to the top
-          once the user reached the end of the itinerary — re-covering the
-          last day under the bottom dock. Plain free scrolling here. */}
       <section className="flex flex-col pt-2">
       <nav
         aria-label="Sezioni viaggio"
@@ -794,7 +738,7 @@ function EditTripDialog({
   );
 }
 
-function CoverPill({
+function CoverMenuRow({
   active, onClick, icon: Icon, label,
 }: {
   active: boolean;
@@ -807,14 +751,14 @@ function CoverPill({
       type="button"
       onClick={onClick}
       className={cn(
-        "inline-flex items-center gap-1 rounded-full px-2.5 py-1 transition",
+        "flex items-center gap-2 rounded-lg px-2.5 py-2 text-left transition",
         active
           ? "bg-primary text-primary-foreground"
           : "text-foreground/80 hover:bg-foreground/10",
       )}
     >
-      <Icon className="h-3.5 w-3.5" />
-      <span>{label}</span>
+      <Icon className="h-3.5 w-3.5 shrink-0" />
+      <span className="truncate">{label}</span>
     </button>
   );
 }
@@ -831,7 +775,7 @@ const COVER_BG_PRESETS = [
   "#f1f5f9",
 ];
 
-function ColorCoverPill({
+function ColorCoverMenuRow({
   active,
   current,
   onPick,
@@ -846,14 +790,14 @@ function ColorCoverPill({
         <button
           type="button"
           className={cn(
-            "inline-flex items-center gap-1 rounded-full px-2.5 py-1 transition",
+            "flex items-center gap-2 rounded-lg px-2.5 py-2 text-left transition",
             active
               ? "bg-primary text-primary-foreground"
               : "text-foreground/80 hover:bg-foreground/10",
           )}
         >
-          <Palette className="h-3.5 w-3.5" />
-          <span>Colore</span>
+          <Palette className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate">Colore</span>
         </button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-64 p-3">
@@ -900,90 +844,8 @@ function ColorCoverPill({
   );
 }
 
-function CoverContent({
-  tripId,
-  coverType,
-  coverUrl,
-  cities,
-  gradient,
-  signedPhoto,
-  setSignedPhoto,
-}: {
-  tripId: string;
-  coverType: "auto" | "photo";
-  coverUrl: string | null;
-  cities: Array<{ name: string; country: string; lat?: number; lng?: number }>;
-  gradient: string;
-  signedPhoto: string | null;
-  setSignedPhoto: (v: string | null) => void;
-}) {
-  // Resolve signed URL for private photo storage.
-  useEffect(() => {
-    let cancelled = false;
-    setSignedPhoto(null);
-    if (coverType === "photo" && coverUrl && !/^https?:\/\//i.test(coverUrl)) {
-      supabase.storage
-        .from("trip-covers")
-        .createSignedUrl(coverUrl, 60 * 60)
-        .then(({ data }) => {
-          if (!cancelled) setSignedPhoto(data?.signedUrl ?? null);
-        });
-    }
-    return () => {
-      cancelled = true;
-    };
-  }, [coverType, coverUrl, tripId, setSignedPhoto]);
-
-  if (coverType === "photo") {
-    const src = signedPhoto || (coverUrl && /^https?:\/\//i.test(coverUrl) ? coverUrl : null);
-    return <CityCover src={src} gradient={gradient} />;
-  }
-
-  // auto
-  const src = coverUrl && /^https?:\/\//i.test(coverUrl) ? coverUrl : null;
-  return <CityCover src={src} gradient={gradient} />;
-}
-
 function fmt(d: string) {
   return new Date(d).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
-}
-
-function PhotoBlurBackdrop({
-  tripId, coverUrl, signedPhoto, setSignedPhoto,
-}: {
-  tripId: string;
-  coverUrl: string | null;
-  signedPhoto: string | null;
-  setSignedPhoto: (v: string | null) => void;
-}) {
-  useEffect(() => {
-    let cancelled = false;
-    if (coverUrl && !/^https?:\/\//i.test(coverUrl)) {
-      supabase.storage
-        .from("trip-covers")
-        .createSignedUrl(coverUrl, 60 * 60)
-        .then(({ data }) => {
-          if (!cancelled) setSignedPhoto(data?.signedUrl ?? null);
-        });
-    }
-    return () => { cancelled = true; };
-  }, [coverUrl, tripId, setSignedPhoto]);
-  const src = signedPhoto || (coverUrl && /^https?:\/\//i.test(coverUrl) ? coverUrl : null);
-  if (!src) return null;
-  return (
-    <div
-      aria-hidden
-      className="pointer-events-none fixed inset-0 top-[58vh] z-0 overflow-hidden"
-    >
-      <img
-        src={src}
-        alt=""
-        className="h-full w-full scale-110 object-cover opacity-50"
-        style={{ filter: "blur(28px)" }}
-      />
-      <div className="absolute inset-0 bg-background/60" />
-    </div>
-  );
 }
 
 function TimezoneBadge({
@@ -1023,9 +885,6 @@ function TimezoneBadge({
   };
   const abbrOn = (tz: string, d: Date): string | null => {
     try {
-      // `short` often returns "GMT+2" instead of "CEST". Fall back to the
-      // long name and build an acronym (e.g. "Central European Summer Time"
-      // -> "CEST", "Korea Standard Time" -> "KST").
       const shortParts = new Intl.DateTimeFormat("en-US", {
         timeZone: tz,
         timeZoneName: "short",
@@ -1172,7 +1031,6 @@ function FullScreenPhoto({
           className="pointer-events-none h-full w-full object-cover"
           style={{ objectPosition: focal }}
         />
-        {/* Legibility overlay for content above */}
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0"

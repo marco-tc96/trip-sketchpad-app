@@ -146,10 +146,6 @@ function ProfilePage() {
         </h1>
       </div>
 
-      {/* Identity card: avatar placeholder (bust silhouette), name, username
-          and home country. Replaces the always-visible settings form — all
-          editing now happens inside the SettingsDialog opened from the
-          button below. */}
       <section className="mt-6 flex flex-col items-center gap-3 rounded-3xl border border-border bg-card p-6 text-center shadow-soft sm:p-8">
         <span
           aria-hidden
@@ -194,7 +190,11 @@ function ProfilePage() {
           <BarChart3 className="h-4 w-4 text-primary" />
           <h2 className="font-serif text-lg font-semibold">{t("stats")}</h2>
         </div>
-        <div className="mt-3 grid gap-3 sm:grid-cols-4">
+        {/* Two rows of two centered stat cards: Countries+Cities, then
+            Nights+Trips — replaces the previous 4-column grid (which only
+            read as a clean row on wide screens) with a layout that's
+            explicitly paired and centered at every width. */}
+        <div className="mt-3 grid grid-cols-2 gap-3">
           <Stat icon={Globe2} label={t("countries")} value={stats.countries.length} />
           <Stat icon={MapPin} label={t("cities")} value={stats.cityCount} />
           <Stat icon={CalendarDays} label={t("nights")} value={stats.nights} />
@@ -242,8 +242,10 @@ function ProfilePage() {
 
         {(stats.business + stats.vacation + stats.daytrip) > 0 && (
           <div className="mt-4 rounded-3xl border border-border bg-card p-5 shadow-soft">
-            <h3 className="font-serif text-base font-semibold">Lavoro vs vacanza</h3>
-            <div className="mt-3 flex items-center gap-5">
+            <h3 className="text-center font-serif text-base font-semibold">Lavoro vs vacanza</h3>
+            {/* Centered as a whole block (chart + legend together) rather
+                than left-aligned, matching the rest of the profile page. */}
+            <div className="mt-3 flex items-center justify-center gap-5">
               <PieChart business={stats.business} vacation={stats.vacation} daytrip={stats.daytrip} />
               <ul className="space-y-2 text-sm">
                 <li className="flex items-center gap-2">
@@ -306,9 +308,7 @@ function PieChart({ business, vacation, daytrip }: { business: number; vacation:
   const bizLen = (business / total) * c;
   return (
     <svg viewBox="0 0 100 100" className="h-24 w-24 -rotate-90">
-      {/* base: amber for daytrip */}
       <circle cx="50" cy="50" r={r} fill="none" stroke="rgb(245 158 11)" strokeWidth="20" />
-      {/* business arc */}
       <circle
         cx="50" cy="50" r={r}
         fill="none"
@@ -316,7 +316,6 @@ function PieChart({ business, vacation, daytrip }: { business: number; vacation:
         strokeWidth="20"
         strokeDasharray={`${vacLen + bizLen} ${c}`}
       />
-      {/* vacation arc on top */}
       <circle
         cx="50" cy="50" r={r}
         fill="none"
@@ -335,8 +334,10 @@ function Stat({
   label: string;
   value: number;
 }) {
+  // Centered content (icon, label, value all centered) so the card reads
+  // well when paired side-by-side with another stat card at any width.
   return (
-    <div className="rounded-2xl border border-border bg-card p-4 shadow-soft">
+    <div className="flex flex-col items-center rounded-2xl border border-border bg-card p-4 text-center shadow-soft">
       <Icon className="h-4 w-4 text-primary" />
       <p className="mt-2 text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
       <p className="mt-0.5 font-serif text-2xl font-semibold tabular-nums">{value}</p>
