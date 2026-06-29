@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Plus, MapPin, Calendar, Briefcase, Palmtree, Footprints } from "lucide-react";
+import { Plus, MapPin, Calendar, Briefcase, Palmtree, Footprints, Globe2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useEffect, useMemo, useState } from "react";
 import { listTrips } from "@/lib/trips.functions";
@@ -10,6 +10,7 @@ import { flagOf } from "@/lib/country-data";
 import { CityCover } from "@/components/app/city-cover";
 import { flagGradient } from "@/lib/flag-gradient";
 import { supabase } from "@/integrations/supabase/client";
+import { WorldMap, type WorldMapCity } from "@/components/app/world-map";
 
 export const Route = createFileRoute("/_authenticated/trips/")({
   component: TripsList,
@@ -46,6 +47,32 @@ function TripsList() {
     [trips, today],
   );
 
+  // The map reflects places actually visited, not future plans — so it's
+  // built from ongoing + past trips only, the same rule already used for
+  // the "countries visited" stats on the profile page.
+  const visitedTrips = useMemo(() => [...ongoing, ...past], [ongoing, past]);
+  const visitedCountries = useMemo(() => {
+    const set = new Set<string>();
+    for (const tr of visitedTrips) {
+      const cs = (tr as unknown as { countries?: string[] }).countries;
+      if (Array.isArray(cs)) cs.forEach((c) => set.add(c));
+    }
+    return Array.from(set);
+  }, [visitedTrips]);
+  const visitedCities = useMemo<WorldMapCity[]>(() => {
+    const seen = new Set<string>();
+    const out: WorldMapCity[] = [];
+    for (const tr of visitedTrips) {
+      for (const c of getCities(tr)) {
+        const key = `${c.country}|${c.name.toLowerCase()}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(c);
+      }
+    }
+    return out;
+  }, [visitedTrips]);
+
   return (
     <main className="mx-auto max-w-6xl px-4 py-6 sm:py-8">
       <div className="flex items-end justify-between gap-3">
@@ -62,6 +89,25 @@ function TripsList() {
           </Link>
         </Button>
       </div>
+
+      {!q.isLoading && trips.length > 0 && (
+        <section className="mt-6 overflow-hidden rounded-3xl border border-border bg-card shadow-soft">
+          <div className="flex items-center gap-2 border-b border-border/60 px-4 py-3">
+            <Globe2 className="h-4 w-4 text-primary" />
+            <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+              {t("countries_visited")}
+            </h2>
+            <span className="text-xs text-muted-foreground/70">
+              · {visitedCountries.length}
+            </span>
+          </div>
+          <WorldMap
+            visitedCountries={visitedCountries}
+            cities={visitedCities}
+            className="h-[280px] w-full sm:h-[360px]"
+          />
+        </section>
+      )}
 
       {q.isLoading ? (
         <p className="mt-10 text-sm text-muted-foreground">{t("loading")}</p>
