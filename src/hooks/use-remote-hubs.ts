@@ -4,7 +4,6 @@ import type { Hub, HubKind } from "@/lib/transport-hubs";
 // Map our hub kinds to Nominatim feature filters. Nominatim "amenity" /
 // "aeroway" tags cover airports and stations worldwide.
 const KIND_QUERY: Record<HubKind, string> = {
-  airport: "aerodrome airport",
   train: "railway station",
   bus: "bus station",
   ferry: "ferry terminal port",
@@ -66,7 +65,6 @@ export function useRemoteHubs(kind: HubKind | null, query: string) {
 }
 
 export function modeToKind(mode: string): HubKind | null {
-  if (mode === "plane") return "airport";
   if (mode === "train") return "train";
   if (mode === "bus") return "bus";
   if (mode === "ferry") return "ferry";
