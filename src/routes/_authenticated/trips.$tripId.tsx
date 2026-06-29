@@ -53,6 +53,13 @@ function TripLayout() {
   const [focal, setFocal] = useState<string>("50% 50%");
   const [repositioning, setRepositioning] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  // Marks the end of the title card — the compact pinned header should only
+  // fade in once this sentinel has scrolled out of view, not at some
+  // arbitrary scroll-distance threshold. Using IntersectionObserver instead
+  // of a scrollTop number means the trigger point always matches reality,
+  // however tall the cover/photo/map section above happens to be for a
+  // given cover type.
+  const titleSentinelRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const row = trip.data as { cover_type?: string; cover_bg?: string | null } | undefined;
     if (!row) return;
@@ -64,11 +71,14 @@ function TripLayout() {
   }, [trip.data]);
   useEffect(() => {
     const root = document.querySelector<HTMLElement>("[data-trip-scroller]");
-    if (!root) return;
-    const onScroll = () => setScrolled(root.scrollTop > 80);
-    onScroll();
-    root.addEventListener("scroll", onScroll, { passive: true });
-    return () => root.removeEventListener("scroll", onScroll);
+    const sentinel = titleSentinelRef.current;
+    if (!root || !sentinel) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setScrolled(!entry.isIntersecting),
+      { root, threshold: 0 },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
   }, [trip.data]);
 
   if (trip.isLoading || !trip.data) {
@@ -167,7 +177,15 @@ function TripLayout() {
   }
 
   return (
-    <div data-trip-scroller className="relative h-[100svh] overflow-y-auto scroll-smooth isolate">
+    // snap-y restores the swipe-like feel between the presentation section
+    // and the itinerary section. Crucially, snap-mandatory is NOT used here
+    // (only soft "snap-proximity" with snap-start on each section, no
+    // forced min-h-[100svh]) — that combination was what previously
+    // trapped the scroll position and hid content behind the bottom dock.
+    // With proximity snapping, the browser only "helps" align to a section
+    // edge near a scroll stop; it never blocks free scrolling past the end
+    // of a long itinerary.
+    <div data-trip-scroller className="relative h-[100svh] overflow-y-auto snap-y snap-proximity scroll-smooth isolate">
       {/* Full-bleed gradient that stays behind the entire page */}
       <div
         aria-hidden
@@ -197,12 +215,9 @@ function TripLayout() {
         />
       )}
 
-      {/* Compact pinned header that appears after the user scrolls past the
-          presentation card. Shows only icon, title, city and dates — fx
-          rate and timezone are intentionally omitted here to keep it slim.
-          Sits below the BottomDock (z-40) and below the app header context,
-          but above page content (z-30). Fades/slides in smoothly so the
-          transition between expanded and collapsed states feels continuous. */}
+      {/* Compact pinned header. Only fades in once the title card sentinel
+          below has scrolled fully out of view (IntersectionObserver), so it
+          can never visually double up with the still-visible title block. */}
       <div
         aria-hidden={!scrolled}
         className={cn(
@@ -225,18 +240,16 @@ function TripLayout() {
         </div>
       </div>
 
-      {/* pb-32 (instead of pb-12) guarantees the last content of this inner
-          scroller — which scrolls independently from the outer app shell —
-          never ends up hidden behind the fixed BottomDock (h-~14 + bottom-3
-          margin + safe-area). Without this extra bottom padding, content at
-          the very end of the page could sit underneath the dock. */}
+      {/* pb-32 guarantees the last content of this inner scroller — which
+          scrolls independently from the outer app shell — never ends up
+          hidden behind the fixed BottomDock. */}
       <main className="relative z-10 mx-auto max-w-5xl px-4 pb-32 pt-4">
-        {/* Presentation block: cover + header. No longer scroll-snapped —
-            snap-mandatory was forcing the scroll position to "jump" back to
-            the start of whichever section was closest, which made it
-            impossible to free-scroll to the very end of a long itinerary
-            (e.g. trips with 7+ days). It's now a normal flowing section. */}
-        <section className="flex flex-col">
+        {/* Presentation block: cover + title card. snap-start gives it the
+            swipe-like anchor point; no min-h-[100svh] here, so its real
+            height (which varies by cover type) is what the browser snaps
+            to — never an artificial full-screen block that would trap
+            scrolling on long itineraries. */}
+        <section className="flex flex-col snap-start">
         <div className="flex items-center justify-between gap-2">
           <Link
             to="/trips"
@@ -311,8 +324,13 @@ function TripLayout() {
           </div>
         )}
 
-        {/* Map of visited cities — shown only when the user picks the map
-            cover, so pins don't leak onto photo/gradient/color backgrounds. */}
+        {/* Space reserved above the title card depends on the cover type:
+            - "map": the map itself fills this space, fully interactive.
+            - "photo": a gap lets the full-screen photo show through behind
+              the title card (the photo is position:fixed behind everything).
+            - "auto" / "color": no reserved gap at all — the title card sits
+              directly under the top bar, since there is nothing underneath
+              it worth a window for (a flat gradient/color doesn't need one). */}
         {coverType === "map" ? (
           <div className="relative my-4 min-h-[40vh] overflow-hidden rounded-2xl">
             <TripMap
@@ -322,11 +340,16 @@ function TripLayout() {
               compact
             />
           </div>
-        ) : (
+        ) : coverType === "photo" ? (
           <div className="my-4 h-[28vh]" />
-        )}
+        ) : null}
 
-        <header className="mb-10 flex flex-col gap-3 rounded-3xl border border-border/50 bg-background/70 p-4 shadow-soft backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <header
+          className={cn(
+            "flex flex-col gap-3 rounded-3xl border border-border/50 bg-background/70 p-4 shadow-soft backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:gap-4 mb-10",
+            (coverType === "auto" || coverType === "color") && "mt-0",
+          )}
+        >
         <div className="flex min-w-0 items-center gap-3">
           <span className="relative grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-secondary text-3xl">
             {trip.data.cover_emoji ?? "✈️"}
@@ -391,9 +414,13 @@ function TripLayout() {
           </Button>
         </div>
       </header>
+        {/* Sentinel marking the bottom edge of the title card. The compact
+            pinned header above only appears once this element scrolls out
+            of the visible viewport — see the IntersectionObserver effect. */}
+        <div ref={titleSentinelRef} aria-hidden className="h-px w-full" />
         </section>
 
-      <section className="flex flex-col pt-2">
+      <section className="flex flex-col snap-start pt-2">
       <nav
         aria-label="Sezioni viaggio"
         className="mx-auto flex w-fit items-center gap-1 rounded-full border border-border/60 bg-background/70 p-1 text-xs shadow-soft backdrop-blur"

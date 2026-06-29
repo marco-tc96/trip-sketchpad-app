@@ -19,11 +19,17 @@ function FitBounds({ points }: { points: [number, number][] }) {
   useEffect(() => {
     if (points.length === 0) return;
     if (points.length === 1) {
-      map.setView(points[0], 6, { animate: false });
+      // Zoomed out further than before (5 instead of 6) so a single-city
+      // trip still shows surrounding context — region, nearby cities,
+      // borders — instead of feeling locked onto one street-level point.
+      map.setView(points[0], 5, { animate: false });
       return;
     }
     const b = L.latLngBounds(points);
-    map.fitBounds(b, { padding: [32, 32], maxZoom: 8 });
+    // maxZoom capped lower (6 instead of 8) for the same reason: even with
+    // several close-together cities, the map shouldn't zoom in so far that
+    // it reads as a fixed, locked-in snapshot.
+    map.fitBounds(b, { padding: [32, 32], maxZoom: 6 });
   }, [map, points]);
   return null;
 }
@@ -39,6 +45,9 @@ export function TripMap({
   countries?: string[];
   className?: string;
   noTiles?: boolean;
+  /** Smaller, denser UI chrome — no longer disables panning/zooming. The
+   * map should always be explorable; "compact" now only affects sizing
+   * decisions a caller might make via className, not interactivity. */
   compact?: boolean;
 }) {
   // Enrich missing coordinates by looking the city up by name within its
@@ -112,17 +121,17 @@ export function TripMap({
     <MapContainer
       ref={ref}
       center={effective[0]}
-      zoom={4}
-      scrollWheelZoom={false}
+      zoom={5}
+      scrollWheelZoom
+      dragging
+      doubleClickZoom
+      touchZoom
+      boxZoom
+      keyboard
       attributionControl={false}
-      zoomControl={false}
+      zoomControl={!compact}
       className={className}
       style={{ background: "transparent" }}
-      dragging={!compact}
-      doubleClickZoom={!compact}
-      touchZoom={!compact}
-      boxZoom={!compact}
-      keyboard={!compact}
     >
       {!noTiles && (
         <TileLayer url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" />
