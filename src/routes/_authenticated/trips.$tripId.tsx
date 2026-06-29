@@ -1,7 +1,7 @@
 import { createFileRoute, Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowLeft, Trash2, Image as ImageIcon, Map as MapIcon, Sparkles, Upload, Palette, Check, Pencil, X, Plus, ChevronsUpDown, Briefcase, Palmtree, Footprints, CalendarDays, Wallet, Clock, Move } from "lucide-react";
+import { ArrowLeft, Trash2, Image as ImageIcon, Map as MapIcon, Sparkles, Upload, Palette, Check, Pencil, X, Plus, ChevronsUpDown, Briefcase, Palmtree, Footprints, CalendarDays, Wallet, Clock, Move, Menu, ChevronUp } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useEffect, useRef, useState } from "react";
@@ -47,6 +47,10 @@ function TripLayout() {
   const [uploading, setUploading] = useState(false);
   const [signedPhoto, setSignedPhoto] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
+  // Cover menu (hamburger) open state — the cover-selector options are now
+  // tucked behind a single icon button instead of being shown inline, so
+  // the top bar stays compact and never visually crowds the title card.
+  const [coverMenuOpen, setCoverMenuOpen] = useState(false);
   // Focal point for the photo cover. Declared BEFORE any early return so the
   // hook order stays stable across renders — otherwise React throws once the
   // trip query resolves.
@@ -176,16 +180,22 @@ function TripLayout() {
     }
   }
 
+  // Reserved space above the title card for "photo"/"map" covers, so the
+  // opening screen shows mostly background (photo or map) with the title
+  // card living near the bottom of that space instead of right under the
+  // top bar. "auto"/"color" covers keep no reserved gap (flat backgrounds
+  // don't need a window).
+  const hasReservedSpace = coverType === "map" || coverType === "photo";
+
   return (
-    // snap-y restores the swipe-like feel between the presentation section
-    // and the itinerary section. Crucially, snap-mandatory is NOT used here
-    // (only soft "snap-proximity" with snap-start on each section, no
-    // forced min-h-[100svh]) — that combination was what previously
-    // trapped the scroll position and hid content behind the bottom dock.
-    // With proximity snapping, the browser only "helps" align to a section
-    // edge near a scroll stop; it never blocks free scrolling past the end
-    // of a long itinerary.
-    <div data-trip-scroller className="relative h-[100svh] overflow-y-auto snap-y snap-proximity scroll-smooth isolate">
+    // snap-y restores the swipe-like feel for the opening presentation
+    // block only. snap is intentionally NOT applied to the itinerary
+    // section below — that section's height is unpredictable (it grows
+    // with the number of days/activities), and combining snap-proximity
+    // with a long, variable-height section is what was causing the
+    // scroller to "snap back" to the top once the user scrolled past the
+    // last day, hiding it behind the bottom dock.
+    <div data-trip-scroller className="relative h-[100svh] overflow-y-auto scroll-smooth isolate">
       {/* Full-bleed gradient that stays behind the entire page */}
       <div
         aria-hidden
@@ -221,11 +231,12 @@ function TripLayout() {
       <div
         aria-hidden={!scrolled}
         className={cn(
-          "pointer-events-none fixed inset-x-0 top-2 z-30 mx-auto flex max-w-5xl justify-center px-4 transition-all duration-300 ease-out",
+          "pointer-events-none fixed inset-x-0 z-30 mx-auto flex max-w-5xl justify-center px-4 transition-all duration-300 ease-out",
           scrolled
             ? "translate-y-0 opacity-100"
             : "-translate-y-3 opacity-0",
         )}
+        style={{ top: "calc(0.5rem + env(safe-area-inset-top, 0px))" }}
       >
         <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-border/60 bg-background/85 px-3 py-1.5 shadow-soft backdrop-blur">
           <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-secondary text-base">
@@ -248,63 +259,99 @@ function TripLayout() {
             swipe-like anchor point; no min-h-[100svh] here, so its real
             height (which varies by cover type) is what the browser snaps
             to — never an artificial full-screen block that would trap
-            scrolling on long itineraries. */}
-        <section className="flex flex-col snap-start">
-        <div className="flex items-center justify-between gap-2">
+            scrolling on long itineraries. For "photo"/"map" covers this
+            block is stretched to the full viewport height (minus the
+            bottom dock clearance) so the title card naturally lands near
+            the bottom, leaving the photo/map visible above it. */}
+        <section
+          className="relative flex flex-col snap-start"
+          style={
+            hasReservedSpace
+              ? { minHeight: "calc(100svh - 6.5rem)" }
+              : undefined
+          }
+        >
+        {/* Top bar: a lone back-arrow button and a hamburger that reveals
+            the cover-selector options in a popover. Pushed down with a
+            safe-area-aware top padding so it never touches the notch/edge
+            on mobile, and kept as its own stacking context (isolate +
+            z-30) so it always stays above the interactive map cover
+            beneath it — Leaflet's own panes use high internal z-indexes
+            that could otherwise swallow clicks meant for this bar. */}
+        <div
+          className="relative z-[55] isolate flex items-center justify-between gap-2"
+          style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top, 0px))" }}
+        >
           <Link
             to="/trips"
-            className="inline-flex items-center gap-1 rounded-full bg-background/60 px-3 py-1.5 text-sm text-foreground backdrop-blur hover:bg-background/80"
+            aria-label={t("back")}
+            className="inline-flex items-center justify-center rounded-full bg-background/60 p-2.5 text-foreground backdrop-blur hover:bg-background/80"
           >
             <ArrowLeft className="h-4 w-4" />
-            {t("back")}
           </Link>
-          {/* Always-visible cover selector */}
-          <div className="flex items-center gap-1 rounded-full border border-border/60 bg-background/70 p-1 text-xs shadow-soft backdrop-blur">
-            <CoverPill active={coverType === "auto"} onClick={() => setCoverType("auto")} icon={Sparkles} label={t("cover_auto")} />
-            <CoverPill active={coverType === "map"} onClick={() => setCoverType("map")} icon={MapIcon} label={t("cover_map")} />
-            <CoverPill
-              active={coverType === "photo"}
-              onClick={() => {
-                // If a photo already exists, switching to the photo cover
-                // just shows it — no re-upload. The user can replace it via
-                // the dedicated "Change photo" button below.
-                if (tripRow.cover_url) setCoverType("photo");
-                else fileRef.current?.click();
-              }}
-              icon={ImageIcon}
-              label={t("cover_photo")}
-            />
-            {coverType === "photo" && tripRow.cover_url && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setRepositioning((v) => !v)}
-                  className={cn(
-                    "inline-flex items-center gap-1 rounded-full px-2.5 py-1 transition",
-                    repositioning
-                      ? "bg-primary text-primary-foreground"
-                      : "text-foreground/80 hover:bg-foreground/10",
-                  )}
-                >
-                  <Move className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">Sposta</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => fileRef.current?.click()}
-                  className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-foreground/80 transition hover:bg-foreground/10"
-                >
-                  <Upload className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">{t("change_photo")}</span>
-                </button>
-              </>
-            )}
-            <ColorCoverPill
-              active={coverType === "color"}
-              current={tripRow.cover_bg}
-              onPick={(bg) => setCoverBg(bg)}
-            />
-          </div>
+          {/* Hamburger trigger for the cover-selector menu */}
+          <Popover open={coverMenuOpen} onOpenChange={setCoverMenuOpen}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                aria-label={t("cover_auto")}
+                className="inline-flex items-center justify-center rounded-full border border-border/60 bg-background/70 p-2.5 text-foreground shadow-soft backdrop-blur hover:bg-background/90"
+              >
+                <Menu className="h-4 w-4" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-auto p-1.5">
+              <div className="flex flex-wrap items-center gap-1 text-xs">
+                <CoverPill active={coverType === "auto"} onClick={() => setCoverType("auto")} icon={Sparkles} label={t("cover_auto")} />
+                <CoverPill active={coverType === "map"} onClick={() => setCoverType("map")} icon={MapIcon} label={t("cover_map")} />
+                <CoverPill
+                  active={coverType === "photo"}
+                  onClick={() => {
+                    // If a photo already exists, switching to the photo cover
+                    // just shows it — no re-upload. The user can replace it via
+                    // the dedicated "Change photo" button below.
+                    if (tripRow.cover_url) setCoverType("photo");
+                    else fileRef.current?.click();
+                  }}
+                  icon={ImageIcon}
+                  label={t("cover_photo")}
+                />
+                {coverType === "photo" && tripRow.cover_url && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRepositioning((v) => !v);
+                        setCoverMenuOpen(false);
+                      }}
+                      className={cn(
+                        "inline-flex items-center gap-1 rounded-full px-2.5 py-1 transition",
+                        repositioning
+                          ? "bg-primary text-primary-foreground"
+                          : "text-foreground/80 hover:bg-foreground/10",
+                      )}
+                    >
+                      <Move className="h-3.5 w-3.5" />
+                      <span>Sposta</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => fileRef.current?.click()}
+                      className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-foreground/80 transition hover:bg-foreground/10"
+                    >
+                      <Upload className="h-3.5 w-3.5" />
+                      <span>{t("change_photo")}</span>
+                    </button>
+                  </>
+                )}
+                <ColorCoverPill
+                  active={coverType === "color"}
+                  current={tripRow.cover_bg}
+                  onPick={(bg) => setCoverBg(bg)}
+                />
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
 
         <input
@@ -324,15 +371,13 @@ function TripLayout() {
           </div>
         )}
 
-        {/* Space reserved above the title card depends on the cover type:
-            - "map": the map itself fills this space, fully interactive.
-            - "photo": a gap lets the full-screen photo show through behind
-              the title card (the photo is position:fixed behind everything).
-            - "auto" / "color": no reserved gap at all — the title card sits
-              directly under the top bar, since there is nothing underneath
-              it worth a window for (a flat gradient/color doesn't need one). */}
-        {coverType === "map" ? (
-          <div className="relative my-4 min-h-[40vh] overflow-hidden rounded-2xl">
+        {/* Map cover fills all remaining space between the top bar and the
+            title card — it's the actual background for "map" covers, not
+            just a preview window, so it should always be fully interactive
+            (drag/zoom) and sit in its own stacking context below the top
+            bar's z-30, never above it. */}
+        {coverType === "map" && (
+          <div className="relative z-0 my-3 flex-1 min-h-[30vh] overflow-hidden rounded-2xl">
             <TripMap
               cities={cities}
               countries={countries}
@@ -340,14 +385,31 @@ function TripLayout() {
               compact
             />
           </div>
-        ) : coverType === "photo" ? (
-          <div className="my-4 h-[28vh]" />
-        ) : null}
+        )}
+
+        {/* For "photo" covers there is nothing to render here — the photo
+            itself is the fixed full-screen background behind everything
+            (see <FullScreenPhoto> above). flex-1 just lets this spacer grow
+            so the title card below is pushed down towards the bottom of
+            the reserved viewport space instead of sitting right under the
+            top bar. */}
+        {coverType === "photo" && <div className="flex-1" aria-hidden />}
+
+        {/* Swipe-up hint, shown only when there's a reserved photo/map
+            space above the title card — it signals there's more to see by
+            scrolling/swiping up past this opening screen. */}
+        {hasReservedSpace && (
+          <div className="flex justify-center pb-2" aria-hidden>
+            <span className="inline-flex items-center gap-1 rounded-full bg-background/50 px-2.5 py-1 text-[10px] font-medium text-foreground/80 backdrop-blur">
+              <ChevronUp className="h-3 w-3 animate-bounce" />
+            </span>
+          </div>
+        )}
 
         <header
           className={cn(
             "flex flex-col gap-3 rounded-3xl border border-border/50 bg-background/70 p-4 shadow-soft backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:gap-4 mb-10",
-            (coverType === "auto" || coverType === "color") && "mt-0",
+            !hasReservedSpace && "mt-3",
           )}
         >
         <div className="flex min-w-0 items-center gap-3">
@@ -420,7 +482,13 @@ function TripLayout() {
         <div ref={titleSentinelRef} aria-hidden className="h-px w-full" />
         </section>
 
-      <section className="flex flex-col snap-start pt-2">
+      {/* Itinerary section intentionally has NO snap-start / snap classes.
+          Its height varies with the number of days/activities in the
+          trip, and pairing snap-proximity with a long, variable-height
+          block is what was causing the scroller to bounce back to the top
+          once the user reached the end of the itinerary — re-covering the
+          last day under the bottom dock. Plain free scrolling here. */}
+      <section className="flex flex-col pt-2">
       <nav
         aria-label="Sezioni viaggio"
         className="mx-auto flex w-fit items-center gap-1 rounded-full border border-border/60 bg-background/70 p-1 text-xs shadow-soft backdrop-blur"
@@ -746,7 +814,7 @@ function CoverPill({
       )}
     >
       <Icon className="h-3.5 w-3.5" />
-      <span className="hidden sm:inline">{label}</span>
+      <span>{label}</span>
     </button>
   );
 }
@@ -785,7 +853,7 @@ function ColorCoverPill({
           )}
         >
           <Palette className="h-3.5 w-3.5" />
-          <span className="hidden sm:inline">Colore</span>
+          <span>Colore</span>
         </button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-64 p-3">
@@ -1088,7 +1156,7 @@ function FullScreenPhoto({
       <div
         className={cn(
           "fixed inset-0 touch-none select-none overflow-hidden",
-          repositioning ? "z-40" : "z-0 pointer-events-none",
+          repositioning ? "z-50" : "z-0 pointer-events-none",
           dragging ? "cursor-grabbing" : "cursor-grab",
         )}
         onPointerDown={repositioning ? onPointerDown : undefined}
@@ -1115,7 +1183,7 @@ function FullScreenPhoto({
         />
       </div>
       {repositioning && (
-        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 flex items-center gap-2 rounded-full bg-black/70 px-3 py-1.5 text-[12px] text-white backdrop-blur">
+        <div className="fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 flex items-center gap-2 rounded-full bg-black/70 px-3 py-1.5 text-[12px] text-white backdrop-blur">
           <Move className="h-3.5 w-3.5" />
           <span>Trascina la foto per centrarla</span>
           <button
