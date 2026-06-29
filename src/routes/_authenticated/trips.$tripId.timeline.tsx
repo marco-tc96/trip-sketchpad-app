@@ -26,7 +26,6 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { citiesOfCountry, flagOf } from "@/lib/country-data";
 import { cn } from "@/lib/utils";
 import { useCityPhoto } from "@/hooks/use-city-photo";
-import { useIsMobile } from "@/hooks/use-mobile";
 import { hubsForMode, formatHub, type Hub, HUBS } from "@/lib/transport-hubs";
 import { useRemoteHubs, modeToKind } from "@/hooks/use-remote-hubs";
 import {
@@ -316,7 +315,15 @@ function JourneyLeg({
   const arriveISO = last?.arrive_at || item?.end_at || null;
   const countdown = kind === "outbound" && departISO ? daysUntil(departISO) : null;
   const stops = legs.length > 1
-    ? legs.slice(0, -1).map((l) => l.to).filter(Boolean).join(", ")
+    ? legs.slice(0, -1).map((l) => l.to).filter(Boolean).map((s) => nameOf(s)).join(", ")
+    : "";
+  // Compact version for the badge itself — just the IATA/short codes of
+  // each layover (e.g. "TFU"), never the full airport name. The full,
+  // human-readable list still lives in `stops` for the hover tooltip, so no
+  // information is lost — it's just not forced into the narrow center
+  // column where it used to overflow onto the arrival column.
+  const stopCodes = legs.length > 1
+    ? legs.slice(0, -1).map((l) => l.to).filter(Boolean).map((s) => codeOf(s)).join(" · ")
     : "";
 
   return (
@@ -363,37 +370,42 @@ function JourneyLeg({
                   </span>
                 </div>
 
-                <div className="mt-4 grid grid-cols-[1fr_auto_1fr] items-end gap-3">
-                  <div>
+                <div className="mt-4 grid grid-cols-[1fr_auto_1fr] items-end gap-2 sm:gap-3">
+                  <div className="min-w-0">
                     <p className="font-mono text-2xl font-bold tabular-nums tracking-tight sm:text-3xl">
                       {fmtTime(departISO) || "—"}
                     </p>
                     <div className="mt-1 inline-block rounded-md bg-white/10 px-2 py-0.5 font-mono text-[11px] font-semibold tracking-[0.2em]">
                       {codeOf(fromCity)}
                     </div>
-                    <p className="mt-0.5 truncate text-[11px] opacity-80">{fromCity || "—"}</p>
+                    <p className="mt-0.5 truncate text-[11px] opacity-80" title={fromCity || undefined}>
+                      {nameOf(fromCity) || "—"}
+                    </p>
                   </div>
 
-                  <div className="flex flex-col items-center gap-1 text-[11px] opacity-90">
-                    <span>{durationLabel(departISO, arriveISO) || "—"}</span>
+                  <div className="flex w-20 flex-col items-center gap-1 text-center text-[11px] opacity-90 sm:w-28">
+                    <span className="whitespace-nowrap">{durationLabel(departISO, arriveISO) || "—"}</span>
                     <div className="flex items-center gap-1">
-                      <span className="h-1.5 w-1.5 rounded-full bg-white/70" />
-                      <span className="h-px w-8 bg-white/40 sm:w-12" />
-                      <ModeIcon className="h-4 w-4" />
-                      <span className="h-px w-8 bg-white/40 sm:w-12" />
-                      <span className="h-1.5 w-1.5 rounded-full bg-white/70" />
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-white/70" />
+                      <span className="h-px w-4 bg-white/40 sm:w-8" />
+                      <ModeIcon className="h-4 w-4 shrink-0" />
+                      <span className="h-px w-4 bg-white/40 sm:w-8" />
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-white/70" />
                     </div>
                     {legs.length > 1 ? (
-                      <span className="rounded-full bg-amber-400/90 px-2 text-[10px] font-semibold text-amber-950">
+                      <span
+                        className="max-w-full truncate rounded-full bg-amber-400/90 px-2 text-[10px] font-semibold text-amber-950"
+                        title={stops ? `Scalo a ${stops}` : undefined}
+                      >
                         {legs.length - 1} scalo{legs.length > 2 ? "i" : ""}
-                        {stops ? ` · ${stops}` : ""}
+                        {stopCodes ? ` · ${stopCodes}` : ""}
                       </span>
                     ) : (
                       <span className="opacity-70">diretto</span>
                     )}
                   </div>
 
-                  <div className="text-right">
+                  <div className="min-w-0 text-right">
                     <p className="font-mono text-2xl font-bold tabular-nums tracking-tight sm:text-3xl">
                       {fmtTime(arriveISO) || "—"}
                       <span className="ml-1 align-top text-xs text-amber-300">{plusDays(departISO, arriveISO)}</span>
@@ -401,7 +413,9 @@ function JourneyLeg({
                     <div className="mt-1 inline-block rounded-md bg-white/10 px-2 py-0.5 font-mono text-[11px] font-semibold tracking-[0.2em]">
                       {codeOf(toCity)}
                     </div>
-                    <p className="mt-0.5 truncate text-[11px] opacity-80">{toCity || "—"}</p>
+                    <p className="mt-0.5 truncate text-[11px] opacity-80" title={toCity || undefined}>
+                      {nameOf(toCity) || "—"}
+                    </p>
                   </div>
                 </div>
 
@@ -516,6 +530,16 @@ function codeOf(label: string): string {
   if (m) return m[1];
   const clean = label.replace(/[^a-zA-Z]/g, "");
   return (clean.slice(0, 3) || "···").toUpperCase();
+}
+// Strips the leading "IATA - " prefix already shown in the badge above,
+// leaving just the human-readable part for the subtitle line — e.g.
+// "MXP - Milano Malpensa" -> "Milano Malpensa". Only strips a real 3-letter
+// IATA prefix; train/bus/ferry labels ("Roma - Termini") have no IATA code
+// and are left untouched, since their badge is just a derived abbreviation
+// rather than the actual first word of the label.
+function nameOf(label: string): string {
+  const m = label.match(/^[A-Z]{3}\s*-\s*(.+)$/);
+  return m ? m[1].trim() : label;
 }
 function fmtTime(iso: string | null): string {
   if (!iso) return "";
@@ -1079,7 +1103,6 @@ function HubCombobox({
 }) {
   const [open, setOpen] = useState(false);
   const [showAll, setShowAll] = useState(false);
-  const isMobile = useIsMobile();
   const isPlane = mode === "plane";
   const isHub = mode === "train" || mode === "bus" || mode === "ferry";
   const isCityMode = mode === "car" || mode === "moto";
@@ -1135,15 +1158,16 @@ function HubCombobox({
 
   // Airports: airports-json is now the ONLY source — no curated table, no
   // remote fallback needed since the dataset already covers every IATA
-  // airport worldwide. Desktop shows the full name, mobile the abbreviated
-  // city + IATA form (formatAirport picks the right one).
+  // airport worldwide. Single format everywhere: "IATA - City" when the
+  // city has just one commercial airport, "IATA - City ShortName" when it
+  // has several (e.g. Milano Malpensa vs Milano Linate).
   if (isPlane) {
     const q = value.trim().toLowerCase();
     const inCountries = airportsForCountries(airportsData, countries);
     const major = inCountries.filter((h) => h.major).slice(0, 30);
     const list: AirportHub[] = showAll ? inCountries : major;
     const matchQuery = (h: AirportHub) => {
-      const label = formatAirport(h, isMobile).toLowerCase();
+      const label = formatAirport(h).toLowerCase();
       if (label === q) return false; // already the selected value, hide it
       return (
         h.name.toLowerCase().includes(q) ||
@@ -1181,7 +1205,7 @@ function HubCombobox({
                   {showAll || q ? "Tutte le opzioni" : "Principali"}
                 </p>
                 {filtered.map((h, i) => {
-                  const label = formatAirport(h, isMobile);
+                  const label = formatAirport(h);
                   const sel = value === label;
                   return (
                     <button
@@ -1191,13 +1215,7 @@ function HubCombobox({
                       className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
                     >
                       <Check className={cn("h-4 w-4 shrink-0", sel ? "opacity-100" : "opacity-0")} />
-                      <span className="min-w-0 flex-1 truncate">
-                        <span className="font-mono text-xs font-semibold opacity-80">{h.code}</span>
-                        <span className="ml-1.5 font-medium">{h.city ?? h.name}</span>
-                        {!isMobile && h.city && h.city !== h.name && (
-                          <span className="ml-1.5 text-xs opacity-60">/ {h.name}</span>
-                        )}
-                      </span>
+                      <span className="min-w-0 flex-1 truncate">{label}</span>
                     </button>
                   );
                 })}

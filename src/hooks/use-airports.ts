@@ -20,6 +20,7 @@ type Airport = {
 
 export type AirportHub = Hub & {
   code: string; // IATA is mandatory for every entry returned by this module
+  multiAirportCity: boolean; // true when the city has 2+ commercial airports
 };
 
 let _cache: Airport[] | null = null;
@@ -47,13 +48,81 @@ function isUsable(a: Airport): boolean {
   return hasRealIata(a);
 }
 
-function toHub(a: Airport): AirportHub {
+function toHub(a: Airport, all: Airport[]): AirportHub {
   return {
     code: a.iata_code as string,
     name: a.name,
     city: a.municipality || undefined,
     major: a.type === "large_airport",
+    multiAirportCity: hasSiblingAirports(a, all),
   };
+}
+
+// Strips generic boilerplate words from an official airport name so we can
+// show a short, human label instead of the full legal name (e.g. "Milano
+// Malpensa International Airport" -> "Malpensa", "Roma Fiumicino" -> stays
+// "Fiumicino" once the city prefix is removed too). This is only used to
+// disambiguate airports that share a city — Bologna has just one airport,
+// so it's never shown; Milano has two, so "Malpensa" / "Linate" appear.
+const BOILERPLATE = /\b(international|airport|aeroporto|aéroport|flughafen|aeropuerto|regional|municipal|county|metropolitan|field|station)\b/gi;
+
+// A handful of well-known airports have an official name far longer than
+// the name people actually use day to day (e.g. Fiumicino is officially
+// "Leonardo da Vinci–Fiumicino Airport"). These overrides keep the label
+// short and recognizable; every other airport falls back to the automatic
+// boilerplate-stripping below, which already covers the common case well
+// (simple "City Airportname International Airport" patterns).
+const SHORT_NAME_OVERRIDES: Record<string, string> = {
+  FCO: "Fiumicino",
+  CIA: "Ciampino",
+  MXP: "Malpensa",
+  LIN: "Linate",
+  BGY: "Orio al Serio",
+  CDG: "Charles de Gaulle",
+  ORY: "Orly",
+  LHR: "Heathrow",
+  LGW: "Gatwick",
+  STN: "Stansted",
+  LTN: "Luton",
+  LCY: "London City",
+  JFK: "JFK",
+  EWR: "Newark",
+  LGA: "LaGuardia",
+  HND: "Haneda",
+  NRT: "Narita",
+};
+
+function shortAirportName(a: AirportHub): string {
+  if (SHORT_NAME_OVERRIDES[a.code]) return SHORT_NAME_OVERRIDES[a.code];
+  let n = a.name;
+  // Drop the city name itself if it's a prefix/part of the official name
+  // ("Roma Fiumicino" with city "Roma" -> "Fiumicino").
+  if (a.city) {
+    const cityRe = new RegExp(`\\b${a.city.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi");
+    n = n.replace(cityRe, "").trim();
+  }
+  n = n.replace(BOILERPLATE, "").replace(/[-–—,/]+/g, " ").replace(/\s{2,}/g, " ").trim();
+  return n || a.name;
+}
+
+let _cityCountCache: Map<string, number> | null = null;
+function cityAirportCounts(all: Airport[]): Map<string, number> {
+  if (_cityCountCache) return _cityCountCache;
+  const counts = new Map<string, number>();
+  for (const a of all) {
+    if (!isUsable(a)) continue;
+    const key = `${(a.iso_country ?? "").toUpperCase()}|${(a.municipality ?? "").toLowerCase()}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  _cityCountCache = counts;
+  return counts;
+}
+
+function hasSiblingAirports(a: Airport, all: Airport[] | null): boolean {
+  if (!all || !a.municipality) return false;
+  const counts = cityAirportCounts(all);
+  const key = `${(a.iso_country ?? "").toUpperCase()}|${a.municipality.toLowerCase()}`;
+  return (counts.get(key) ?? 0) > 1;
 }
 
 export function useAirports(enabled = true) {
@@ -78,7 +147,7 @@ export function airportsForCountries(all: Airport[] | null, isoList: string[]): 
   for (const a of all) {
     if (!a.iso_country || !set.has(a.iso_country)) continue;
     if (!isUsable(a)) continue;
-    out.push(toHub(a));
+    out.push(toHub(a, all));
   }
   // Major airports first, then alphabetical by city for easier scanning.
   out.sort(
@@ -96,7 +165,7 @@ export function airportsSearch(all: Airport[] | null, query: string, limit = 50)
     if (!isUsable(a)) continue;
     const hay = `${a.name} ${a.municipality ?? ""} ${a.iata_code ?? ""}`.toLowerCase();
     if (hay.includes(q)) {
-      out.push(toHub(a));
+      out.push(toHub(a, all));
       if (out.length >= limit) break;
     }
   }
@@ -110,20 +179,15 @@ export function airportsSearch(all: Airport[] | null, query: string, limit = 50)
   return out;
 }
 
-// Desktop: full airport name — "FCO - Roma / Roma Fiumicino"
-export function formatAirportFull(a: AirportHub): string {
-  const city = a.city ?? a.name;
-  return `${a.code} - ${city} / ${a.name}`;
-}
-
-// Mobile: abbreviated, IATA always present — "FCO - Roma"
-// Falls back to the airport name when no city is known.
-export function formatAirportCompact(a: AirportHub): string {
-  return `${a.code} - ${a.city ?? a.name}`;
-}
-
-// Single entry point used by the combobox: picks the right format for the
-// current viewport. `isMobile` is expected to come from useIsMobile().
-export function formatAirport(a: AirportHub, isMobile: boolean): string {
-  return isMobile ? formatAirportCompact(a) : formatAirportFull(a);
+// Single display/storage format, used everywhere (journey card, combobox
+// list, saved value) — no more separate desktop/mobile variants. Rule:
+//   - city has only one commercial airport  -> "IATA - City"        (e.g. "BLQ - Bologna")
+//   - city has 2+ commercial airports       -> "IATA - City Short"  (e.g. "MXP - Milano Malpensa")
+// This keeps single-airport cities short while disambiguating cities like
+// Milano (Malpensa/Linate) or Roma (Fiumicino/Ciampino) that would
+// otherwise collide on the same city name.
+export function formatAirport(a: AirportHub): string {
+  if (!a.city) return `${a.code} - ${a.name}`;
+  if (!a.multiAirportCity) return `${a.code} - ${a.city}`;
+  return `${a.code} - ${a.city} ${shortAirportName(a)}`.trim();
 }
