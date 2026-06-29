@@ -167,7 +167,7 @@ function TripLayout() {
   }
 
   return (
-    <div data-trip-scroller className="relative h-[100svh] overflow-y-auto snap-y snap-mandatory scroll-smooth isolate">
+    <div data-trip-scroller className="relative h-[100svh] overflow-y-auto scroll-smooth isolate">
       {/* Full-bleed gradient that stays behind the entire page */}
       <div
         aria-hidden
@@ -231,9 +231,12 @@ function TripLayout() {
           margin + safe-area). Without this extra bottom padding, content at
           the very end of the page could sit underneath the dock. */}
       <main className="relative z-10 mx-auto max-w-5xl px-4 pb-32 pt-4">
-        {/* First viewport: cover + header. Tabs/outlet sit in a second snap
-            section so the page swipes between presentation and details. */}
-        <section className="flex min-h-[100svh] snap-start flex-col">
+        {/* Presentation block: cover + header. No longer scroll-snapped —
+            snap-mandatory was forcing the scroll position to "jump" back to
+            the start of whichever section was closest, which made it
+            impossible to free-scroll to the very end of a long itinerary
+            (e.g. trips with 7+ days). It's now a normal flowing section. */}
+        <section className="flex flex-col">
         <div className="flex items-center justify-between gap-2">
           <Link
             to="/trips"
@@ -311,7 +314,7 @@ function TripLayout() {
         {/* Map of visited cities — shown only when the user picks the map
             cover, so pins don't leak onto photo/gradient/color backgrounds. */}
         {coverType === "map" ? (
-          <div className="relative my-4 min-h-[40vh] flex-1 overflow-hidden rounded-2xl">
+          <div className="relative my-4 min-h-[40vh] overflow-hidden rounded-2xl">
             <TripMap
               cities={cities}
               countries={countries}
@@ -320,10 +323,10 @@ function TripLayout() {
             />
           </div>
         ) : (
-          <div className="my-4 flex-1" />
+          <div className="my-4 h-[28vh]" />
         )}
 
-        <header className="mb-24 flex flex-col gap-3 rounded-3xl border border-border/50 bg-background/70 p-4 shadow-soft backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <header className="mb-10 flex flex-col gap-3 rounded-3xl border border-border/50 bg-background/70 p-4 shadow-soft backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div className="flex min-w-0 items-center gap-3">
           <span className="relative grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-secondary text-3xl">
             {trip.data.cover_emoji ?? "✈️"}
@@ -390,10 +393,10 @@ function TripLayout() {
       </header>
         </section>
 
-      <section className="flex min-h-[100svh] snap-start flex-col pt-6">
+      <section className="flex flex-col pt-2">
       <nav
         aria-label="Sezioni viaggio"
-        className="mt-8 mx-auto flex w-fit items-center gap-1 rounded-full border border-border/60 bg-background/70 p-1 text-xs shadow-soft backdrop-blur"
+        className="mx-auto flex w-fit items-center gap-1 rounded-full border border-border/60 bg-background/70 p-1 text-xs shadow-soft backdrop-blur"
       >
         {tabs.map((tab) => {
           const active = tab.exact
