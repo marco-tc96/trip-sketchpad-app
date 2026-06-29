@@ -1,11 +1,27 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 const liveCache = new Map<string, { rate: number; at: number }>();
 const avgCache = new Map<string, { rate: number; at: number }>();
 const TTL = 6 * 60 * 60 * 1000; // 6h
+const MAX_CACHE = 500;
+
+function setCapped(map: Map<string, { rate: number; at: number }>, key: string, value: { rate: number; at: number }) {
+  if (map.size >= MAX_CACHE) {
+    const firstKey = map.keys().next().value;
+    if (firstKey !== undefined) map.delete(firstKey);
+  }
+  map.set(key, value);
+}
+
+const isoDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date format")
+  .refine((v) => !Number.isNaN(Date.parse(v)), "Invalid date");
 
 export const getFxRate = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
   .inputValidator((d) =>
     z
       .object({
@@ -28,7 +44,7 @@ export const getFxRate = createServerFn({ method: "GET" })
       const json = (await res.json()) as { rates?: Record<string, number> };
       const rate = json.rates?.[data.to];
       if (typeof rate === "number" && rate > 0) {
-        liveCache.set(key, { rate, at: Date.now() });
+        setCapped(liveCache, key, { rate, at: Date.now() });
         return { rate, source: "live" as const };
       }
       throw new Error("no rate");
@@ -43,13 +59,14 @@ export const getFxRate = createServerFn({ method: "GET" })
  * For dates in the future, falls back to the latest live rate.
  */
 export const getFxAverage = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
   .inputValidator((d) =>
     z
       .object({
         from: z.string().length(3).toUpperCase(),
         to: z.string().length(3).toUpperCase(),
-        start: z.string(),
-        end: z.string(),
+        start: isoDate,
+        end: isoDate,
       })
       .parse(d),
   )
@@ -73,7 +90,7 @@ export const getFxAverage = createServerFn({ method: "GET" })
         const j = (await r.json()) as { rates?: Record<string, number> };
         const rate = j.rates?.[data.to];
         if (typeof rate === "number" && rate > 0) {
-          avgCache.set(key, { rate, at: Date.now() });
+          setCapped(avgCache, key, { rate, at: Date.now() });
           return { rate, source: "live" as const, samples: 0 };
         }
       } catch {}
@@ -93,7 +110,7 @@ export const getFxAverage = createServerFn({ method: "GET" })
         .filter((n): n is number => typeof n === "number" && n > 0);
       if (vals.length > 0) {
         const avg = vals.reduce((s, n) => s + n, 0) / vals.length;
-        avgCache.set(key, { rate: avg, at: Date.now() });
+        setCapped(avgCache, key, { rate: avg, at: Date.now() });
         return { rate: avg, source: "historical" as const, samples: vals.length };
       }
       throw new Error("no rates");
