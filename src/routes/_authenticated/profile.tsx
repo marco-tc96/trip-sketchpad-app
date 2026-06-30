@@ -54,6 +54,15 @@ const CONTINENT_KEY: Record<string, string> = {
   "North America":"continent_north_america","South America":"continent_south_america","Oceania":"continent_oceania",
 };
 
+const CONTINENT_EMOJI: Record<string, string> = {
+  "Europe": "🌍",
+  "Africa": "🌍",
+  "Asia": "🌏",
+  "Oceania": "🌏",
+  "North America": "🌎",
+  "South America": "🌎",
+};
+
 function getCities(tr: Trip): City[] {
   const raw = (tr as unknown as { cities?: unknown }).cities;
   if (!Array.isArray(raw)) return [];
@@ -100,25 +109,39 @@ function ProfilePage() {
     const countryCounts = new Map<string, number>();
     const cityCounts = new Map<string, { name: string; country: string; count: number }>();
     const continentCounts = new Map<string, number>();
+    // Track the date of the first visit for each country/city/continent,
+    // used as tiebreaker when visit counts are equal (earlier = higher rank).
+    const countryFirstVisit = new Map<string, string>();
+    const cityFirstVisit = new Map<string, string>();
+    const continentFirstVisit = new Map<string, string>();
     let nights = 0, business = 0, vacation = 0, daytrip = 0;
     const byYear: Record<string, { business: number; vacation: number; daytrip: number }> = {};
 
-    for (const tr of past) {
+    // Sort ascending by start_date so the first encounter in the loop
+    // is always the chronologically earliest visit.
+    const sortedPast = [...past].sort((a, b) => a.start_date.localeCompare(b.start_date));
+
+    for (const tr of sortedPast) {
       const cs = (tr as unknown as { countries?: string[] }).countries ?? [];
       const continentsThisTrip = new Set<string>();
       cs.forEach((c) => {
         countrySet.add(c);
         countryCounts.set(c, (countryCounts.get(c) ?? 0) + 1);
+        if (!countryFirstVisit.has(c)) countryFirstVisit.set(c, tr.start_date);
         const continent = CONTINENT_BY_ISO[c.toUpperCase()];
         if (continent) continentsThisTrip.add(continent);
       });
-      continentsThisTrip.forEach((cont) => continentCounts.set(cont, (continentCounts.get(cont) ?? 0) + 1));
+      continentsThisTrip.forEach((cont) => {
+        continentCounts.set(cont, (continentCounts.get(cont) ?? 0) + 1);
+        if (!continentFirstVisit.has(cont)) continentFirstVisit.set(cont, tr.start_date);
+      });
       getCities(tr).forEach((c) => {
         cityKey.add(`${c.country}|${c.name}`);
         const k = `${c.country}|${c.name}`;
         const cur = cityCounts.get(k);
         if (cur) cur.count += 1;
         else cityCounts.set(k, { name: c.name, country: c.country, count: 1 });
+        if (!cityFirstVisit.has(k)) cityFirstVisit.set(k, tr.start_date);
       });
       nights += Math.max(1, Math.round((new Date(tr.end_date).getTime() - new Date(tr.start_date).getTime()) / 86400000));
       const rawType = (tr as unknown as { trip_type?: string }).trip_type;
@@ -130,11 +153,17 @@ function ProfilePage() {
     }
 
     const years = Object.entries(byYear).map(([y, v]) => ({ y, ...v, total: v.business + v.vacation + v.daytrip })).sort((a, b) => b.y.localeCompare(a.y));
-    const countriesRanked = [...countryCounts.entries()].map(([iso, count]) => ({ iso, count })).sort((a, b) => b.count - a.count || a.iso.localeCompare(b.iso));
+    const countriesRanked = [...countryCounts.entries()]
+      .map(([iso, count]) => ({ iso, count, firstVisit: countryFirstVisit.get(iso) ?? "" }))
+      .sort((a, b) => b.count - a.count || a.firstVisit.localeCompare(b.firstVisit));
     const homeCountryCount = homeIso ? (countryCounts.get(homeIso) ?? 0) : 0;
     const foreignCountriesRanked = countriesRanked.filter((r) => r.iso.toUpperCase() !== (homeIso ?? ""));
-    const citiesRanked = [...cityCounts.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-    const continentsRanked = [...continentCounts.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
+    const citiesRanked = [...cityCounts.entries()]
+      .map(([k, v]) => ({ ...v, firstVisit: cityFirstVisit.get(k) ?? "" }))
+      .sort((a, b) => b.count - a.count || a.firstVisit.localeCompare(b.firstVisit));
+    const continentsRanked = [...continentCounts.entries()]
+      .map(([name, count]) => ({ name, count, firstVisit: continentFirstVisit.get(name) ?? "" }))
+      .sort((a, b) => b.count - a.count || a.firstVisit.localeCompare(b.firstVisit));
 
     return {
       past,
@@ -227,7 +256,7 @@ function ProfilePage() {
             {stats.continentsRanked.length > 0 && (
               <RankList
                 title={t("most_visited_continents")}
-                rows={stats.continentsRanked.map((r) => ({ key: r.name, left: <><span>🌍</span><span>{t(CONTINENT_KEY[r.name] ?? r.name)}</span></>, count: r.count }))}
+                rows={stats.continentsRanked.map((r) => ({ key: r.name, left: <><span>{CONTINENT_EMOJI[r.name] ?? "🌍"}</span><span>{t(CONTINENT_KEY[r.name] ?? r.name)}</span></>, count: r.count }))}
               />
             )}
           </div>
