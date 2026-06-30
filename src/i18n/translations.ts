@@ -533,6 +533,16 @@ const de = override(en, {
   days_to_departure: "Noch {{n}} Tage bis zur Abreise",
   day_to_departure: "Noch {{n}} Tag bis zur Abreise",
   show_pins: "Pins",
+  show_subdivisions: "Regionen",
+  most_visited_continents: "Meistbesuchte Kontinente",
+  home_country_trips: "Reisen im Heimatland",
+  most_visited_foreign_countries: "Meistbesuchte Länder im Ausland",
+  continent_europe: "Europa",
+  continent_asia: "Asien",
+  continent_africa: "Afrika",
+  continent_north_america: "Nordamerika",
+  continent_south_america: "Südamerika",
+  continent_oceania: "Ozeanien",
 });
 
 const es = override(en, {
@@ -642,6 +652,16 @@ const es = override(en, {
   days_to_departure: "{{n}} días para la salida",
   day_to_departure: "{{n}} día para la salida",
   show_pins: "Pines",
+  show_subdivisions: "Regiones",
+  most_visited_continents: "Continentes más visitados",
+  home_country_trips: "Viajes en el país de origen",
+  most_visited_foreign_countries: "Países extranjeros más visitados",
+  continent_europe: "Europa",
+  continent_asia: "Asia",
+  continent_africa: "África",
+  continent_north_america: "América del Norte",
+  continent_south_america: "América del Sur",
+  continent_oceania: "Oceanía",
 });
 
 const pt = override(en, {
@@ -751,6 +771,16 @@ const pt = override(en, {
   days_to_departure: "{{n}} dias para a partida",
   day_to_departure: "{{n}} dia para a partida",
   show_pins: "Pins",
+  show_subdivisions: "Regiões",
+  most_visited_continents: "Continentes mais visitados",
+  home_country_trips: "Viagens no país de origem",
+  most_visited_foreign_countries: "Países estrangeiros mais visitados",
+  continent_europe: "Europa",
+  continent_asia: "Ásia",
+  continent_africa: "África",
+  continent_north_america: "América do Norte",
+  continent_south_america: "América do Sul",
+  continent_oceania: "Oceania",
 });
 
 const zh = override(en, {
