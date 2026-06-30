@@ -2,7 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { MapContainer, TileLayer, GeoJSON, Marker, Tooltip, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { City, State } from "country-state-city";
+
+// NOTE: country-state-city is intentionally NOT imported here — it causes
+// Vite pre-bundling failures in this environment. Coordinates are supplied
+// directly from the stored city data (lat/lng saved at trip-creation time).
+// Subdivision detection uses point-in-polygon on the admin-1 GeoJSON instead
+// of name matching, which is more accurate and requires no extra package.
 
 export type WorldMapCity = { name: string; country: string; lat?: number; lng?: number };
 
@@ -16,8 +21,7 @@ type GeoCollection = {
   features: GeoFeature[];
 };
 
-// Fixed coordinates for city-states/territories not covered by the
-// country-state-city city dataset.
+// Fixed coordinates for city-states/territories.
 const FIXED_COORDS: Record<string, { lat: number; lng: number }> = {
   HK: { lat: 22.3193, lng: 114.1694 },
   MO: { lat: 22.1987, lng: 113.5439 },
@@ -91,7 +95,6 @@ function useWorldBorders() {
   return { data, error };
 }
 
-// Lazy-loads admin-1 subdivision GeoJSON only when the switch is ON.
 function useSubdivisionBorders(enabled: boolean) {
   const [data, setData] = useState<GeoCollection | null>(_admin1Cache);
   const [error, setError] = useState(false);
@@ -119,6 +122,23 @@ function isoOf(feature: GeoFeature): string | null {
   return null;
 }
 
+// Extract 2-letter country ISO from an admin-1 feature (iso_3166_2 "IT-52" → "IT").
+function countryIsoOfAdmin1(feature: GeoFeature): string | null {
+  const props = feature.properties ?? {};
+  const raw3166 = (props.iso_3166_2 as string) ?? "";
+  const parts = raw3166.split("-");
+  if (parts.length >= 2 && parts[0].length === 2 && raw3166 !== "-99") {
+    return parts[0].toUpperCase();
+  }
+  // Fallback: hasc field ("IT.TOS" → "IT")
+  const hasc = (props.hasc as string) ?? "";
+  const hp = hasc.split(".");
+  if (hp.length >= 2 && hp[0].length === 2) {
+    return hp[0].toUpperCase();
+  }
+  return null;
+}
+
 function FitToVisited({ bounds }: { bounds: L.LatLngBoundsExpression | null }) {
   const map = useMap();
   useEffect(() => {
@@ -132,28 +152,13 @@ function FitToVisited({ bounds }: { bounds: L.LatLngBoundsExpression | null }) {
   return null;
 }
 
+// Returns only cities that already have coordinates (stored from the picker
+// at trip-creation time, or from FIXED_COORDS for city-states).
 function enrichCoords(cities: WorldMapCity[]): (WorldMapCity & { lat?: number; lng?: number })[] {
-  const normalize = (s: string) =>
-    s
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[̀-ͯ]/g, "")
-      .replace(/\s+(city|town|village)$/i, "")
-      .trim();
   return cities.map((c) => {
     if (typeof c.lat === "number" && typeof c.lng === "number") return c;
     const iso = (c.country || "").toUpperCase();
     if (FIXED_COORDS[iso]) return { ...c, ...FIXED_COORDS[iso] };
-    if (!iso || !c.name) return c;
-    const pool = City.getCitiesOfCountry(iso) ?? [];
-    const needle = normalize(c.name);
-    const match =
-      pool.find((x) => normalize(x.name) === needle) ||
-      pool.find((x) => normalize(x.name).startsWith(needle)) ||
-      pool.find((x) => normalize(x.name).includes(needle));
-    const lat = match?.latitude ? Number(match.latitude) : NaN;
-    const lng = match?.longitude ? Number(match.longitude) : NaN;
-    if (Number.isFinite(lat) && Number.isFinite(lng)) return { ...c, lat, lng };
     return c;
   });
 }
@@ -171,40 +176,79 @@ function dedupePins(cities: (WorldMapCity & { lat?: number; lng?: number })[]) {
   return list;
 }
 
-// ---- Subdivision key computation ----
-// For each city, look up the state/province it belongs to via country-state-city.
+// ---- Point-in-polygon (ray casting) for GeoJSON Polygon/MultiPolygon ----
+// GeoJSON coordinates are [longitude, latitude].
+function pointInRing(lat: number, lng: number, ring: number[][]): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i]; // xi = lng, yi = lat
+    const [xj, yj] = ring[j];
+    if ((yi > lat) !== (yj > lat) && lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+function pointInGeoFeature(lat: number, lng: number, feature: GeoFeature): boolean {
+  const g = feature.geometry;
+  if (!g) return false;
+  if (g.type === "Polygon") {
+    const rings = g.coordinates as number[][][];
+    return pointInRing(lat, lng, rings[0]);
+  }
+  if (g.type === "MultiPolygon") {
+    const polys = g.coordinates as number[][][][];
+    return polys.some((poly) => pointInRing(lat, lng, poly[0]));
+  }
+  return false;
+}
+
+// ---- Subdivision detection via point-in-polygon ----
+// For each pin, finds which admin-1 feature it falls into.
 // Returns:
-//   subdivKeys        – Set of "ISO|normalizedStateName" for matched subdivisions
-//   fallbackCountries – ISOs where city→state matching failed (whole country colored)
-function computeSubdivData(cities: WorldMapCity[]) {
+//   subdivKeys        – Set of "ISO|featureName" for matched subdivisions
+//   fallbackCountries – ISO codes where no subdivision was matched (whole country colored)
+function computeSubdivData(
+  pins: Array<{ lat: number; lng: number; country: string }>,
+  admin1Geo: GeoCollection,
+): { subdivKeys: Set<string>; fallbackCountries: Set<string> } {
   const norm = (s: string) =>
     s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
 
   const subdivKeys = new Set<string>();
   const fallbackCountries = new Set<string>();
 
-  for (const city of cities) {
-    const iso = city.country.toUpperCase();
-    // City-states have no meaningful administrative subdivisions
+  // Group admin-1 features by country ISO for fast per-country lookup.
+  const featuresByCountry = new Map<string, GeoFeature[]>();
+  for (const feature of admin1Geo.features) {
+    const iso = countryIsoOfAdmin1(feature);
+    if (!iso) continue;
+    const list = featuresByCountry.get(iso) ?? [];
+    list.push(feature);
+    featuresByCountry.set(iso, list);
+  }
+
+  for (const pin of pins) {
+    const iso = pin.country.toUpperCase();
+    // City-states: no meaningful subdivisions.
     if (FIXED_COORDS[iso]) {
       fallbackCountries.add(iso);
       continue;
     }
-    const pool = City.getCitiesOfCountry(iso) ?? [];
-    const needle = norm(city.name);
-    const match =
-      pool.find((c) => norm(c.name) === needle) ||
-      pool.find((c) => norm(c.name).startsWith(needle)) ||
-      pool.find((c) => norm(c.name).includes(needle));
-
-    if (match?.stateCode) {
-      const state = State.getStateByCodeAndCountry(match.stateCode, iso);
-      if (state?.name) {
-        subdivKeys.add(`${iso}|${norm(state.name)}`);
-      } else {
-        fallbackCountries.add(iso);
+    const candidates = featuresByCountry.get(iso) ?? [];
+    let found = false;
+    for (const feature of candidates) {
+      if (pointInGeoFeature(pin.lat, pin.lng, feature)) {
+        const name = (feature.properties?.name as string) ?? "";
+        if (name) {
+          subdivKeys.add(`${iso}|${norm(name)}`);
+          found = true;
+          break;
+        }
       }
-    } else {
+    }
+    if (!found) {
       fallbackCountries.add(iso);
     }
   }
@@ -221,21 +265,11 @@ export function WorldMap({
   showSubdivisions = false,
   className,
 }: {
-  /** ISO 3166-1 alpha-2 codes of countries the user has visited. */
   visitedCountries: string[];
   cities: WorldMapCity[];
-  /** Countries with a planned (future) trip but no past/ongoing one. */
   plannedCountries?: string[];
-  /** Cities with a planned (future) trip but no past/ongoing one. */
   plannedCities?: WorldMapCity[];
-  /** Whether to render the city pins at all. */
   showPins?: boolean;
-  /**
-   * When true, color only the specific administrative subdivisions (regions /
-   * provinces / Länder / oblasts…) that contain a visited or planned city,
-   * instead of the whole country. Falls back to whole-country coloring when
-   * city→state resolution fails (e.g. city-states or unmatched names).
-   */
   showSubdivisions?: boolean;
   className?: string;
 }) {
@@ -262,23 +296,23 @@ export function WorldMap({
     );
   }, [plannedCities, pins]);
 
-  // Compute which visited subdivisions to highlight (only when switch is ON)
+  // Subdivision detection via point-in-polygon — runs only when the admin-1
+  // GeoJSON is loaded (lazy). Returns empty sets until then.
   const visitedSubdivData = useMemo(() => {
-    if (!showSubdivisions) {
+    if (!showSubdivisions || !subdivWorld) {
       return { subdivKeys: new Set<string>(), fallbackCountries: new Set<string>() };
     }
-    return computeSubdivData(cities);
-  }, [cities, showSubdivisions]);
+    return computeSubdivData(pins, subdivWorld);
+  }, [pins, showSubdivisions, subdivWorld]);
 
-  // Compute which planned subdivisions to highlight (only when switch is ON)
   const plannedSubdivData = useMemo(() => {
-    if (!showSubdivisions) {
+    if (!showSubdivisions || !subdivWorld) {
       return { subdivKeys: new Set<string>(), fallbackCountries: new Set<string>() };
     }
-    return computeSubdivData(plannedCities);
-  }, [plannedCities, showSubdivisions]);
+    return computeSubdivData(plannedPins, subdivWorld);
+  }, [plannedPins, showSubdivisions, subdivWorld]);
 
-  // Set of country ISOs that have at least one resolved planned subdivision key
+  // Set of country ISOs that have at least one resolved planned subdivision
   const plannedSubdivCountries = useMemo(() => {
     const set = new Set<string>();
     for (const key of plannedSubdivData.subdivKeys) {
@@ -310,9 +344,6 @@ export function WorldMap({
   }, [world, visitedSet, plannedSet, pins, plannedPins]);
 
   // Country-level style.
-  // In subdivision mode: visited countries are transparent (subdivs painted separately)
-  // unless city→state resolution failed (fallback = whole country colored).
-  // Planned countries show the hatched blue treatment unless they have resolved subdivisions.
   const countryStyle = (feature?: GeoFeature) => {
     const iso = feature ? isoOf(feature) : null;
     const visited = !!iso && visitedSet.has(iso);
@@ -320,26 +351,16 @@ export function WorldMap({
 
     if (showSubdivisions) {
       if (planned) {
-        // Show whole-country hatching only if this planned country has no resolved subdivisions
         const hasResolvedSubdivs =
           plannedSubdivCountries.has(iso) && !plannedSubdivData.fallbackCountries.has(iso);
         if (hasResolvedSubdivs) {
-          return {
-            fillColor: "transparent",
-            fillOpacity: 0,
-            color: "oklch(0.6 0.13 255)",
-            weight: 0.75,
-          };
+          return { fillColor: "transparent", fillOpacity: 0, color: "oklch(0.6 0.13 255)", weight: 0.75 };
         }
         return {
-          fillColor: "oklch(0.93 0.03 255)",
-          fillOpacity: 0.55,
-          color: "oklch(0.6 0.13 255)",
-          weight: 1,
-          dashArray: "4 3",
+          fillColor: "oklch(0.93 0.03 255)", fillOpacity: 0.55,
+          color: "oklch(0.6 0.13 255)", weight: 1, dashArray: "4 3",
         };
       }
-
       const isFallback = !!iso && visited && visitedSubdivData.fallbackCountries.has(iso);
       return {
         fillColor: isFallback ? "oklch(0.66 0.14 38)" : "transparent",
@@ -351,14 +372,10 @@ export function WorldMap({
 
     if (planned) {
       return {
-        fillColor: "oklch(0.93 0.03 255)",
-        fillOpacity: 0.55,
-        color: "oklch(0.6 0.13 255)",
-        weight: 1,
-        dashArray: "4 3",
+        fillColor: "oklch(0.93 0.03 255)", fillOpacity: 0.55,
+        color: "oklch(0.6 0.13 255)", weight: 1, dashArray: "4 3",
       };
     }
-
     return {
       fillColor: visited ? "oklch(0.66 0.14 38)" : "transparent",
       fillOpacity: visited ? 0.55 : 0,
@@ -368,84 +385,43 @@ export function WorldMap({
   };
 
   // Subdivision-level style.
-  // Extracts the 2-letter country code from iso_3166_2 (e.g. "IT-52" → "IT"),
-  // then checks both visited and planned subdivision sets.
-  // Visited subdivisions = orange fill; planned = blue hatched fill.
+  // Uses the same key format as computeSubdivData: "ISO|normalizedFeatureName".
   const subdivStyle = (feature?: GeoFeature) => {
-    const emptyStyle = {
-      fillColor: "transparent",
-      fillOpacity: 0,
-      color: "oklch(0.88 0.005 90)",
-      weight: 0.3,
-    };
+    const emptyStyle = { fillColor: "transparent", fillOpacity: 0, color: "oklch(0.88 0.005 90)", weight: 0.3 };
     if (!feature?.properties) return emptyStyle;
-
     const props = feature.properties;
     const norm = (s: string) =>
       s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
 
-    // Extract 2-letter country ISO from iso_3166_2 ("IT-52" → "IT")
-    const raw3166 = (props.iso_3166_2 as string) ?? "";
-    const parts = raw3166.split("-");
-    let countryIso: string | null = null;
-    if (parts.length >= 2 && parts[0].length === 2 && raw3166 !== "-99") {
-      countryIso = parts[0].toUpperCase();
-    } else {
-      // Fallback: try hasc ("IT.TOS" → "IT")
-      const hasc = (props.hasc as string) ?? "";
-      const hp = hasc.split(".");
-      if (hp.length >= 2 && hp[0].length === 2) {
-        countryIso = hp[0].toUpperCase();
-      }
-    }
-
+    const countryIso = countryIsoOfAdmin1(feature);
     if (!countryIso) return emptyStyle;
 
-    const subdivName = norm((props.name as string) ?? "");
-    const key = `${countryIso}|${subdivName}`;
+    const featureName = norm((props.name as string) ?? "");
+    const key = `${countryIso}|${featureName}`;
     const isVisited = visitedSubdivData.subdivKeys.has(key);
     const isPlanned = !isVisited && plannedSubdivData.subdivKeys.has(key);
 
     if (isVisited) {
-      return {
-        fillColor: "oklch(0.66 0.14 38)",
-        fillOpacity: 0.65,
-        color: "oklch(0.5 0.13 38)",
-        weight: 0.75,
-      };
+      return { fillColor: "oklch(0.66 0.14 38)", fillOpacity: 0.65, color: "oklch(0.5 0.13 38)", weight: 0.75 };
     }
-
     if (isPlanned) {
       return {
-        fillColor: "oklch(0.93 0.03 255)",
-        fillOpacity: 0.55,
-        color: "oklch(0.6 0.13 255)",
-        weight: 0.75,
-        dashArray: "4 3",
+        fillColor: "oklch(0.93 0.03 255)", fillOpacity: 0.55,
+        color: "oklch(0.6 0.13 255)", weight: 0.75, dashArray: "4 3",
       };
     }
-
-    // Draw subtle borders only for countries that have been visited or planned,
-    // to avoid cluttering the whole map with province lines everywhere.
     const isInVisited = visitedSet.has(countryIso);
     const isInPlanned = plannedSet.has(countryIso);
     return {
-      fillColor: "transparent",
-      fillOpacity: 0,
-      color: isInVisited
-        ? "oklch(0.72 0.09 38)"
-        : isInPlanned
-          ? "oklch(0.75 0.08 255)"
-          : "oklch(0.88 0.005 90)",
+      fillColor: "transparent", fillOpacity: 0,
+      color: isInVisited ? "oklch(0.72 0.09 38)" : isInPlanned ? "oklch(0.75 0.08 255)" : "oklch(0.88 0.005 90)",
       weight: isInVisited || isInPlanned ? 0.45 : 0.25,
     };
   };
 
   if (error) {
     return (
-      <div
-        className={`grid place-items-center rounded-3xl bg-muted text-xs text-muted-foreground ${className ?? ""}`}
-      >
+      <div className={`grid place-items-center rounded-3xl bg-muted text-xs text-muted-foreground ${className ?? ""}`}>
         Mappa non disponibile al momento
       </div>
     );
@@ -465,8 +441,6 @@ export function WorldMap({
     >
       <TileLayer url="https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png" />
 
-      {/* Country-level layer: always rendered.
-          In subdivision mode it only fills fallback countries + planned countries without subdivisions. */}
       {world && (
         <GeoJSON
           key={`country-${visitedSet.size}-${plannedSet.size}-${showSubdivisions}-${visitedSubdivData.fallbackCountries.size}-${plannedSubdivData.fallbackCountries.size}`}
@@ -475,11 +449,9 @@ export function WorldMap({
         />
       )}
 
-      {/* Subdivision layer: rendered only when the switch is ON and data is loaded.
-          Paints visited subdivisions in orange and planned subdivisions in blue hatched. */}
       {showSubdivisions && subdivWorld && (
         <GeoJSON
-          key={`subdiv-${visitedSubdivData.subdivKeys.size}-${visitedSubdivData.fallbackCountries.size}-${plannedSubdivData.subdivKeys.size}-${plannedSubdivData.fallbackCountries.size}`}
+          key={`subdiv-${visitedSubdivData.subdivKeys.size}-${visitedSubdivData.fallbackCountries.size}-${plannedSubdivData.subdivKeys.size}`}
           data={subdivWorld as never}
           style={subdivStyle as never}
         />
@@ -487,26 +459,14 @@ export function WorldMap({
 
       {showPins &&
         pins.map((c, i) => (
-          <Marker
-            key={`v-${c.country}-${c.name}-${i}`}
-            position={[c.lat, c.lng]}
-            icon={visitedPinIcon}
-          >
-            <Tooltip direction="top" offset={[0, -6]}>
-              {c.name}
-            </Tooltip>
+          <Marker key={`v-${c.country}-${c.name}-${i}`} position={[c.lat, c.lng]} icon={visitedPinIcon}>
+            <Tooltip direction="top" offset={[0, -6]}>{c.name}</Tooltip>
           </Marker>
         ))}
       {showPins &&
         plannedPins.map((c, i) => (
-          <Marker
-            key={`p-${c.country}-${c.name}-${i}`}
-            position={[c.lat, c.lng]}
-            icon={plannedPinIcon}
-          >
-            <Tooltip direction="top" offset={[0, -6]}>
-              {c.name}
-            </Tooltip>
+          <Marker key={`p-${c.country}-${c.name}-${i}`} position={[c.lat, c.lng]} icon={plannedPinIcon}>
+            <Tooltip direction="top" offset={[0, -6]}>{c.name}</Tooltip>
           </Marker>
         ))}
       {world && <FitToVisited bounds={visitedBounds} />}
