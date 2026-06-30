@@ -409,9 +409,11 @@ function JourneyLeg({
                       {fmtTime(arriveISO, lang) || "—"}
                       <span className="ml-1 align-top text-xs text-amber-300">{plusDays(departISO, arriveISO)}</span>
                     </p>
-                    <div className="mt-1 inline-block rounded-md bg-white/10 px-2 py-0.5 font-mono text-[11px] font-semibold tracking-[0.2em]">
-                      {codeOf(toCity)}
-                    </div>
+                    {showHubCodes && (
+                      <div className="mt-1 inline-block rounded-md bg-white/10 px-2 py-0.5 font-mono text-[11px] font-semibold tracking-[0.2em]">
+                        {codeOf(toCity)}
+                      </div>
+                    )}
                     <p className="mt-0.5 truncate text-[11px] opacity-80" title={toCity || undefined}>
                       {nameOf(toCity) || "—"}
                     </p>
