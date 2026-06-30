@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Plus, MapPin, Calendar, Briefcase, Palmtree, Footprints, Globe2, Pin, PinOff } from "lucide-react";
+import { Plus, MapPin, Calendar, Briefcase, Palmtree, Footprints, Globe2, Pin, PinOff, Map as MapIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useEffect, useMemo, useState } from "react";
 import { listTrips } from "@/lib/trips.functions";
@@ -107,6 +107,7 @@ function TripsList() {
 
   // Pin visibility toggle, surfaced as a switch in the map card header.
   const [showPins, setShowPins] = useState(true);
+  const [showSubdivisions, setShowSubdivisions] = useState(false);
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-6 sm:py-8">
@@ -136,6 +137,11 @@ function TripsList() {
               · {visitedCountries.length}
             </span>
             <label className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
+              <MapIcon className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">{t("show_subdivisions")}</span>
+              <Switch checked={showSubdivisions} onCheckedChange={setShowSubdivisions} />
+            </label>
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
               {showPins ? <Pin className="h-3.5 w-3.5" /> : <PinOff className="h-3.5 w-3.5" />}
               <span className="hidden sm:inline">{t("show_pins")}</span>
               <Switch checked={showPins} onCheckedChange={setShowPins} />
@@ -147,6 +153,7 @@ function TripsList() {
             plannedCountries={plannedCountries}
             plannedCities={plannedCities}
             showPins={showPins}
+            showSubdivisions={showSubdivisions}
             className="h-[280px] w-full sm:h-[360px]"
           />
         </section>
