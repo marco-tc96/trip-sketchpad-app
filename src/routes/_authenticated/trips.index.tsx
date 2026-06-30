@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Plus, MapPin, Calendar, Briefcase, Palmtree, Footprints, Globe2, Pin, PinOff, Layers, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, MapPin, Calendar, Briefcase, Palmtree, Footprints, Globe2, Pin, PinOff, Layers } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { listTrips } from "@/lib/trips.functions";
@@ -164,39 +164,74 @@ function Section({
   accent: "primary" | "accent" | "muted";
   withYearSelector?: boolean;
 }) {
+  const { t } = useTranslation();
   const [idx, setIdx] = useState(0);
+  const [dragX, setDragX] = useState(0);
+  const [dragging, setDragging] = useState(false);
   const touchStartX = useRef<number | null>(null);
+  const dotsRef = useRef<HTMLDivElement>(null);
+  const dotRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
-  // Year selector (only for past section)
   const years = useMemo(() => {
-    const ys = new Set(trips.map((t) => t.start_date.slice(0, 4)));
+    const ys = new Set(trips.map((tr) => tr.start_date.slice(0, 4)));
     return [...ys].sort().reverse();
   }, [trips]);
   const [selectedYear, setSelectedYear] = useState<string>("all");
 
   const filtered = useMemo(() => {
     if (!withYearSelector || selectedYear === "all") return trips;
-    return trips.filter((t) => t.start_date.startsWith(selectedYear));
+    return trips.filter((tr) => tr.start_date.startsWith(selectedYear));
   }, [trips, withYearSelector, selectedYear]);
 
-  // Reset carousel to first card when year filter changes
-  useEffect(() => { setIdx(0); }, [selectedYear]);
+  useEffect(() => { setIdx(0); setDragX(0); }, [selectedYear]);
+
+  // Auto-scroll the active dot into view
+  useEffect(() => {
+    dotRefs.current[idx]?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+  }, [idx]);
 
   const dotClass =
     accent === "primary" ? "bg-primary"
     : accent === "accent" ? "bg-accent"
     : "bg-muted-foreground/40";
 
+  const accentActiveDot =
+    accent === "primary" ? "ring-primary bg-primary/15"
+    : accent === "accent" ? "ring-accent bg-accent/15"
+    : "ring-muted-foreground/60 bg-muted/60";
+
+  function go(dir: number) {
+    setIdx((i) => Math.max(0, Math.min(filtered.length - 1, i + dir)));
+  }
+
   function handleTouchStart(e: React.TouchEvent) {
     touchStartX.current = e.touches[0].clientX;
+    setDragging(true);
+    setDragX(0);
   }
+
+  function handleTouchMove(e: React.TouchEvent) {
+    if (touchStartX.current === null) return;
+    const dx = e.touches[0].clientX - touchStartX.current;
+    const atStart = idx === 0 && dx > 0;
+    const atEnd = idx === filtered.length - 1 && dx < 0;
+    setDragX(atStart || atEnd ? dx * 0.18 : dx);
+  }
+
   function handleTouchEnd(e: React.TouchEvent) {
     if (touchStartX.current === null) return;
     const dx = e.changedTouches[0].clientX - touchStartX.current;
-    if (dx < -50 && idx < filtered.length - 1) setIdx((i) => i + 1);
-    if (dx > 50 && idx > 0) setIdx((i) => i - 1);
+    setDragging(false);
+    setDragX(0);
+    if (dx < -60 && idx < filtered.length - 1) go(1);
+    else if (dx > 60 && idx > 0) go(-1);
     touchStartX.current = null;
   }
+
+  // Peek card separation in vw (full-bleed container = 100vw wide)
+  // Main card is 72vw wide; side cards are offset by PEEK_VW so they
+  // peek ~20px from each edge after scaling to 0.80.
+  const PEEK_VW = 22;
 
   return (
     <section>
@@ -205,8 +240,6 @@ function Section({
         <span className={`h-2 w-2 rounded-full ${dotClass}`} />
         <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">{title}</h2>
         <span className="text-xs text-muted-foreground/70">· {filtered.length}</span>
-
-        {/* Year selector */}
         {withYearSelector && years.length > 1 && (
           <select
             value={selectedYear}
@@ -219,44 +252,92 @@ function Section({
         )}
       </div>
 
-      {/* Mobile: single-card carousel with swipe */}
+      {/* ─── Mobile carousel ─── */}
       <div className="sm:hidden">
-        {filtered.length > 0 && (
-          <div
-            onTouchStart={handleTouchStart}
-            onTouchEnd={handleTouchEnd}
-          >
-            <div className="flex justify-center">
-              <TripCard trip={filtered[idx]} carousel />
-            </div>
-            {filtered.length > 1 && (
-              <div className="mt-3 flex items-center justify-center gap-4">
-                <button
-                  onClick={() => setIdx((i) => Math.max(0, i - 1))}
-                  disabled={idx === 0}
-                  className="rounded-full p-1.5 text-muted-foreground transition hover:bg-muted disabled:opacity-30"
-                  aria-label="Precedente"
-                >
-                  <ChevronLeft className="h-5 w-5" />
-                </button>
-                <span className="min-w-[3rem] text-center text-xs text-muted-foreground">
-                  {idx + 1} / {filtered.length}
-                </span>
-                <button
-                  onClick={() => setIdx((i) => Math.min(filtered.length - 1, i + 1))}
-                  disabled={idx === filtered.length - 1}
-                  className="rounded-full p-1.5 text-muted-foreground transition hover:bg-muted disabled:opacity-30"
-                  aria-label="Successivo"
-                >
-                  <ChevronRight className="h-5 w-5" />
-                </button>
-              </div>
-            )}
+        {filtered.length === 0 ? null : filtered.length === 1 ? (
+          <div className="flex justify-center">
+            <TripCard trip={filtered[0]} carousel />
           </div>
+        ) : (
+          <>
+            {/* Full-bleed stage: cards stack here */}
+            <div
+              className="-mx-4 relative overflow-hidden"
+              style={{ height: "clamp(280px, calc(72vw * 16 / 9), 480px)" }}
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
+            >
+              {filtered.map((tr, i) => {
+                const offset = i - idx;
+                if (Math.abs(offset) > 1) return null; // only render prev / current / next
+
+                const isCurrent = offset === 0;
+                // prev (-1) tilts left (−8°), next (+1) tilts right (+8°)
+                const rotate = offset * 8;
+                const scale = isCurrent ? 1 : 0.8;
+                const brightness = isCurrent ? 1 : 0.48;
+                const translateVw = offset * PEEK_VW;
+
+                return (
+                  <div
+                    key={tr.id}
+                    style={{
+                      position: "absolute",
+                      top: "50%",
+                      left: "50%",
+                      // -50% centres the card; translateVw shifts prev/next to sides
+                      transform: `translate(calc(-50% + ${translateVw}vw + ${dragging ? dragX : 0}px), -50%) rotate(${rotate}deg) scale(${scale})`,
+                      zIndex: isCurrent ? 10 : 5,
+                      filter: brightness < 1 ? `brightness(${brightness})` : undefined,
+                      transition: dragging
+                        ? "none"
+                        : "transform 0.4s cubic-bezier(0.25,0.46,0.45,0.94), filter 0.35s ease",
+                      transformOrigin: "center center",
+                      willChange: "transform",
+                      pointerEvents: isCurrent ? "auto" : "none",
+                    }}
+                  >
+                    <TripCard trip={tr} carousel />
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Emoji / flag dots */}
+            <div
+              ref={dotsRef}
+              className="mt-4 flex items-center gap-2 overflow-x-auto px-4"
+              style={{ scrollbarWidth: "none" }}
+            >
+              <div className="flex items-center gap-2 mx-auto">
+                {filtered.map((tr, i) => {
+                  const emoji = (tr as unknown as { cover_emoji?: string | null }).cover_emoji;
+                  const countries = (tr as unknown as { countries?: string[] }).countries ?? [];
+                  const dot = emoji || (countries.length > 0 ? flagOf(countries[0]) : "✈️");
+                  const isActive = i === idx;
+                  return (
+                    <button
+                      key={tr.id}
+                      ref={(el) => { dotRefs.current[i] = el; }}
+                      onClick={() => setIdx(i)}
+                      className={`flex shrink-0 items-center justify-center rounded-full text-base transition-all duration-300 ${
+                        isActive
+                          ? `h-10 w-10 ${accentActiveDot} ring-2 scale-110 shadow-sm`
+                          : "h-8 w-8 bg-muted/40 opacity-45 hover:opacity-75 hover:scale-105"
+                      }`}
+                    >
+                      {dot}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </>
         )}
       </div>
 
-      {/* Desktop: grid (unchanged) */}
+      {/* ─── Desktop grid (unchanged) ─── */}
       <div className="hidden sm:grid sm:grid-cols-3 sm:gap-3 lg:grid-cols-4">
         {filtered.map((tr) => (
           <TripCard key={tr.id} trip={tr} />
@@ -302,7 +383,7 @@ function TripCard({ trip, carousel = false }: { trip: Trip; carousel?: boolean }
       to="/trips/$tripId"
       params={{ tripId: trip.id }}
       className={`group relative flex aspect-[9/16] shrink-0 flex-col justify-end overflow-hidden rounded-2xl border border-border shadow-soft transition hover:-translate-y-1 hover:shadow-xl ${
-        carousel ? "w-[72vw] max-w-[260px]" : "w-[58vw] max-w-[240px] snap-start sm:w-auto sm:max-w-none"
+        carousel ? "w-[72vw] max-w-[260px]" : "w-[58vw] max-w-[240px] sm:w-auto sm:max-w-none"
       }`}
     >
       <CityCover src={inlineSrc} gradient={gradient} className="transition duration-700 group-hover:scale-[1.06]" />

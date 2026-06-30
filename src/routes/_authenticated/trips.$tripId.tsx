@@ -21,7 +21,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "@tanstack/react-router";
-import { countryNameLocalized, citiesOfCountry, flagOf, localizedCountries, cityNameLocalized, primaryTimezoneOfCountry } from "@/lib/country-data";
+import { countryNameLocalized, citiesOfCountry, flagOf, localizedCountries, cityNameLocalized, primaryTimezoneOfCountry, currencyForCountryAt } from "@/lib/country-data";
 import { flagGradient } from "@/lib/flag-gradient";
 
 export const Route = createFileRoute("/_authenticated/trips/$tripId")({
@@ -93,6 +93,11 @@ function TripLayout() {
   const coverType = (tripRow.cover_type ?? "auto") as "auto" | "map" | "photo" | "color";
   const cities = Array.isArray(tripRow.cities) ? tripRow.cities : [];
   const countries = Array.isArray(tripRow.countries) ? tripRow.countries : [];
+  const tripCurrencies: string[] = [...new Set(
+    countries
+      .map((iso) => currencyForCountryAt(iso, trip.data.start_date))
+      .filter((c): c is string => !!c)
+  )];
   const tripType = (tripRow.trip_type ?? "vacation") as "vacation" | "business" | "daytrip";
   const typeIcon = tripType === "business" ? Briefcase : tripType === "daytrip" ? Footprints : Palmtree;
   const typeColor =
@@ -438,13 +443,19 @@ function TripLayout() {
           // edge next to action icons, which have moved into the
           // hamburger menu), still right-aligned on wider screens.
           <div className="flex flex-col items-center gap-1 sm:items-end">
-            <FxAverageWidget
-              from={profile.data.home_currency}
-              to={trip.data.local_currency}
-              start={trip.data.start_date}
-              end={trip.data.end_date}
-              fallback={trip.data.fx_rate_fallback}
-            />
+            {tripCurrencies
+              .filter((c) => c !== profile.data!.home_currency)
+              .map((cur) => (
+                <FxAverageWidget
+                  key={cur}
+                  from={profile.data!.home_currency}
+                  to={cur}
+                  start={trip.data.start_date}
+                  end={trip.data.end_date}
+                  fallback={trip.data.fx_rate_fallback}
+                />
+              ))
+            }
             <TimezoneBadge
               home={(profile.data as { home_country?: string | null }).home_country ?? null}
               destinations={countries}
