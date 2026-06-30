@@ -26,8 +26,6 @@ export function countryByIso(iso: string): CountryEntry | undefined {
   return allCountries().find((c) => c.iso === iso.toUpperCase());
 }
 
-// Localized country name via Intl.DisplayNames. Falls back to the English
-// name from country-state-city if the runtime cannot resolve the locale.
 const _displayNamesCache = new Map<string, Intl.DisplayNames>();
 function getDisplayNames(lang: string): Intl.DisplayNames | null {
   if (typeof Intl === "undefined" || !("DisplayNames" in Intl)) return null;
@@ -71,32 +69,88 @@ export type CityEntry = {
   lng?: number;
 };
 
+// A handful of city-states / territories return an empty list from the
+// country-state-city city dataset, even though they're valid ISO
+// countries someone can pick as a trip destination. For these, the
+// country itself doubles as its one "city" so it remains selectable.
+const CITYLESS_FALLBACK: Record<string, string> = {
+  HK: "Hong Kong",
+  MO: "Macao",
+  SG: "Singapore",
+  VA: "Vatican City",
+  MC: "Monaco",
+  GI: "Gibraltar",
+};
+
+// Common cities don't come translated from the underlying dataset (always
+// English, e.g. "Milan", "Rome", "Florence", "London"). This maps a small
+// set of major/frequently-traveled cities to their localized name per
+// language, covering the languages this app supports. Cities not listed
+// here fall back to their original (English) name, since a full
+// city-translation dataset is impractical to hand-maintain.
+const CITY_NAME_OVERRIDES: Record<string, Record<string, string>> = {
+  Milan: { it: "Milano", es: "Milán", fr: "Milan", de: "Mailand", pt: "Milão" },
+  Rome: { it: "Roma", es: "Roma", fr: "Rome", de: "Rom", pt: "Roma" },
+  Florence: { it: "Firenze", es: "Florencia", fr: "Florence", de: "Florenz", pt: "Florença" },
+  Venice: { it: "Venezia", es: "Venecia", fr: "Venise", de: "Venedig", pt: "Veneza" },
+  Naples: { it: "Napoli", es: "Nápoles", fr: "Naples", de: "Neapel", pt: "Nápoles" },
+  Turin: { it: "Torino", es: "Turín", fr: "Turin", de: "Turin", pt: "Turim" },
+  Genoa: { it: "Genova", es: "Génova", fr: "Gênes", de: "Genua", pt: "Génova" },
+  London: { it: "Londra", es: "Londres", fr: "Londres", de: "London", pt: "Londres" },
+  Paris: { it: "Parigi", es: "París", fr: "Paris", de: "Paris", pt: "Paris" },
+  Munich: { it: "Monaco di Baviera", es: "Múnich", fr: "Munich", de: "München", pt: "Munique" },
+  Cologne: { it: "Colonia", es: "Colonia", fr: "Cologne", de: "Köln", pt: "Colónia" },
+  Vienna: { it: "Vienna", es: "Viena", fr: "Vienne", de: "Wien", pt: "Viena" },
+  Lisbon: { it: "Lisbona", es: "Lisboa", fr: "Lisbonne", de: "Lissabon", pt: "Lisboa" },
+  Seville: { it: "Siviglia", es: "Sevilla", fr: "Séville", de: "Sevilla", pt: "Sevilha" },
+  Athens: { it: "Atene", es: "Atenas", fr: "Athènes", de: "Athen", pt: "Atenas" },
+  Prague: { it: "Praga", es: "Praga", fr: "Prague", de: "Prag", pt: "Praga" },
+  Warsaw: { it: "Varsavia", es: "Varsovia", fr: "Varsovie", de: "Warschau", pt: "Varsóvia" },
+  Brussels: { it: "Bruxelles", es: "Bruselas", fr: "Bruxelles", de: "Brüssel", pt: "Bruxelas" },
+  Moscow: { it: "Mosca", es: "Moscú", fr: "Moscou", de: "Moskau", pt: "Moscovo" },
+  "New York": { it: "New York", es: "Nueva York", fr: "New York", de: "New York", pt: "Nova Iorque" },
+  Cairo: { it: "Il Cairo", es: "El Cairo", fr: "Le Caire", de: "Kairo", pt: "Cairo" },
+  Beijing: { it: "Pechino", es: "Pekín", fr: "Pékin", de: "Peking", pt: "Pequim" },
+  Tokyo: { it: "Tokyo", es: "Tokio", fr: "Tokyo", de: "Tokio", pt: "Tóquio" },
+  Seoul: { it: "Seul", es: "Seúl", fr: "Séoul", de: "Seoul", pt: "Seul" },
+  Geneva: { it: "Ginevra", es: "Ginebra", fr: "Genève", de: "Genf", pt: "Genebra" },
+  Zurich: { it: "Zurigo", es: "Zúrich", fr: "Zurich", de: "Zürich", pt: "Zurique" },
+};
+
+export function cityNameLocalized(name: string, lang: string): string {
+  const base = lang.split("-")[0];
+  const overrides = CITY_NAME_OVERRIDES[name];
+  if (overrides && overrides[base]) return overrides[base];
+  return name;
+}
+
 export function citiesOfCountry(iso: string): CityEntry[] {
-  const flag = flagOf(iso);
+  const ISO = iso.toUpperCase();
+  const flag = flagOf(ISO);
   const seen = new Set<string>();
   const out: CityEntry[] = [];
-  for (const c of City.getCitiesOfCountry(iso) ?? []) {
+  for (const c of City.getCitiesOfCountry(ISO) ?? []) {
     if (seen.has(c.name)) continue;
     seen.add(c.name);
     const lat = c.latitude ? Number(c.latitude) : undefined;
     const lng = c.longitude ? Number(c.longitude) : undefined;
     out.push({
       name: c.name,
-      country: iso,
+      country: ISO,
       flag,
       lat: Number.isFinite(lat) ? lat : undefined,
       lng: Number.isFinite(lng) ? lng : undefined,
     });
   }
+  if (out.length === 0 && CITYLESS_FALLBACK[ISO]) {
+    out.push({ name: CITYLESS_FALLBACK[ISO], country: ISO, flag });
+  }
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 // --- Historical currency map ---
-// Returns the currency code that was in circulation in `iso` on `dateISO`.
-// Falls back to the current currency from country-state-city.
-type Change = { until: string; currency: string }; // currency used UNTIL `until` (exclusive)
+type Change = { until: string; currency: string };
 const HISTORY: Record<string, Change[]> = {
-  // Eurozone joiners — before the date, the legacy currency was used.
   HR: [{ until: "2023-01-01", currency: "HRK" }],
   LT: [{ until: "2015-01-01", currency: "LTL" }],
   LV: [{ until: "2014-01-01", currency: "LVL" }],
@@ -117,7 +171,6 @@ const HISTORY: Record<string, Change[]> = {
   AT: [{ until: "1999-01-01", currency: "ATS" }],
   FI: [{ until: "1999-01-01", currency: "FIM" }],
   IE: [{ until: "1999-01-01", currency: "IEP" }],
-  // Turkey redenomination (old lira to new)
   TR: [{ until: "2005-01-01", currency: "TRL" }],
 };
 
@@ -132,7 +185,6 @@ export function currencyForCountryAt(iso: string, dateISO: string): string | nul
   return countryByIso(ISO)?.currency ?? null;
 }
 
-// Build a stable photo URL for a city or country query.
 export function coverPhotoFor(query: string, seed = 1): string {
   const q = encodeURIComponent(`${query},cityscape,travel`);
   return `https://loremflickr.com/800/400/${q}?lock=${seed}`;

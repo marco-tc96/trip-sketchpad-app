@@ -21,7 +21,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "@tanstack/react-router";
-import { countryNameLocalized, citiesOfCountry, flagOf } from "@/lib/country-data";
+import { countryNameLocalized, citiesOfCountry, flagOf, localizedCountries, cityNameLocalized } from "@/lib/country-data";
 import { flagGradient } from "@/lib/flag-gradient";
 import { Country } from "country-state-city";
 
@@ -104,11 +104,11 @@ function TripLayout() {
         : "bg-emerald-600";
   const TypeIcon = typeIcon;
   const lang = i18n.language || "it";
-  const localizedCountries = countries.length > 0
+  const countriesLabel = countries.length > 0
     ? countries.map((iso) => countryNameLocalized(iso, lang)).join(" · ")
     : tripRow.country;
   const citiesLabel = cities.length > 0
-    ? cities.map((c) => c.name).join(" · ")
+    ? cities.map((c) => cityNameLocalized(c.name, lang)).join(" · ")
     : tripRow.destination;
   const autoGradient = flagGradient(countries);
 
@@ -263,7 +263,7 @@ function TripLayout() {
                       setCoverMenuOpen(false);
                     }}
                     icon={Move}
-                    label="Sposta"
+                    label={t("move_photo")}
                   />
                   <CoverMenuRow
                     active={false}
@@ -423,7 +423,7 @@ function TripLayout() {
               {trip.data.title}
             </h1>
             <p className="text-sm text-muted-foreground">
-              {[citiesLabel, localizedCountries].filter(Boolean).join(", ")}
+              {[citiesLabel, countriesLabel].filter(Boolean).join(", ")}
             </p>
             <p className="text-xs text-muted-foreground/80">
               {fmt(trip.data.start_date, lang)} → {fmt(trip.data.end_date, lang)}
@@ -536,6 +536,7 @@ function EditTripDialog({
   onSave: (patch: {
     title: string;
     cities: Array<{ name: string; country: string; lat?: number; lng?: number }>;
+    countries: string[];
     destination: string | null;
     trip_type: "vacation" | "business" | "daytrip";
     cover_emoji: string;
@@ -543,29 +544,57 @@ function EditTripDialog({
     end_date: string;
   }) => Promise<void>;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language || "it";
   const [title, setTitle] = useState(initialTitle);
   const [cities, setCities] = useState(initialCities);
+  const [countries, setCountries] = useState(initialCountries);
   const [type, setType] = useState(initialType);
   const [emoji, setEmoji] = useState(initialEmoji);
   const [startDate, setStartDate] = useState(initialStartDate);
   const [endDate, setEndDate] = useState(initialEndDate);
   const [query, setQuery] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [countryQuery, setCountryQuery] = useState("");
+  const [countryPickerOpen, setCountryPickerOpen] = useState(false);
 
   useEffect(() => {
     if (open) {
       setTitle(initialTitle);
       setCities(initialCities);
+      setCountries(initialCountries);
       setType(initialType);
       setEmoji(initialEmoji || "✈️");
       setStartDate(initialStartDate);
       setEndDate(initialEndDate);
       setQuery("");
+      setCountryQuery("");
     }
-  }, [open, initialTitle, initialCities, initialType, initialEmoji, initialStartDate, initialEndDate]);
+  }, [open, initialTitle, initialCities, initialCountries, initialType, initialEmoji, initialStartDate, initialEndDate]);
 
-  const available = initialCountries.flatMap((iso) => citiesOfCountry(iso));
+  const allCountriesLocalized = localizedCountries(lang);
+  const cq = countryQuery.trim().toLowerCase();
+  const filteredCountries = cq
+    ? allCountriesLocalized.filter((c) => c.name.toLowerCase().includes(cq))
+    : allCountriesLocalized;
+
+  function toggleCountry(iso: string) {
+    setCountries((prev) => {
+      const exists = prev.includes(iso);
+      const next = exists ? prev.filter((c) => c !== iso) : [...prev, iso];
+      // Dropping a country also drops any selected cities that belonged
+      // only to it, so the city list never references a removed country.
+      if (exists) {
+        setCities((cs) => cs.filter((c) => c.country !== iso));
+      }
+      return next;
+    });
+  }
+
+  // Cities available for selection, derived from the currently selected
+  // countries (not the trip's original countries) so adding a new country
+  // immediately surfaces its cities here.
+  const available = countries.flatMap((iso) => citiesOfCountry(iso));
   const q = query.trim().toLowerCase();
   const filtered = (q ? available.filter((c) => c.name.toLowerCase().includes(q)) : available).slice(0, 200);
   const canAddCustom =
@@ -584,7 +613,7 @@ function EditTripDialog({
   function addCustom() {
     const name = query.trim();
     if (!name) return;
-    const iso = initialCountries[0];
+    const iso = countries[0];
     if (!iso) return;
     toggle({ name, country: iso });
     setQuery("");
@@ -669,6 +698,68 @@ function EditTripDialog({
             </div>
           </div>
 
+          {/* Country multi-select. Previously the trip's countries were
+              fixed at creation time and could never be changed here; now
+              they're a first-class editable field, and the cities picker
+              below recomputes its options from this state. */}
+          <div className="space-y-1.5">
+            <Label>{t("country")}</Label>
+            <Popover open={countryPickerOpen} onOpenChange={setCountryPickerOpen}>
+              <PopoverTrigger asChild>
+                <Button type="button" variant="outline" className="w-full justify-between font-normal">
+                  <span className="truncate text-muted-foreground">
+                    {countries.length === 0 ? t("country") : `${countries.length} ${t("countries").toLowerCase()}`}
+                  </span>
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                <Command shouldFilter={false}>
+                  <CommandInput placeholder="..." value={countryQuery} onValueChange={setCountryQuery} />
+                  <CommandList className="max-h-72">
+                    {filteredCountries.length === 0 && <CommandEmpty>—</CommandEmpty>}
+                    {filteredCountries.length > 0 && (
+                      <CommandGroup>
+                        {filteredCountries.slice(0, 250).map((c) => {
+                          const sel = countries.includes(c.iso);
+                          return (
+                            <CommandItem
+                              key={c.iso}
+                              value={c.iso}
+                              onSelect={() => toggleCountry(c.iso)}
+                            >
+                              <Check className={cn("mr-2 h-4 w-4", sel ? "opacity-100" : "opacity-0")} />
+                              <span className="mr-2">{flagOf(c.iso)}</span>
+                              <span>{c.name}</span>
+                            </CommandItem>
+                          );
+                        })}
+                      </CommandGroup>
+                    )}
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+            {countries.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 pt-2">
+                {countries.map((iso) => (
+                  <Badge key={iso} variant="secondary" className="gap-1 rounded-full pl-2 pr-1">
+                    <span>{flagOf(iso)}</span>
+                    <span>{countryNameLocalized(iso, lang)}</span>
+                    <button
+                      type="button"
+                      onClick={() => toggleCountry(iso)}
+                      className="ml-0.5 grid h-4 w-4 place-items-center rounded-full hover:bg-foreground/10"
+                      aria-label={`Remove ${iso}`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div className="space-y-1.5">
             <Label>{t("destination")}</Label>
             <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
@@ -705,8 +796,8 @@ function EditTripDialog({
                               onSelect={() => toggle({ name: c.name, country: c.country, lat: c.lat, lng: c.lng })}
                             >
                               <Check className={cn("mr-2 h-4 w-4", sel ? "opacity-100" : "opacity-0")} />
-                              {initialCountries.length > 1 && <span className="mr-2">{flagOf(c.country)}</span>}
-                              <span>{c.name}</span>
+                              {countries.length > 1 && <span className="mr-2">{flagOf(c.country)}</span>}
+                              <span>{cityNameLocalized(c.name, lang)}</span>
                             </CommandItem>
                           );
                         })}
@@ -721,7 +812,7 @@ function EditTripDialog({
                 {cities.map((c) => (
                   <Badge key={`${c.country}|${c.name}`} variant="secondary" className="gap-1 rounded-full pl-2 pr-1">
                     <span>{flagOf(c.country)}</span>
-                    <span>{c.name}</span>
+                    <span>{cityNameLocalized(c.name, lang)}</span>
                     <button
                       type="button"
                       onClick={() => toggle(c)}
@@ -743,6 +834,7 @@ function EditTripDialog({
               onSave({
                 title: title.trim() || initialTitle,
                 cities,
+                countries,
                 destination: cities[0]?.name ?? null,
                 trip_type: type,
                 cover_emoji: emoji || "✈️",
@@ -805,6 +897,7 @@ function ColorCoverMenuRow({
   current?: string | null;
   onPick: (bg: string) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -818,7 +911,7 @@ function ColorCoverMenuRow({
           )}
         >
           <Palette className="h-3.5 w-3.5 shrink-0" />
-          <span className="truncate">Colore</span>
+          <span className="truncate">{t("color")}</span>
         </button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-64 p-3">
@@ -982,6 +1075,7 @@ function FullScreenPhoto({
   repositioning: boolean;
   onDone: () => void;
 }) {
+  const { t } = useTranslation();
   useEffect(() => {
     let cancelled = false;
     setSignedPhoto(null);
@@ -1003,20 +1097,50 @@ function FullScreenPhoto({
   const ZOOM_MIN = 1;
   const ZOOM_MAX = 2.5;
   const ZOOM_STEP = 0.15;
+  // Tracks active pointers for pinch-to-zoom: when a second finger touches
+  // down, we switch from single-finger pan to two-finger pinch, using the
+  // change in distance between the two touch points to scale the photo.
+  const pointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const pinchRef = useRef<{ dist: number; zoom: number } | null>(null);
 
   function parseFocal(v: string): { x: number; y: number } {
     const m = v.match(/(-?\d+(?:\.\d+)?)%\s+(-?\d+(?:\.\d+)?)%/);
     return m ? { x: parseFloat(m[1]), y: parseFloat(m[2]) } : { x: 50, y: 50 };
   }
 
+  function dist(a: { x: number; y: number }, b: { x: number; y: number }) {
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  }
+
   function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
     if (!src) return;
     (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
-    const f = parseFocal(focal);
-    startRef.current = { x: e.clientX, y: e.clientY, fx: f.x, fy: f.y };
-    setDragging(true);
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointersRef.current.size === 2) {
+      // Second finger landed — start a pinch gesture, abandoning any
+      // single-finger pan in progress.
+      startRef.current = null;
+      const pts = [...pointersRef.current.values()];
+      pinchRef.current = { dist: dist(pts[0], pts[1]), zoom };
+      setDragging(false);
+    } else {
+      const f = parseFocal(focal);
+      startRef.current = { x: e.clientX, y: e.clientY, fx: f.x, fy: f.y };
+      setDragging(true);
+    }
   }
   function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    if (pointersRef.current.has(e.pointerId)) {
+      pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+    if (pointersRef.current.size === 2 && pinchRef.current) {
+      const pts = [...pointersRef.current.values()];
+      const d = dist(pts[0], pts[1]);
+      const ratio = d / (pinchRef.current.dist || 1);
+      const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.round(pinchRef.current.zoom * ratio * 100) / 100));
+      onZoomChange(next);
+      return;
+    }
     if (!startRef.current) return;
     const w = window.innerWidth;
     const h = window.innerHeight;
@@ -1027,11 +1151,19 @@ function FullScreenPhoto({
     onFocalChange(`${nx.toFixed(1)}% ${ny.toFixed(1)}%`);
   }
   function onPointerUp(e: React.PointerEvent<HTMLDivElement>) {
-    if (!startRef.current) return;
     (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId);
-    startRef.current = null;
-    setDragging(false);
-    onCommit(focal, zoom);
+    pointersRef.current.delete(e.pointerId);
+    if (pointersRef.current.size < 2) pinchRef.current = null;
+    if (!startRef.current && pointersRef.current.size === 0) {
+      setDragging(false);
+      onCommit(focal, zoom);
+      return;
+    }
+    if (startRef.current) {
+      startRef.current = null;
+      setDragging(false);
+      onCommit(focal, zoom);
+    }
   }
 
   function adjustZoom(delta: number) {
@@ -1084,7 +1216,7 @@ function FullScreenPhoto({
           style={{ bottom: "calc(5.5rem + env(safe-area-inset-bottom, 0px))" }}
         >
           <Move className="h-3.5 w-3.5" />
-          <span className="hidden sm:inline">Trascina la foto per centrarla</span>
+          <span className="hidden sm:inline">{t("drag_photo_hint")}</span>
           <span className="mx-1 h-4 w-px bg-white/25" />
           <button
             type="button"
@@ -1109,7 +1241,7 @@ function FullScreenPhoto({
             onClick={onDone}
             className="ml-1 rounded-full bg-white/15 px-2.5 py-0.5 text-xs font-medium text-white hover:bg-white/25"
           >
-            Fatto
+            {t("done")}
           </button>
         </div>
       )}

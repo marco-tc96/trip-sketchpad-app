@@ -137,7 +137,13 @@ const it: Dict = {
   layover: "scalo",
   layovers: "scali",
   direct: "diretto",
-  work_vs_vacation: "Lavoro vs vacanza",
+  work_vs_vacation: "Tipologia di vacanza",
+  color: "Colore",
+  move_photo: "Sposta",
+  drag_photo_hint: "Trascina la foto per centrarla",
+  done: "Fatto",
+  days_to_departure: "{{n}} giorni alla partenza",
+  day_to_departure: "{{n}} giorno alla partenza",
 };
 
 const en: Dict = {
@@ -263,7 +269,13 @@ const en: Dict = {
   layover: "layover",
   layovers: "layovers",
   direct: "direct",
-  work_vs_vacation: "Work vs vacation",
+  work_vs_vacation: "Trip type breakdown",
+  color: "Color",
+  move_photo: "Move",
+  drag_photo_hint: "Drag the photo to center it",
+  done: "Done",
+  days_to_departure: "{{n}} days to departure",
+  day_to_departure: "{{n}} day to departure",
 };
 
 // Compact translations: fall back to English keys + light per-language overrides
@@ -368,7 +380,17 @@ const fr = override(en, {
   layover: "escale",
   layovers: "escales",
   direct: "direct",
-  work_vs_vacation: "Travail vs vacances",
+  work_vs_vacation: "Type de voyage",
+  cover_auto: "Automatique",
+  cover_map: "Carte",
+  cover_photo: "Photo",
+  change_photo: "Changer la photo",
+  color: "Couleur",
+  move_photo: "Déplacer",
+  drag_photo_hint: "Faites glisser la photo pour la centrer",
+  done: "Terminé",
+  days_to_departure: "{{n}} jours avant le départ",
+  day_to_departure: "{{n}} jour avant le départ",
 });
 
 const de = override(en, {
@@ -466,7 +488,17 @@ const de = override(en, {
   layover: "Zwischenstopp",
   layovers: "Zwischenstopps",
   direct: "direkt",
-  work_vs_vacation: "Geschäft vs Urlaub",
+  work_vs_vacation: "Reisetyp-Aufteilung",
+  cover_auto: "Automatisch",
+  cover_map: "Karte",
+  cover_photo: "Foto",
+  change_photo: "Foto ändern",
+  color: "Farbe",
+  move_photo: "Verschieben",
+  drag_photo_hint: "Foto ziehen, um es zu zentrieren",
+  done: "Fertig",
+  days_to_departure: "Noch {{n}} Tage bis zur Abreise",
+  day_to_departure: "Noch {{n}} Tag bis zur Abreise",
 });
 
 const es = override(en, {
@@ -564,7 +596,17 @@ const es = override(en, {
   layover: "escala",
   layovers: "escalas",
   direct: "directo",
-  work_vs_vacation: "Trabajo vs vacaciones",
+  work_vs_vacation: "Tipo de viaje",
+  cover_auto: "Automático",
+  cover_map: "Mapa",
+  cover_photo: "Foto",
+  change_photo: "Cambiar foto",
+  color: "Color",
+  move_photo: "Mover",
+  drag_photo_hint: "Arrastra la foto para centrarla",
+  done: "Listo",
+  days_to_departure: "{{n}} días para la salida",
+  day_to_departure: "{{n}} día para la salida",
 });
 
 const pt = override(en, {
@@ -662,7 +704,17 @@ const pt = override(en, {
   layover: "escala",
   layovers: "escalas",
   direct: "direto",
-  work_vs_vacation: "Trabalho vs férias",
+  work_vs_vacation: "Tipo de viagem",
+  cover_auto: "Automático",
+  cover_map: "Mapa",
+  cover_photo: "Foto",
+  change_photo: "Mudar foto",
+  color: "Cor",
+  move_photo: "Mover",
+  drag_photo_hint: "Arraste a foto para a centrar",
+  done: "Concluído",
+  days_to_departure: "{{n}} dias para a partida",
+  day_to_departure: "{{n}} dia para a partida",
 });
 
 const zh = override(en, {
@@ -759,9 +811,19 @@ const zh = override(en, {
   layover: "经停",
   layovers: "经停",
   direct: "直达",
-  work_vs_vacation: "出差与度假",
+  work_vs_vacation: "行程类型",
   edit_trip: "编辑行程",
   delete_trip: "删除行程",
+  cover_auto: "自动",
+  cover_map: "地图",
+  cover_photo: "照片",
+  change_photo: "更换照片",
+  color: "颜色",
+  move_photo: "移动",
+  drag_photo_hint: "拖动照片以居中",
+  done: "完成",
+  days_to_departure: "距出发还有 {{n}} 天",
+  day_to_departure: "距出发还有 {{n}} 天",
 });
 
 const ko = override(en, {
@@ -858,9 +920,19 @@ const ko = override(en, {
   layover: "경유",
   layovers: "경유",
   direct: "직항",
-  work_vs_vacation: "출장 vs 휴가",
+  work_vs_vacation: "여행 유형",
   edit_trip: "여행 편집",
   delete_trip: "여행 삭제",
+  cover_auto: "자동",
+  cover_map: "지도",
+  cover_photo: "사진",
+  change_photo: "사진 변경",
+  color: "색상",
+  move_photo: "이동",
+  drag_photo_hint: "사진을 드래그하여 중앙에 배치하세요",
+  done: "완료",
+  days_to_departure: "출발까지 {{n}}일",
+  day_to_departure: "출발까지 {{n}}일",
 });
 
 const ja = override(en, {
@@ -957,9 +1029,19 @@ const ja = override(en, {
   layover: "経由",
   layovers: "経由",
   direct: "直行",
-  work_vs_vacation: "出張 vs 休暇",
+  work_vs_vacation: "旅行タイプ",
   edit_trip: "旅行を編集",
   delete_trip: "旅行を削除",
+  cover_auto: "自動",
+  cover_map: "地図",
+  cover_photo: "写真",
+  change_photo: "写真を変更",
+  color: "色",
+  move_photo: "移動",
+  drag_photo_hint: "写真をドラッグして中央に配置",
+  done: "完了",
+  days_to_departure: "出発まであと{{n}}日",
+  day_to_departure: "出発まであと{{n}}日",
 });
 
 export const TRANSLATIONS: Record<Lang, Dict> = { it, en, fr, de, es, pt, zh, ko, ja };

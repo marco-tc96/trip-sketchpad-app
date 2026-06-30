@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { citiesOfCountry, flagOf } from "@/lib/country-data";
+import { citiesOfCountry, flagOf, cityNameLocalized } from "@/lib/country-data";
 import { cn } from "@/lib/utils";
 import { useCityPhoto } from "@/hooks/use-city-photo";
 import { hubsForMode, formatHub, type Hub, HUBS } from "@/lib/transport-hubs";
@@ -209,7 +209,7 @@ function TimelineView() {
                                 <p className={cn("text-[10px] uppercase tracking-widest", cls.sub)}>{t(it.kind)}</p>
                                 <p className="truncate font-medium">{it.title}</p>
                                 <p className={cn("text-xs", cls.sub)}>
-                                  {it.location && <>{it.location} · </>}
+                                  {it.location && <>{cityNameLocalized(it.location, lang)} · </>}
                                   {it.start_at && fmtDT(it.start_at, lang)}
                                   {it.end_at && ` → ${fmtDT(it.end_at, lang)}`}
                                 </p>
@@ -313,7 +313,7 @@ function JourneyLeg({
   const arriveISO = last?.arrive_at || item?.end_at || null;
   const countdown = kind === "outbound" && departISO ? daysUntil(departISO) : null;
   const stops = legs.length > 1
-    ? legs.slice(0, -1).map((l) => l.to).filter(Boolean).map((s) => nameOf(s)).join(", ")
+    ? legs.slice(0, -1).map((l) => l.to).filter(Boolean).map((s) => nameOf(s, lang)).join(", ")
     : "";
   const stopCodes = legs.length > 1
     ? legs.slice(0, -1).map((l) => l.to).filter(Boolean).map((s) => codeOf(s)).join(" · ")
@@ -371,7 +371,7 @@ function JourneyLeg({
                       {codeOf(fromCity)}
                     </div>
                     <p className="mt-0.5 truncate text-[11px] opacity-80" title={fromCity || undefined}>
-                      {nameOf(fromCity) || "—"}
+                      {nameOf(fromCity, lang) || "—"}
                     </p>
                   </div>
 
@@ -410,7 +410,7 @@ function JourneyLeg({
                       {codeOf(toCity)}
                     </div>
                     <p className="mt-0.5 truncate text-[11px] opacity-80" title={toCity || undefined}>
-                      {nameOf(toCity) || "—"}
+                      {nameOf(toCity, lang) || "—"}
                     </p>
                   </div>
                 </div>
@@ -418,7 +418,7 @@ function JourneyLeg({
                 {countdown !== null && countdown > 0 && (
                   <div className="mt-3 inline-flex items-center gap-1 rounded-full bg-amber-400/90 px-2.5 py-1 text-[11px] font-semibold text-amber-950">
                     <Clock className="h-3 w-3" />
-                    Fra {countdown} {countdown === 1 ? "giorno" : "giorni"} alla partenza
+                    {t(countdown === 1 ? "day_to_departure" : "days_to_departure", { n: countdown })}
                   </div>
                 )}
               </>
@@ -496,7 +496,7 @@ function LodgingCard({
           <p className="text-[10px] uppercase tracking-widest opacity-80">{t("lodging")}</p>
           <p className="truncate font-medium">{item.title}</p>
           <p className="text-xs opacity-85">
-            {item.location && <>{item.location} · </>}
+            {item.location && <>{cityNameLocalized(item.location, lang)} · </>}
             {item.start_at && fmtDT(item.start_at, lang)}
             {item.end_at && ` → ${fmtDT(item.end_at, lang)}`}
           </p>
@@ -534,11 +534,12 @@ function codeOf(label: string): string {
 // one short word, so showing the full "City ShortName" string overflows
 // and visually collides with the arrival column. The full text is still
 // available via the `title` attribute on hover/long-press.
-function nameOf(label: string): string {
+function nameOf(label: string, lang?: string): string {
   const m = label.match(/^[A-Z]{3}\s*-\s*(.+)$/);
   const rest = m ? m[1].trim() : label;
   const firstWord = rest.split(/\s+/)[0] ?? rest;
-  return firstWord || rest;
+  const base = firstWord || rest;
+  return lang ? cityNameLocalized(base, lang) : base;
 }
 function fmtTime(iso: string | null, lang?: string): string {
   if (!iso) return "";
