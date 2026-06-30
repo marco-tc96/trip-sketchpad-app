@@ -133,6 +133,10 @@ const it: Dict = {
   appearance: "Aspetto",
   light_mode: "Giorno",
   dark_mode: "Notte",
+  layover: "scalo",
+  layovers: "scali",
+  direct: "diretto",
+  work_vs_vacation: "Lavoro vs vacanza",
 };
 
 const en: Dict = {
@@ -254,6 +258,10 @@ const en: Dict = {
   appearance: "Appearance",
   light_mode: "Light",
   dark_mode: "Dark",
+  layover: "layover",
+  layovers: "layovers",
+  direct: "direct",
+  work_vs_vacation: "Work vs vacation",
 };
 
 // Compact translations: fall back to English keys + light per-language overrides
@@ -354,6 +362,10 @@ const fr = override(en, {
   link_to_item: "Lier à une étape",
   none: "Aucun",
   tagline: "Votre journal de voyage",
+  layover: "escale",
+  layovers: "escales",
+  direct: "direct",
+  work_vs_vacation: "Travail vs vacances",
 });
 
 const de = override(en, {
@@ -447,6 +459,10 @@ const de = override(en, {
   link_to_item: "Mit Etappe verknüpfen",
   none: "Keine",
   tagline: "Dein Reisetagebuch",
+  layover: "Zwischenstopp",
+  layovers: "Zwischenstopps",
+  direct: "direkt",
+  work_vs_vacation: "Geschäft vs Urlaub",
 });
 
 const es = override(en, {
@@ -540,6 +556,10 @@ const es = override(en, {
   link_to_item: "Vincular a parada",
   none: "Ninguno",
   tagline: "Tu diario de viaje",
+  layover: "escala",
+  layovers: "escalas",
+  direct: "directo",
+  work_vs_vacation: "Trabajo vs vacaciones",
 });
 
 const pt = override(en, {
@@ -633,6 +653,10 @@ const pt = override(en, {
   link_to_item: "Ligar a uma paragem",
   none: "Nenhum",
   tagline: "O seu diário de viagem",
+  layover: "escala",
+  layovers: "escalas",
+  direct: "direto",
+  work_vs_vacation: "Trabalho vs férias",
 });
 
 const zh = override(en, {
@@ -726,6 +750,10 @@ const zh = override(en, {
   link_to_item: "关联站点",
   none: "无",
   tagline: "您的旅行日记",
+  layover: "经停",
+  layovers: "经停",
+  direct: "直达",
+  work_vs_vacation: "出差与度假",
 });
 
 const ko = override(en, {
@@ -819,6 +847,10 @@ const ko = override(en, {
   link_to_item: "항목에 연결",
   none: "없음",
   tagline: "당신의 여행 일기",
+  layover: "경유",
+  layovers: "경유",
+  direct: "직항",
+  work_vs_vacation: "출장 vs 휴가",
 });
 
 const ja = override(en, {
@@ -912,6 +944,10 @@ const ja = override(en, {
   link_to_item: "立ち寄りに紐付け",
   none: "なし",
   tagline: "あなたの旅日記",
+  layover: "経由",
+  layovers: "経由",
+  direct: "直行",
+  work_vs_vacation: "出張 vs 休暇",
 });
 
 export const TRANSLATIONS: Record<Lang, Dict> = { it, en, fr, de, es, pt, zh, ko, ja };

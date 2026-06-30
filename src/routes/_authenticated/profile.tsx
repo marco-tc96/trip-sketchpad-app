@@ -186,7 +186,7 @@ function ProfilePage() {
 
       {/* Stats */}
       <section className="mt-6">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center justify-center gap-2">
           <BarChart3 className="h-4 w-4 text-primary" />
           <h2 className="font-serif text-lg font-semibold">{t("stats")}</h2>
         </div>
@@ -202,7 +202,7 @@ function ProfilePage() {
         </div>
 
         <div className="mt-6 rounded-3xl border border-border bg-card p-5 shadow-soft">
-          <h3 className="font-serif text-base font-semibold">{t("countries_visited")}</h3>
+          <h3 className="text-center font-serif text-base font-semibold">{t("countries_visited")}</h3>
           <div className="mt-3 flex flex-wrap gap-1.5">
             {stats.countries.length === 0 && (
               <p className="text-sm text-muted-foreground">{t("no_trips")}</p>
@@ -242,7 +242,7 @@ function ProfilePage() {
 
         {(stats.business + stats.vacation + stats.daytrip) > 0 && (
           <div className="mt-4 rounded-3xl border border-border bg-card p-5 shadow-soft">
-            <h3 className="text-center font-serif text-base font-semibold">Lavoro vs vacanza</h3>
+            <h3 className="text-center font-serif text-base font-semibold">{t("work_vs_vacation")}</h3>
             {/* Centered as a whole block (chart + legend together) rather
                 than left-aligned, matching the rest of the profile page. */}
             <div className="mt-3 flex items-center justify-center gap-5">
@@ -273,7 +273,7 @@ function ProfilePage() {
 
         {stats.years.length > 0 && (
           <div className="mt-4 rounded-3xl border border-border bg-card p-5 shadow-soft">
-            <h3 className="font-serif text-base font-semibold">{t("trips_per_year")}</h3>
+            <h3 className="text-center font-serif text-base font-semibold">{t("trips_per_year")}</h3>
             <div className="mt-3 space-y-2">
               {stats.years.map((row) => {
                 const vacPct = (row.vacation / stats.maxYear) * 100;
@@ -356,7 +356,7 @@ function RankList({
   const max = Math.max(1, ...rows.map((r) => r.count));
   return (
     <div className="rounded-3xl border border-border bg-card p-5 shadow-soft">
-      <h3 className="font-serif text-base font-semibold">{title}</h3>
+      <h3 className="text-center font-serif text-base font-semibold">{title}</h3>
       <ul className="mt-3 space-y-2 text-sm">
         {rows.slice(0, 12).map((r) => {
           const pct = (r.count / max) * 100;

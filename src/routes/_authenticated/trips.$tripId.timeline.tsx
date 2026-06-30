@@ -119,7 +119,8 @@ function kindClasses(kind: string) {
 
 function TimelineView() {
   const { tripId } = Route.useParams();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language || "it";
   const qc = useQueryClient();
   const tripFn = useServerFn(getTrip);
   const itemFn = useServerFn(listItems);
@@ -155,7 +156,7 @@ function TimelineView() {
     const d = new Date(start.getTime() + i * 86400000);
     const iso = d.toISOString().slice(0, 10);
     return {
-      label: `${t("day_of", { n: i + 1 })} · ${d.toLocaleDateString(undefined, { weekday: "short", day: "2-digit", month: "short" })}`,
+      label: `${t("day_of", { n: i + 1 })} · ${d.toLocaleDateString(lang, { weekday: "short", day: "2-digit", month: "short" })}`,
       items: nonLodging.filter((it) =>
         it.start_at ? it.start_at.slice(0, 10) === iso : it.day_index === i + 1,
       ),
@@ -209,8 +210,8 @@ function TimelineView() {
                                 <p className="truncate font-medium">{it.title}</p>
                                 <p className={cn("text-xs", cls.sub)}>
                                   {it.location && <>{it.location} · </>}
-                                  {it.start_at && fmtDT(it.start_at)}
-                                  {it.end_at && ` → ${fmtDT(it.end_at)}`}
+                                  {it.start_at && fmtDT(it.start_at, lang)}
+                                  {it.end_at && ` → ${fmtDT(it.end_at, lang)}`}
                                 </p>
                                 {it.notes && <p className={cn("mt-1 text-xs", cls.sub)}>{it.notes}</p>}
                                 <TransportLegs meta={it.meta as TransportMeta | null} />
@@ -296,7 +297,8 @@ function JourneyBlock({
 function JourneyLeg({
   tripId, kind, item, tripCountries,
 }: { tripId: string; kind: "outbound" | "return"; item: JourneyItem | undefined; tripCountries: string[] }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language || "it";
   const meta = (item?.meta ?? null) as TransportMeta | null;
   const legs = meta?.legs ?? [];
   const first = legs[0];
@@ -346,7 +348,7 @@ function JourneyLeg({
           <div className="relative p-4 text-white">
             <div className="flex items-start justify-between gap-2 text-[11px] font-semibold uppercase tracking-widest">
               <span className="opacity-90">{t(kind)}</span>
-              {departISO && <span className="opacity-80">{fmtDate(departISO)}</span>}
+              {departISO && <span className="opacity-80">{fmtDate(departISO, lang)}</span>}
             </div>
 
             {!item ? (
@@ -363,7 +365,7 @@ function JourneyLeg({
                 <div className="mt-4 grid grid-cols-[1fr_auto_1fr] items-end gap-2 sm:gap-3">
                   <div className="min-w-0">
                     <p className="font-mono text-2xl font-bold tabular-nums tracking-tight sm:text-3xl">
-                      {fmtTime(departISO) || "—"}
+                      {fmtTime(departISO, lang) || "—"}
                     </p>
                     <div className="mt-1 inline-block rounded-md bg-white/10 px-2 py-0.5 font-mono text-[11px] font-semibold tracking-[0.2em]">
                       {codeOf(fromCity)}
@@ -385,19 +387,19 @@ function JourneyLeg({
                     {legs.length > 1 ? (
                       <span
                         className="max-w-full truncate rounded-full bg-amber-400/90 px-2 text-[10px] font-semibold text-amber-950"
-                        title={stops ? `Scalo a ${stops}` : undefined}
+                        title={stops ? stops : undefined}
                       >
-                        {legs.length - 1} scalo{legs.length > 2 ? "i" : ""}
+                        {legs.length - 1} {legs.length - 1 === 1 ? t("layover") : t("layovers")}
                         {stopCodes ? ` · ${stopCodes}` : ""}
                       </span>
                     ) : (
-                      <span className="opacity-70">diretto</span>
+                      <span className="opacity-70">{t("direct")}</span>
                     )}
                   </div>
 
                   <div className="min-w-0 text-right">
                     <p className="font-mono text-2xl font-bold tabular-nums tracking-tight sm:text-3xl">
-                      {fmtTime(arriveISO) || "—"}
+                      {fmtTime(arriveISO, lang) || "—"}
                       <span className="ml-1 align-top text-xs text-amber-300">{plusDays(departISO, arriveISO)}</span>
                     </p>
                     <div className="mt-1 inline-block rounded-md bg-white/10 px-2 py-0.5 font-mono text-[11px] font-semibold tracking-[0.2em]">
@@ -465,7 +467,8 @@ function LodgingCard({
   tripCities: Array<{ name: string; country: string }>;
   tripCountries: string[];
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language || "it";
   const photo = useCityPhoto(item.location);
   return (
     <AddItemDialog
@@ -490,8 +493,8 @@ function LodgingCard({
           <p className="truncate font-medium">{item.title}</p>
           <p className="text-xs opacity-85">
             {item.location && <>{item.location} · </>}
-            {item.start_at && fmtDT(item.start_at)}
-            {item.end_at && ` → ${fmtDT(item.end_at)}`}
+            {item.start_at && fmtDT(item.start_at, lang)}
+            {item.end_at && ` → ${fmtDT(item.end_at, lang)}`}
           </p>
         </div>
         <span
@@ -533,13 +536,13 @@ function nameOf(label: string): string {
   const firstWord = rest.split(/\s+/)[0] ?? rest;
   return firstWord || rest;
 }
-function fmtTime(iso: string | null): string {
+function fmtTime(iso: string | null, lang?: string): string {
   if (!iso) return "";
   const d = new Date(iso);
-  return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
+  return d.toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit", hour12: false });
 }
-function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, { weekday: "short", day: "2-digit", month: "short" });
+function fmtDate(iso: string, lang?: string): string {
+  return new Date(iso).toLocaleDateString(lang, { weekday: "short", day: "2-digit", month: "short" });
 }
 function durationLabel(a: string | null, b: string | null): string {
   if (!a || !b) return "";
@@ -565,6 +568,8 @@ function daysUntil(iso: string): number {
 type TransportMeta = { mode?: TransportMode; legs?: Leg[] };
 
 function TransportLegs({ meta, compact }: { meta: TransportMeta | null; compact?: boolean }) {
+  const { i18n } = useTranslation();
+  const lang = i18n.language || "it";
   const legs = meta?.legs ?? [];
   if (legs.length === 0) return null;
   if (compact) {
@@ -591,8 +596,8 @@ function TransportLegs({ meta, compact }: { meta: TransportMeta | null; compact?
             {(l.carrier || l.number) && (
               <span className="ml-1.5">· {[l.carrier, l.number].filter(Boolean).join(" ")}</span>
             )}
-            {l.depart_at && <span className="ml-1.5">· {fmtDT(l.depart_at)}</span>}
-            {l.arrive_at && <span className="ml-1">→ {fmtDT(l.arrive_at)}</span>}
+            {l.depart_at && <span className="ml-1.5">· {fmtDT(l.depart_at, lang)}</span>}
+            {l.arrive_at && <span className="ml-1">→ {fmtDT(l.arrive_at, lang)}</span>}
           </span>
         </li>
       ))}
@@ -1077,9 +1082,9 @@ function AddItemDialog({
   );
 }
 
-function fmtDT(s: string) {
+function fmtDT(s: string, lang?: string) {
   const d = new Date(s);
-  return d.toLocaleString(undefined, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleString(lang, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
 function HubCombobox({
