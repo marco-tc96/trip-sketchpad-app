@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Plane, Train, Bus, Car, Bike, Ship, Hotel, MapPin, Sparkles, ArrowRightLeft,
@@ -313,11 +313,17 @@ function JourneyLeg({
   const arriveISO = last?.arrive_at || item?.end_at || null;
   const countdown = kind === "outbound" && departISO ? daysUntil(departISO) : null;
   const showHubCodes = meta?.mode === "plane" || meta?.mode === "ferry";
+  // Load airports for IATA lookup (handles legs stored before the IATA-prefix format was introduced)
+  const airportsData = useAirports(showHubCodes);
+  const airports = useMemo(
+    () => (airportsData && tripCountries.length > 0 ? airportsForCountries(airportsData, tripCountries) : []),
+    [airportsData, tripCountries],
+  );
   const stops = legs.length > 1
     ? legs.slice(0, -1).map((l) => l.to).filter(Boolean).map((s) => nameOf(s, lang)).join(", ")
     : "";
   const stopCodes = legs.length > 1 && showHubCodes
-    ? legs.slice(0, -1).map((l) => l.to).filter(Boolean).map((s) => codeOf(s)).join(" · ")
+    ? legs.slice(0, -1).map((l) => l.to).filter(Boolean).map((s) => codeOf(s, airports)).join(" · ")
     : "";
 
   return (
@@ -370,7 +376,7 @@ function JourneyLeg({
                     </p>
                     {showHubCodes && (
                       <div className="mt-1 inline-block rounded-md bg-white/10 px-2 py-0.5 font-mono text-[11px] font-semibold tracking-[0.2em]">
-                        {codeOf(fromCity)}
+                        {codeOf(fromCity, airports)}
                       </div>
                     )}
                     <p className="mt-0.5 truncate text-[11px] opacity-80" title={fromCity || undefined}>
@@ -411,7 +417,7 @@ function JourneyLeg({
                     </p>
                     {showHubCodes && (
                       <div className="mt-1 inline-block rounded-md bg-white/10 px-2 py-0.5 font-mono text-[11px] font-semibold tracking-[0.2em]">
-                        {codeOf(toCity)}
+                        {codeOf(toCity, airports)}
                       </div>
                     )}
                     <p className="mt-0.5 truncate text-[11px] opacity-80" title={toCity || undefined}>
@@ -526,9 +532,17 @@ function LodgingCard({
 // "FCO - Roma" or "MXP - Milano Malpensa" — so we read it straight from
 // there. Falls back to a heuristic for train/bus/ferry legs, which don't
 // carry a code (e.g. "Roma - Termini").
-function codeOf(label: string): string {
+function codeOf(label: string, airports?: AirportHub[]): string {
   const m = label.match(/^([A-Z]{3})\s*-\s*/);
   if (m) return m[1];
+  // Fallback: look up IATA code by city/airport name (for legs saved before the prefix format)
+  if (airports && airports.length > 0) {
+    const q = label.trim().toLowerCase();
+    const hit =
+      airports.find((a) => (a.city ?? "").toLowerCase() === q) ??
+      airports.find((a) => a.name.toLowerCase().includes(q));
+    if (hit) return hit.code;
+  }
   const clean = label.replace(/[^a-zA-Z]/g, "");
   return (clean.slice(0, 3) || "···").toUpperCase();
 }
