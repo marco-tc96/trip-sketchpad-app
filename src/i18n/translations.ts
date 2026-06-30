@@ -760,8 +760,6 @@ const zh = override(en, {
   layovers: "经停",
   direct: "直达",
   work_vs_vacation: "出差与度假",
-  edit_trip: "编辑行程",
-  delete_trip: "删除行程",
 });
 
 const ko = override(en, {
