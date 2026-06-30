@@ -760,8 +760,6 @@ const zh = override(en, {
   layovers: "经停",
   direct: "直达",
   work_vs_vacation: "出差与度假",
-  edit_trip: "编辑行程",
-  delete_trip: "删除行程",
 });
 
 const ko = override(en, {
@@ -859,8 +857,6 @@ const ko = override(en, {
   layovers: "경유",
   direct: "직항",
   work_vs_vacation: "출장 vs 휴가",
-  edit_trip: "여행 편집",
-  delete_trip: "여행 삭제",
 });
 
 const ja = override(en, {
@@ -958,8 +954,6 @@ const ja = override(en, {
   layovers: "経由",
   direct: "直行",
   work_vs_vacation: "出張 vs 休暇",
-  edit_trip: "旅行を編集",
-  delete_trip: "旅行を削除",
 });
 
 export const TRANSLATIONS: Record<Lang, Dict> = { it, en, fr, de, es, pt, zh, ko, ja };

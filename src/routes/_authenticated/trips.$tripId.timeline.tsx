@@ -312,10 +312,11 @@ function JourneyLeg({
   const departISO = first?.depart_at || item?.start_at || null;
   const arriveISO = last?.arrive_at || item?.end_at || null;
   const countdown = kind === "outbound" && departISO ? daysUntil(departISO) : null;
+  const showHubCodes = meta?.mode === "plane" || meta?.mode === "ferry";
   const stops = legs.length > 1
     ? legs.slice(0, -1).map((l) => l.to).filter(Boolean).map((s) => nameOf(s)).join(", ")
     : "";
-  const stopCodes = legs.length > 1
+  const stopCodes = legs.length > 1 && showHubCodes
     ? legs.slice(0, -1).map((l) => l.to).filter(Boolean).map((s) => codeOf(s)).join(" · ")
     : "";
 
@@ -367,9 +368,11 @@ function JourneyLeg({
                     <p className="font-mono text-2xl font-bold tabular-nums tracking-tight sm:text-3xl">
                       {fmtTime(departISO, lang) || "—"}
                     </p>
-                    <div className="mt-1 inline-block rounded-md bg-white/10 px-2 py-0.5 font-mono text-[11px] font-semibold tracking-[0.2em]">
-                      {codeOf(fromCity)}
-                    </div>
+                    {showHubCodes && (
+                      <div className="mt-1 inline-block rounded-md bg-white/10 px-2 py-0.5 font-mono text-[11px] font-semibold tracking-[0.2em]">
+                        {codeOf(fromCity)}
+                      </div>
+                    )}
                     <p className="mt-0.5 truncate text-[11px] opacity-80" title={fromCity || undefined}>
                       {nameOf(fromCity) || "—"}
                     </p>
@@ -406,9 +409,11 @@ function JourneyLeg({
                       {fmtTime(arriveISO, lang) || "—"}
                       <span className="ml-1 align-top text-xs text-amber-300">{plusDays(departISO, arriveISO)}</span>
                     </p>
-                    <div className="mt-1 inline-block rounded-md bg-white/10 px-2 py-0.5 font-mono text-[11px] font-semibold tracking-[0.2em]">
-                      {codeOf(toCity)}
-                    </div>
+                    {showHubCodes && (
+                      <div className="mt-1 inline-block rounded-md bg-white/10 px-2 py-0.5 font-mono text-[11px] font-semibold tracking-[0.2em]">
+                        {codeOf(toCity)}
+                      </div>
+                    )}
                     <p className="mt-0.5 truncate text-[11px] opacity-80" title={toCity || undefined}>
                       {nameOf(toCity) || "—"}
                     </p>
