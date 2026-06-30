@@ -368,9 +368,11 @@ function JourneyLeg({
                     <p className="font-mono text-2xl font-bold tabular-nums tracking-tight sm:text-3xl">
                       {fmtTime(departISO, lang) || "—"}
                     </p>
-                    <div className="mt-1 inline-block rounded-md bg-white/10 px-2 py-0.5 font-mono text-[11px] font-semibold tracking-[0.2em]">
-                      {codeOf(fromCity)}
-                    </div>
+                    {showHubCodes && (
+                      <div className="mt-1 inline-block rounded-md bg-white/10 px-2 py-0.5 font-mono text-[11px] font-semibold tracking-[0.2em]">
+                        {codeOf(fromCity)}
+                      </div>
+                    )}
                     <p className="mt-0.5 truncate text-[11px] opacity-80" title={fromCity || undefined}>
                       {nameOf(fromCity) || "—"}
                     </p>
