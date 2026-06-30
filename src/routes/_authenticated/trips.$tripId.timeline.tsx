@@ -386,11 +386,15 @@ function JourneyLeg({
                     </div>
                     {legs.length > 1 ? (
                       <span
-                        className="max-w-full truncate rounded-full bg-amber-400/90 px-2 text-[10px] font-semibold text-amber-950"
+                        className="relative z-10 inline-flex max-w-[7.5rem] items-center gap-1 whitespace-nowrap rounded-full bg-amber-400/90 px-2 py-0.5 text-[10px] font-semibold text-amber-950 sm:max-w-none"
                         title={stops ? stops : undefined}
                       >
-                        {legs.length - 1} {legs.length - 1 === 1 ? t("layover") : t("layovers")}
-                        {stopCodes ? ` · ${stopCodes}` : ""}
+                        <span>
+                          {legs.length === 2
+                            ? t("layover")
+                            : `${legs.length - 1} ${t("layovers")}`}
+                        </span>
+                        {stopCodes && <span className="opacity-80">· {stopCodes}</span>}
                       </span>
                     ) : (
                       <span className="opacity-70">{t("direct")}</span>

@@ -327,7 +327,7 @@ function TripLayout() {
           <div className="min-w-0">
             <p className="truncate font-serif text-sm font-semibold leading-tight">{trip.data.title}</p>
             <p className="truncate text-[10px] text-muted-foreground leading-tight">
-              {citiesLabel ? `${citiesLabel} · ` : ""}{fmt(trip.data.start_date)} → {fmt(trip.data.end_date)}
+              {citiesLabel ? `${citiesLabel} · ` : ""}{fmt(trip.data.start_date, lang)} → {fmt(trip.data.end_date, lang)}
             </p>
           </div>
         </div>
@@ -426,7 +426,7 @@ function TripLayout() {
               {[citiesLabel, localizedCountries].filter(Boolean).join(", ")}
             </p>
             <p className="text-xs text-muted-foreground/80">
-              {fmt(trip.data.start_date)} → {fmt(trip.data.end_date)}
+              {fmt(trip.data.start_date, lang)} → {fmt(trip.data.end_date, lang)}
             </p>
           </div>
         </div>
@@ -865,8 +865,8 @@ function ColorCoverMenuRow({
   );
 }
 
-function fmt(d: string) {
-  return new Date(d).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
+function fmt(d: string, lang?: string) {
+  return new Date(d).toLocaleDateString(lang, { day: "2-digit", month: "short", year: "numeric" });
 }
 
 function TimezoneBadge({
