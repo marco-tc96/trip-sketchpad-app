@@ -848,7 +848,6 @@ const zh = override(en, {
   layovers: "经停",
   direct: "直达",
   work_vs_vacation: "行程类型",
-  edit_trip: "编辑行程",
   delete_trip: "删除行程",
   cover_auto: "自动",
   cover_map: "地图",
@@ -861,6 +860,16 @@ const zh = override(en, {
   days_to_departure: "距出发还有 {{n}} 天",
   day_to_departure: "距出发还有 {{n}} 天",
   show_pins: "图钉",
+  show_subdivisions: "地区",
+  most_visited_continents: "最常访问的大洲",
+  home_country_trips: "国内旅行",
+  most_visited_foreign_countries: "最常访问的国家",
+  continent_europe: "欧洲",
+  continent_asia: "亚洲",
+  continent_africa: "非洲",
+  continent_north_america: "北美洲",
+  continent_south_america: "南美洲",
+  continent_oceania: "大洋洲",
 });
 
 const ko = override(en, {
@@ -958,7 +967,6 @@ const ko = override(en, {
   layovers: "경유",
   direct: "직항",
   work_vs_vacation: "여행 유형",
-  edit_trip: "여행 편집",
   delete_trip: "여행 삭제",
   cover_auto: "자동",
   cover_map: "지도",
@@ -971,6 +979,16 @@ const ko = override(en, {
   days_to_departure: "출발까지 {{n}}일",
   day_to_departure: "출발까지 {{n}}일",
   show_pins: "핀",
+  show_subdivisions: "지역",
+  most_visited_continents: "가장 많이 방문한 대륙",
+  home_country_trips: "자국 여행",
+  most_visited_foreign_countries: "가장 많이 방문한 외국",
+  continent_europe: "유럽",
+  continent_asia: "아시아",
+  continent_africa: "아프리카",
+  continent_north_america: "북미",
+  continent_south_america: "남미",
+  continent_oceania: "오세아니아",
 });
 
 const ja = override(en, {
@@ -1068,7 +1086,6 @@ const ja = override(en, {
   layovers: "経由",
   direct: "直行",
   work_vs_vacation: "旅行タイプ",
-  edit_trip: "旅行を編集",
   delete_trip: "旅行を削除",
   cover_auto: "自動",
   cover_map: "地図",
@@ -1081,6 +1098,16 @@ const ja = override(en, {
   days_to_departure: "出発まであと{{n}}日",
   day_to_departure: "出発まであと{{n}}日",
   show_pins: "ピン",
+  show_subdivisions: "地域",
+  most_visited_continents: "よく訪れた大陸",
+  home_country_trips: "自国の旅行",
+  most_visited_foreign_countries: "よく訪れた外国",
+  continent_europe: "ヨーロッパ",
+  continent_asia: "アジア",
+  continent_africa: "アフリカ",
+  continent_north_america: "北アメリカ",
+  continent_south_america: "南アメリカ",
+  continent_oceania: "オセアニア",
 });
 
 export const TRANSLATIONS: Record<Lang, Dict> = { it, en, fr, de, es, pt, zh, ko, ja };
