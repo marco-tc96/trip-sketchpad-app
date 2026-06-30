@@ -312,10 +312,11 @@ function JourneyLeg({
   const departISO = first?.depart_at || item?.start_at || null;
   const arriveISO = last?.arrive_at || item?.end_at || null;
   const countdown = kind === "outbound" && departISO ? daysUntil(departISO) : null;
+  const showHubCodes = meta?.mode === "plane" || meta?.mode === "ferry";
   const stops = legs.length > 1
     ? legs.slice(0, -1).map((l) => l.to).filter(Boolean).map((s) => nameOf(s)).join(", ")
     : "";
-  const stopCodes = legs.length > 1
+  const stopCodes = legs.length > 1 && showHubCodes
     ? legs.slice(0, -1).map((l) => l.to).filter(Boolean).map((s) => codeOf(s)).join(" · ")
     : "";
 
