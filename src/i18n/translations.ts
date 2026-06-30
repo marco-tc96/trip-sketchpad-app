@@ -830,10 +830,7 @@ const zh = override(en, {
   done: "完成",
   days_to_departure: "距出发还有 {{n}} 天",
   day_to_departure: "距出发还有 {{n}} 天",
-<<<<<<< HEAD
   show_pins: "图钉",
-=======
->>>>>>> ff53ae6c032e7fe902c3116961d6e792eefc9b1d
 });
 
 const ko = override(en, {
@@ -943,10 +940,7 @@ const ko = override(en, {
   done: "완료",
   days_to_departure: "출발까지 {{n}}일",
   day_to_departure: "출발까지 {{n}}일",
-<<<<<<< HEAD
   show_pins: "핀",
-=======
->>>>>>> ff53ae6c032e7fe902c3116961d6e792eefc9b1d
 });
 
 const ja = override(en, {
@@ -1056,10 +1050,7 @@ const ja = override(en, {
   done: "完了",
   days_to_departure: "出発まであと{{n}}日",
   day_to_departure: "出発まであと{{n}}日",
-<<<<<<< HEAD
   show_pins: "ピン",
-=======
->>>>>>> ff53ae6c032e7fe902c3116961d6e792eefc9b1d
 });
 
 export const TRANSLATIONS: Record<Lang, Dict> = { it, en, fr, de, es, pt, zh, ko, ja };
