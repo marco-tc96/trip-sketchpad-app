@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Plus, MapPin, Calendar, Briefcase, Palmtree, Footprints, Globe2 } from "lucide-react";
+import { Plus, MapPin, Calendar, Briefcase, Palmtree, Footprints, Globe2, Pin, PinOff } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useEffect, useMemo, useState } from "react";
 import { listTrips } from "@/lib/trips.functions";
@@ -11,6 +11,7 @@ import { CityCover } from "@/components/app/city-cover";
 import { flagGradient } from "@/lib/flag-gradient";
 import { supabase } from "@/integrations/supabase/client";
 import { WorldMap, type WorldMapCity } from "@/components/app/world-map";
+import { Switch } from "@/components/ui/switch";
 
 export const Route = createFileRoute("/_authenticated/trips/")({
   component: TripsList,
@@ -36,7 +37,7 @@ function TripsList() {
     () =>
       trips
         .filter((tr) => tr.start_date > today)
-        .sort((a, b) => a.start_date.localeCompare(b.start_date)),
+        .sort((a, b) => a.start_date.localeCompare(a.start_date)),
     [trips, today],
   );
   const past = useMemo(
@@ -47,9 +48,9 @@ function TripsList() {
     [trips, today],
   );
 
-  // The map reflects places actually visited, not future plans — so it's
-  // built from ongoing + past trips only, the same rule already used for
-  // the "countries visited" stats on the profile page.
+  // The map's solid "visited" fill reflects places actually been to, not
+  // future plans — built from ongoing + past trips only, same rule as the
+  // "countries visited" stats on the profile page.
   const visitedTrips = useMemo(() => [...ongoing, ...past], [ongoing, past]);
   const visitedCountries = useMemo(() => {
     const set = new Set<string>();
@@ -72,6 +73,40 @@ function TripsList() {
     }
     return out;
   }, [visitedTrips]);
+
+  // Countries/cities that only show up in planned (future) trips — these
+  // get the lighter "upcoming" hatched treatment on the map and a
+  // visually distinct pin, instead of being silently invisible until the
+  // trip actually happens.
+  const plannedCountries = useMemo(() => {
+    const visited = new Set(visitedCountries.map((c) => c.toUpperCase()));
+    const set = new Set<string>();
+    for (const tr of planned) {
+      const cs = (tr as unknown as { countries?: string[] }).countries;
+      if (Array.isArray(cs)) {
+        cs.forEach((c) => {
+          if (!visited.has(c.toUpperCase())) set.add(c);
+        });
+      }
+    }
+    return Array.from(set);
+  }, [planned, visitedCountries]);
+  const plannedCities = useMemo<WorldMapCity[]>(() => {
+    const seen = new Set<string>();
+    const out: WorldMapCity[] = [];
+    for (const tr of planned) {
+      for (const c of getCities(tr)) {
+        const key = `${c.country}|${c.name.toLowerCase()}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(c);
+      }
+    }
+    return out;
+  }, [planned]);
+
+  // Pin visibility toggle, surfaced as a switch in the map card header.
+  const [showPins, setShowPins] = useState(true);
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-6 sm:py-8">
@@ -100,10 +135,18 @@ function TripsList() {
             <span className="text-xs text-muted-foreground/70">
               · {visitedCountries.length}
             </span>
+            <label className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
+              {showPins ? <Pin className="h-3.5 w-3.5" /> : <PinOff className="h-3.5 w-3.5" />}
+              <span className="hidden sm:inline">{t("show_pins")}</span>
+              <Switch checked={showPins} onCheckedChange={setShowPins} />
+            </label>
           </div>
           <WorldMap
             visitedCountries={visitedCountries}
             cities={visitedCities}
+            plannedCountries={plannedCountries}
+            plannedCities={plannedCities}
+            showPins={showPins}
             className="h-[280px] w-full sm:h-[360px]"
           />
         </section>
@@ -194,8 +237,6 @@ function TripCard({ trip }: { trip: Trip }) {
     | "business"
     | "daytrip";
   const [signed, setSigned] = useState<string | null>(null);
-  // Whenever the user uploaded a photo, show it on the home card too —
-  // regardless of the trip's internal cover_type selection.
   useEffect(() => {
     let cancelled = false;
     setSigned(null);

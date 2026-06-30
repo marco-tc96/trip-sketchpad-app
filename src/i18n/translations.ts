@@ -144,6 +144,7 @@ const it: Dict = {
   done: "Fatto",
   days_to_departure: "{{n}} giorni alla partenza",
   day_to_departure: "{{n}} giorno alla partenza",
+  show_pins: "Pin",
 };
 
 const en: Dict = {
@@ -276,6 +277,7 @@ const en: Dict = {
   done: "Done",
   days_to_departure: "{{n}} days to departure",
   day_to_departure: "{{n}} day to departure",
+  show_pins: "Pins",
 };
 
 // Compact translations: fall back to English keys + light per-language overrides
@@ -391,6 +393,7 @@ const fr = override(en, {
   done: "Terminé",
   days_to_departure: "{{n}} jours avant le départ",
   day_to_departure: "{{n}} jour avant le départ",
+  show_pins: "Repères",
 });
 
 const de = override(en, {
@@ -499,6 +502,7 @@ const de = override(en, {
   done: "Fertig",
   days_to_departure: "Noch {{n}} Tage bis zur Abreise",
   day_to_departure: "Noch {{n}} Tag bis zur Abreise",
+  show_pins: "Pins",
 });
 
 const es = override(en, {
@@ -607,6 +611,7 @@ const es = override(en, {
   done: "Listo",
   days_to_departure: "{{n}} días para la salida",
   day_to_departure: "{{n}} día para la salida",
+  show_pins: "Pines",
 });
 
 const pt = override(en, {
@@ -715,6 +720,7 @@ const pt = override(en, {
   done: "Concluído",
   days_to_departure: "{{n}} dias para a partida",
   day_to_departure: "{{n}} dia para a partida",
+  show_pins: "Pins",
 });
 
 const zh = override(en, {
@@ -811,7 +817,6 @@ const zh = override(en, {
   layover: "经停",
   layovers: "经停",
   direct: "直达",
-<<<<<<< HEAD
   work_vs_vacation: "行程类型",
   edit_trip: "编辑行程",
   delete_trip: "删除行程",
@@ -825,9 +830,7 @@ const zh = override(en, {
   done: "完成",
   days_to_departure: "距出发还有 {{n}} 天",
   day_to_departure: "距出发还有 {{n}} 天",
-=======
-  work_vs_vacation: "出差与度假",
->>>>>>> 40a6c60496f35db6eb087019f5f03c01710c26e1
+  show_pins: "图钉",
 });
 
 const ko = override(en, {
@@ -924,7 +927,6 @@ const ko = override(en, {
   layover: "경유",
   layovers: "경유",
   direct: "직항",
-<<<<<<< HEAD
   work_vs_vacation: "여행 유형",
   edit_trip: "여행 편집",
   delete_trip: "여행 삭제",
@@ -938,9 +940,7 @@ const ko = override(en, {
   done: "완료",
   days_to_departure: "출발까지 {{n}}일",
   day_to_departure: "출발까지 {{n}}일",
-=======
-  work_vs_vacation: "출장 vs 휴가",
->>>>>>> 40a6c60496f35db6eb087019f5f03c01710c26e1
+  show_pins: "핀",
 });
 
 const ja = override(en, {
@@ -1037,7 +1037,6 @@ const ja = override(en, {
   layover: "経由",
   layovers: "経由",
   direct: "直行",
-<<<<<<< HEAD
   work_vs_vacation: "旅行タイプ",
   edit_trip: "旅行を編集",
   delete_trip: "旅行を削除",
@@ -1051,9 +1050,7 @@ const ja = override(en, {
   done: "完了",
   days_to_departure: "出発まであと{{n}}日",
   day_to_departure: "出発まであと{{n}}日",
-=======
-  work_vs_vacation: "出張 vs 休暇",
->>>>>>> 40a6c60496f35db6eb087019f5f03c01710c26e1
+  show_pins: "ピン",
 });
 
 export const TRANSLATIONS: Record<Lang, Dict> = { it, en, fr, de, es, pt, zh, ko, ja };
