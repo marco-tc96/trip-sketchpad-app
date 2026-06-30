@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Plus, MapPin, Calendar, Briefcase, Palmtree, Footprints, Globe2, Pin, PinOff } from "lucide-react";
+import { Plus, MapPin, Calendar, Briefcase, Palmtree, Footprints, Globe2, Pin, PinOff, Layers } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useEffect, useMemo, useState } from "react";
 import { listTrips } from "@/lib/trips.functions";
@@ -49,8 +49,7 @@ function TripsList() {
   );
 
   // The map's solid "visited" fill reflects places actually been to, not
-  // future plans — built from ongoing + past trips only, same rule as the
-  // "countries visited" stats on the profile page.
+  // future plans — built from ongoing + past trips only.
   const visitedTrips = useMemo(() => [...ongoing, ...past], [ongoing, past]);
   const visitedCountries = useMemo(() => {
     const set = new Set<string>();
@@ -74,10 +73,6 @@ function TripsList() {
     return out;
   }, [visitedTrips]);
 
-  // Countries/cities that only show up in planned (future) trips — these
-  // get the lighter "upcoming" hatched treatment on the map and a
-  // visually distinct pin, instead of being silently invisible until the
-  // trip actually happens.
   const plannedCountries = useMemo(() => {
     const visited = new Set(visitedCountries.map((c) => c.toUpperCase()));
     const set = new Set<string>();
@@ -105,8 +100,9 @@ function TripsList() {
     return out;
   }, [planned]);
 
-  // Pin visibility toggle, surfaced as a switch in the map card header.
+  // Map display toggles
   const [showPins, setShowPins] = useState(true);
+  const [showSubdivisions, setShowSubdivisions] = useState(false);
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-6 sm:py-8">
@@ -127,7 +123,7 @@ function TripsList() {
 
       {!q.isLoading && trips.length > 0 && (
         <section className="mt-6 overflow-hidden rounded-3xl border border-border bg-card shadow-soft">
-          <div className="flex items-center gap-2 border-b border-border/60 px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2 border-b border-border/60 px-4 py-3">
             <Globe2 className="h-4 w-4 text-primary" />
             <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
               {t("countries_visited")}
@@ -135,10 +131,19 @@ function TripsList() {
             <span className="text-xs text-muted-foreground/70">
               · {visitedCountries.length}
             </span>
+
+            {/* Pins toggle */}
             <label className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
               {showPins ? <Pin className="h-3.5 w-3.5" /> : <PinOff className="h-3.5 w-3.5" />}
               <span className="hidden sm:inline">{t("show_pins")}</span>
               <Switch checked={showPins} onCheckedChange={setShowPins} />
+            </label>
+
+            {/* Subdivision toggle */}
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Layers className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">{t("show_subdivisions")}</span>
+              <Switch checked={showSubdivisions} onCheckedChange={setShowSubdivisions} />
             </label>
           </div>
           <WorldMap
@@ -147,6 +152,7 @@ function TripsList() {
             plannedCountries={plannedCountries}
             plannedCities={plannedCities}
             showPins={showPins}
+            showSubdivisions={showSubdivisions}
             className="h-[280px] w-full sm:h-[360px]"
           />
         </section>
@@ -228,14 +234,15 @@ function getCities(trip: Trip): CityObj[] {
 
 function TripCard({ trip }: { trip: Trip }) {
   const cities = getCities(trip);
-  const countries: string[] = Array.isArray((trip as unknown as { countries?: string[] }).countries)
-    ? ((trip as unknown as { countries: string[] }).countries)
+  const countries: string[] = Array.isArray(
+    (trip as unknown as { countries?: string[] }).countries,
+  )
+    ? (trip as unknown as { countries: string[] }).countries
     : [];
   const storedCover = (trip as unknown as { cover_url?: string | null }).cover_url ?? null;
-  const tripType = ((trip as unknown as { trip_type?: string }).trip_type ?? "vacation") as
-    | "vacation"
-    | "business"
-    | "daytrip";
+  const tripType = (
+    (trip as unknown as { trip_type?: string }).trip_type ?? "vacation"
+  ) as "vacation" | "business" | "daytrip";
   const [signed, setSigned] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -255,15 +262,12 @@ function TripCard({ trip }: { trip: Trip }) {
   const inlineSrc =
     storedCover && /^https?:\/\//i.test(storedCover) ? storedCover : signed;
   const coverType = (trip as unknown as { cover_type?: string }).cover_type ?? "auto";
-  const coverBg =
-    (trip as unknown as { cover_bg?: string | null }).cover_bg ?? null;
+  const coverBg = (trip as unknown as { cover_bg?: string | null }).cover_bg ?? null;
   const gradient =
     coverType === "color" && coverBg ? coverBg : flagGradient(countries);
 
   const flagStr =
-    countries.length > 0
-      ? countries.slice(0, 4).map(flagOf).join(" ")
-      : "";
+    countries.length > 0 ? countries.slice(0, 4).map(flagOf).join(" ") : "";
 
   return (
     <Link
@@ -294,7 +298,10 @@ function TripCard({ trip }: { trip: Trip }) {
           <p className="flex items-center gap-1 text-[13px] text-white/90 line-clamp-1">
             <MapPin className="h-3.5 w-3.5 shrink-0" />
             {cities.length > 0
-              ? cities.slice(0, 3).map((c) => c.name).join(" · ")
+              ? cities
+                  .slice(0, 3)
+                  .map((c) => c.name)
+                  .join(" · ")
               : trip.destination}
           </p>
         )}
@@ -308,10 +315,18 @@ function TripCard({ trip }: { trip: Trip }) {
 }
 
 function fmt(d: string) {
-  return new Date(d).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "2-digit" });
+  return new Date(d).toLocaleDateString(undefined, {
+    day: "2-digit",
+    month: "short",
+    year: "2-digit",
+  });
 }
 
-function TripTypePill({ tripType }: { tripType: "vacation" | "business" | "daytrip" }) {
+function TripTypePill({
+  tripType,
+}: {
+  tripType: "vacation" | "business" | "daytrip";
+}) {
   const { t } = useTranslation();
   const cfg =
     tripType === "business"
