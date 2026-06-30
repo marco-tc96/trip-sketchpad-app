@@ -1059,7 +1059,14 @@ function TimezoneBadge({
     <div className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background/70 px-2 py-0.5 text-[11px] text-muted-foreground shadow-soft backdrop-blur">
       <Clock className="h-3 w-3" />
       <span className="tabular-nums">
-        {label(homeZone, h)} → {label(destZone, d)} ({diffLabel})
+        {label(homeZone, h)} → {label(destZone, d)}
+      </span>
+      <span
+        className={`inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full px-1 text-[10px] font-bold ${
+          diff > 0 ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"
+        }`}
+      >
+        {diffLabel}
       </span>
     </div>
   );
