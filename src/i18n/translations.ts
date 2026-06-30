@@ -155,6 +155,7 @@ const it: Dict = {
   continent_north_america: "Nord America",
   continent_south_america: "Sud America",
   continent_oceania: "Oceania",
+  all_years: "Tutti gli anni",
 };
 
 const en: Dict = {
@@ -298,6 +299,7 @@ const en: Dict = {
   continent_north_america: "North America",
   continent_south_america: "South America",
   continent_oceania: "Oceania",
+  all_years: "All years",
 };
 
 // Compact translations: fall back to English keys + light per-language overrides
@@ -424,6 +426,7 @@ const fr = override(en, {
   continent_north_america: "Amérique du Nord",
   continent_south_america: "Amérique du Sud",
   continent_oceania: "Océanie",
+  all_years: "Toutes les années",
 });
 
 const de = override(en, {
@@ -543,6 +546,7 @@ const de = override(en, {
   continent_north_america: "Nordamerika",
   continent_south_america: "Südamerika",
   continent_oceania: "Ozeanien",
+  all_years: "Alle Jahre",
 });
 
 const es = override(en, {
@@ -662,6 +666,7 @@ const es = override(en, {
   continent_north_america: "América del Norte",
   continent_south_america: "América del Sur",
   continent_oceania: "Oceanía",
+  all_years: "Todos los años",
 });
 
 const pt = override(en, {
@@ -781,6 +786,7 @@ const pt = override(en, {
   continent_north_america: "América do Norte",
   continent_south_america: "América do Sul",
   continent_oceania: "Oceania",
+  all_years: "Todos os anos",
 });
 
 const zh = override(en, {
@@ -900,6 +906,7 @@ const zh = override(en, {
   continent_north_america: "北美洲",
   continent_south_america: "南美洲",
   continent_oceania: "大洋洲",
+  all_years: "所有年份",
 });
 
 const ko = override(en, {
@@ -1019,6 +1026,7 @@ const ko = override(en, {
   continent_north_america: "북미",
   continent_south_america: "남미",
   continent_oceania: "오세아니아",
+  all_years: "모든 연도",
 });
 
 const ja = override(en, {
@@ -1138,6 +1146,7 @@ const ja = override(en, {
   continent_north_america: "北アメリカ",
   continent_south_america: "南アメリカ",
   continent_oceania: "オセアニア",
+  all_years: "すべての年",
 });
 
 export const TRANSLATIONS: Record<Lang, Dict> = { it, en, fr, de, es, pt, zh, ko, ja };

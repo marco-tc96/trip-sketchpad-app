@@ -213,7 +213,7 @@ function Section({
             onChange={(e) => setSelectedYear(e.target.value)}
             className="ml-auto cursor-pointer rounded-full border border-border bg-transparent px-2.5 py-0.5 text-xs text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
           >
-            <option value="all">Tutti gli anni</option>
+            <option value="all">{t("all_years")}</option>
             {years.map((y) => <option key={y} value={y}>{y}</option>)}
           </select>
         )}
