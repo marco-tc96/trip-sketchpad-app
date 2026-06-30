@@ -1,10 +1,80 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { MapContainer, TileLayer, Marker, Popup, Tooltip, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { Country, City } from "country-state-city";
+import { geocodeCity } from "@/lib/country-data";
 
 export type MapCity = { name: string; country: string; lat?: number; lng?: number };
+
+// Approximate country centroids (lat, lng) keyed by ISO-2.
+// Used as a fallback when no city coordinates are available.
+const COUNTRY_CENTROIDS: Record<string, [number, number]> = {
+  AF: [33.939, 67.710], AL: [41.153, 20.168], DZ: [28.034, 1.660],
+  AD: [42.546, 1.602], AO: [-11.203, 17.874], AG: [17.061, -61.796],
+  AR: [-38.416, -63.617], AM: [40.069, 45.038], AU: [-25.274, 133.775],
+  AT: [47.516, 14.550], AZ: [40.143, 47.577], BS: [25.034, -77.396],
+  BH: [25.930, 50.638], BD: [23.685, 90.356], BB: [13.194, -59.543],
+  BY: [53.710, 27.953], BE: [50.504, 4.470], BZ: [17.190, -88.498],
+  BJ: [9.308, 2.316], BT: [27.514, 90.434], BO: [-16.290, -63.589],
+  BA: [43.916, 17.679], BW: [-22.328, 24.685], BR: [-14.235, -51.925],
+  BN: [4.535, 114.728], BG: [42.734, 25.486], BF: [12.365, -1.562],
+  BI: [-3.373, 29.919], CV: [16.002, -24.013], KH: [12.566, 104.991],
+  CM: [3.848, 11.502], CA: [56.130, -106.347], CF: [6.611, 20.939],
+  TD: [15.454, 18.732], CL: [-35.675, -71.543], CN: [35.862, 104.195],
+  CO: [4.571, -74.297], KM: [-11.875, 43.872], CG: [-0.228, 15.828],
+  CD: [-4.038, 21.759], CR: [9.749, -83.753], CI: [7.540, -5.547],
+  HR: [45.100, 15.200], CU: [21.522, -77.781], CY: [35.126, 33.430],
+  CZ: [49.817, 15.473], DK: [56.264, 9.502], DJ: [11.825, 42.590],
+  DM: [15.415, -61.371], DO: [18.736, -70.163], EC: [-1.831, -78.183],
+  EG: [26.821, 30.802], SV: [13.794, -88.897], GQ: [1.651, 10.268],
+  ER: [15.179, 39.782], EE: [58.595, 25.014], SZ: [-26.523, 31.466],
+  ET: [9.145, 40.490], FJ: [-16.578, 179.414], FI: [61.924, 25.748],
+  FR: [46.228, 2.214], GA: [-0.804, 11.609], GM: [13.443, -15.310],
+  GE: [42.315, 43.357], DE: [51.166, 10.452], GH: [7.947, -1.023],
+  GR: [39.074, 21.824], GL: [71.707, -42.604], GD: [12.117, -61.679],
+  GT: [15.783, -90.231], GN: [9.946, -9.697], GW: [11.804, -15.180],
+  GY: [4.860, -58.930], HT: [18.971, -72.285], VA: [41.903, 12.453],
+  HN: [15.200, -86.242], HK: [22.396, 114.109], HU: [47.162, 19.503],
+  IS: [64.963, -19.021], IN: [20.594, 78.963], ID: [-0.789, 113.921],
+  IR: [32.428, 53.688], IQ: [33.223, 43.679], IE: [53.413, -8.244],
+  IL: [31.046, 34.852], IT: [41.872, 12.567], JM: [18.110, -77.298],
+  JP: [36.205, 138.253], JO: [30.585, 36.238], KZ: [48.020, 66.924],
+  KE: [-0.024, 37.906], KI: [-3.370, -168.734], KP: [40.340, 127.510],
+  KR: [35.908, 127.767], KW: [29.312, 47.482], KG: [41.204, 74.766],
+  LA: [19.856, 102.495], LV: [56.880, 24.603], LB: [33.855, 35.862],
+  LS: [-29.610, 28.234], LR: [6.428, -9.429], LY: [26.335, 17.228],
+  LI: [47.166, 9.555], LT: [55.169, 23.881], LU: [49.815, 6.130],
+  MO: [22.199, 113.544], MG: [-18.767, 46.869], MW: [-13.254, 34.302],
+  MY: [4.210, 101.976], MV: [3.203, 73.221], ML: [17.571, -3.996],
+  MT: [35.937, 14.375], MH: [7.131, 171.184], MR: [21.008, -10.941],
+  MU: [-20.348, 57.552], MX: [23.635, -102.553], FM: [7.426, 150.551],
+  MD: [47.412, 28.370], MC: [43.750, 7.413], MN: [46.862, 103.847],
+  ME: [42.709, 19.374], MA: [31.792, -7.093], MZ: [-18.666, 35.530],
+  MM: [21.914, 95.956], NA: [-22.958, 18.490], NR: [-0.523, 166.932],
+  NP: [28.395, 84.124], NL: [52.133, 5.291], NZ: [-40.901, 174.886],
+  NI: [12.865, -85.207], NE: [17.608, 8.082], NG: [9.082, 8.675],
+  MK: [41.609, 21.745], NO: [60.472, 8.469], OM: [21.513, 55.923],
+  PK: [30.375, 69.345], PW: [7.515, 134.583], PS: [31.952, 35.233],
+  PA: [8.538, -80.782], PG: [-6.315, 143.956], PY: [-23.443, -58.444],
+  PE: [-9.190, -75.015], PH: [12.880, 121.774], PL: [51.919, 19.145],
+  PT: [39.400, -8.224], QA: [25.355, 51.184], RO: [45.943, 24.967],
+  RU: [61.524, 105.319], RW: [-1.940, 29.874], SM: [43.942, 12.458],
+  SA: [23.886, 45.079], SN: [14.497, 14.452], RS: [44.017, 21.006],
+  SC: [-4.680, 55.492], SL: [8.461, -11.780], SG: [1.352, 103.820],
+  SK: [48.669, 19.699], SI: [46.151, 14.995], SB: [-9.646, 160.156],
+  SO: [5.152, 46.200], ZA: [-30.559, 22.938], SS: [4.885, 31.571],
+  ES: [40.464, -3.749], LK: [7.873, 80.772], SD: [12.863, 30.218],
+  SR: [3.919, -56.028], SE: [60.128, 18.644], CH: [46.818, 8.228],
+  SY: [34.802, 38.997], TW: [23.698, 120.961], TJ: [38.861, 71.276],
+  TZ: [-6.369, 34.889], TH: [15.870, 100.993], TL: [-8.874, 125.728],
+  TG: [8.620, 0.825], TO: [-21.179, -175.198], TT: [10.692, -61.223],
+  TN: [33.887, 9.537], TR: [38.964, 35.243], TM: [38.970, 59.556],
+  TV: [-7.110, 177.649], UG: [1.373, 32.290], UA: [48.379, 31.166],
+  AE: [23.424, 53.848], GB: [55.378, -3.436], US: [37.090, -95.713],
+  UY: [-32.523, -55.766], UZ: [41.377, 64.585], VU: [-15.377, 166.959],
+  VE: [6.424, -66.590], VN: [14.058, 108.277], YE: [15.553, 48.516],
+  ZM: [-13.134, 27.849], ZW: [-19.015, 29.155],
+};
 
 // Custom pin so we don't depend on Leaflet's default marker images.
 const pinIcon = L.divIcon({
@@ -19,16 +89,10 @@ function FitBounds({ points }: { points: [number, number][] }) {
   useEffect(() => {
     if (points.length === 0) return;
     if (points.length === 1) {
-      // Zoomed out further than before (5 instead of 6) so a single-city
-      // trip still shows surrounding context — region, nearby cities,
-      // borders — instead of feeling locked onto one street-level point.
       map.setView(points[0], 5, { animate: false });
       return;
     }
     const b = L.latLngBounds(points);
-    // maxZoom capped lower (6 instead of 8) for the same reason: even with
-    // several close-together cities, the map shouldn't zoom in so far that
-    // it reads as a fixed, locked-in snapshot.
     map.fitBounds(b, { padding: [32, 32], maxZoom: 6 });
   }, [map, points]);
   return null;
@@ -45,42 +109,46 @@ export function TripMap({
   countries?: string[];
   className?: string;
   noTiles?: boolean;
-  /** Smaller, denser UI chrome — no longer disables panning/zooming. The
-   * map should always be explorable; "compact" now only affects sizing
-   * decisions a caller might make via className, not interactivity. */
   compact?: boolean;
 }) {
-  // Enrich missing coordinates by looking the city up by name within its
-  // country. This way pins always show, even for cities saved before the
-  // coordinate was captured.
+  // Async geocoding cache for cities without stored coordinates.
+  const [geoCache, setGeoCache] = useState<Record<string, { lat: number; lng: number } | null>>({});
+
+  useEffect(() => {
+    const missing = cities.filter(
+      (c) => typeof c.lat !== "number" || typeof c.lng !== "number",
+    );
+    if (missing.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const updates: Record<string, { lat: number; lng: number } | null> = {};
+      for (const city of missing) {
+        const key = `${city.country}|${city.name}`;
+        if (key in geoCache) continue;
+        const result = await geocodeCity(city.name, city.country);
+        updates[key] = result;
+      }
+      if (!cancelled && Object.keys(updates).length > 0) {
+        setGeoCache((prev) => ({ ...prev, ...updates }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cities]);
+
+  // Enrich cities with geocoded coordinates when stored coords are missing.
   const enrichedCities = useMemo<MapCity[]>(() => {
-    const normalize = (s: string) =>
-      s
-        .toLowerCase()
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .replace(/\s+(city|town|village)$/i, "")
-        .trim();
     return cities.map((c) => {
       if (typeof c.lat === "number" && typeof c.lng === "number") return c;
-      const iso = (c.country || "").toUpperCase();
-      if (!iso || !c.name) return c;
-      const pool = City.getCitiesOfCountry(iso) ?? [];
-      const needle = normalize(c.name);
-      const candidates = pool.filter((x) => normalize(x.name) === needle);
-      // Prefer the most populated / first match for the exact normalized name.
-      const match =
-        candidates[0] ||
-        pool.find((x) => normalize(x.name).startsWith(needle)) ||
-        pool.find((x) => normalize(x.name).includes(needle));
-      const lat = match?.latitude ? Number(match.latitude) : NaN;
-      const lng = match?.longitude ? Number(match.longitude) : NaN;
-      if (Number.isFinite(lat) && Number.isFinite(lng)) {
-        return { ...c, lat, lng };
-      }
+      const key = `${c.country}|${c.name}`;
+      const cached = geoCache[key];
+      if (cached) return { ...c, lat: cached.lat, lng: cached.lng };
       return c;
     });
-  }, [cities]);
+  }, [cities, geoCache]);
+
   const points = useMemo<[number, number][]>(
     () =>
       enrichedCities
@@ -91,27 +159,27 @@ export function TripMap({
         .map((c) => [c.lat, c.lng]),
     [enrichedCities],
   );
-  // Country fallback when cities have no coordinates.
+
+  // Country centroid fallback when cities have no coordinates.
   const fallbackPoints = useMemo<[number, number][]>(() => {
     if (points.length > 0) return [];
-    const isos = countries && countries.length > 0
-      ? countries
-      : Array.from(new Set(enrichedCities.map((c) => c.country))).filter(Boolean);
-    const out: [number, number][] = [];
-    for (const iso of isos) {
-      const c = Country.getCountryByCode(iso);
-      const lat = c?.latitude ? Number(c.latitude) : NaN;
-      const lng = c?.longitude ? Number(c.longitude) : NaN;
-      if (Number.isFinite(lat) && Number.isFinite(lng)) out.push([lat, lng]);
-    }
-    return out;
+    const isos =
+      countries && countries.length > 0
+        ? countries
+        : Array.from(new Set(enrichedCities.map((c) => c.country))).filter(Boolean);
+    return isos
+      .map((iso) => COUNTRY_CENTROIDS[iso.toUpperCase()])
+      .filter((pt): pt is [number, number] => !!pt);
   }, [points.length, countries, enrichedCities]);
-  const ref = useRef<L.Map | null>(null);
 
+  const ref = useRef<L.Map | null>(null);
   const effective = points.length > 0 ? points : fallbackPoints;
+
   if (effective.length === 0) {
     return (
-      <div className={`grid place-items-center bg-muted text-xs text-muted-foreground ${className ?? ""}`}>
+      <div
+        className={`grid place-items-center bg-muted text-xs text-muted-foreground ${className ?? ""}`}
+      >
         Nessuna coordinata disponibile
       </div>
     );
@@ -142,11 +210,17 @@ export function TripMap({
             typeof c.lat === "number" && typeof c.lng === "number",
         )
         .map((c, i) => (
-          <Marker key={`${c.country}-${c.name}-${i}`} position={[c.lat, c.lng]} icon={pinIcon}>
+          <Marker
+            key={`${c.country}-${c.name}-${i}`}
+            position={[c.lat, c.lng]}
+            icon={pinIcon}
+          >
             <Popup>
               <strong>{c.name}</strong>
             </Popup>
-            <Tooltip direction="top" offset={[0, -8]}>{c.name}</Tooltip>
+            <Tooltip direction="top" offset={[0, -8]}>
+              {c.name}
+            </Tooltip>
           </Marker>
         ))}
       <FitBounds points={effective} />
