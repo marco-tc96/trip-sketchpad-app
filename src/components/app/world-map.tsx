@@ -347,7 +347,6 @@ export function WorldMap({
   // and only when the parent country isn't in the fallback set.
   const admin1Style = (feature?: GeoFeature) => {
     const props = (feature?.properties ?? {}) as Record<string, unknown>;
-    const a3 = typeof props.adm0_a3 === "string" ? (props.adm0_a3 as string) : "";
     const name = typeof props.name === "string" ? (props.name as string) : "";
     // adm0_a3 is ISO 3166-1 alpha-3; map to alpha-2 via the world borders
     // dataset isn't readily available here, so compare against visited
@@ -372,8 +371,6 @@ export function WorldMap({
       color: "oklch(0.5 0.13 38)",
       weight: 0.7,
     };
-    // Silence unused-var warning for a3 — kept for future matching.
-    void a3;
   };
 
   if (error) {
