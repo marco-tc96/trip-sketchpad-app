@@ -954,8 +954,6 @@ const ja = override(en, {
   layovers: "経由",
   direct: "直行",
   work_vs_vacation: "出張 vs 休暇",
-  edit_trip: "旅行を編集",
-  delete_trip: "旅行を削除",
 });
 
 export const TRANSLATIONS: Record<Lang, Dict> = { it, en, fr, de, es, pt, zh, ko, ja };
