@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { MapContainer, TileLayer, GeoJSON, Marker, Tooltip, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { City } from "country-state-city";
+import { City, State } from "country-state-city";
 
 export type WorldMapCity = { name: string; country: string; lat?: number; lng?: number };
 
@@ -63,6 +63,23 @@ async function loadWorldBorders(): Promise<GeoCollection> {
   return _worldLoading;
 }
 
+let _admin1Cache: GeoCollection | null = null;
+let _admin1Loading: Promise<GeoCollection> | null = null;
+
+async function loadAdmin1(): Promise<GeoCollection> {
+  if (_admin1Cache) return _admin1Cache;
+  if (_admin1Loading) return _admin1Loading;
+  _admin1Loading = fetch(
+    "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_admin_1_states_provinces.geojson",
+  )
+    .then((r) => r.json())
+    .then((geo: GeoCollection) => {
+      _admin1Cache = geo;
+      return geo;
+    });
+  return _admin1Loading;
+}
+
 function useWorldBorders() {
   const [data, setData] = useState<GeoCollection | null>(_worldCache);
   const [error, setError] = useState(false);
@@ -81,6 +98,34 @@ function useWorldBorders() {
     };
   }, [data]);
   return { data, error };
+}
+
+function useAdmin1(enabled: boolean) {
+  const [data, setData] = useState<GeoCollection | null>(_admin1Cache);
+  useEffect(() => {
+    if (!enabled || data) return;
+    let alive = true;
+    loadAdmin1()
+      .then((d) => {
+        if (alive) setData(d);
+      })
+      .catch(() => {
+        /* fall through — country fill remains */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [enabled, data]);
+  return data;
+}
+
+function normalizeName(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
 function isoOf(feature: GeoFeature): string | null {
@@ -153,6 +198,7 @@ export function WorldMap({
   plannedCountries = [],
   plannedCities = [],
   showPins = true,
+  showSubdivisions = false,
   className,
 }: {
   /** ISO 3166-1 alpha-2 codes of countries the user has visited. */
@@ -164,9 +210,12 @@ export function WorldMap({
   plannedCities?: WorldMapCity[];
   /** Whether to render the city pins at all. */
   showPins?: boolean;
+  /** When true, color admin-1 subdivisions of visited cities instead of whole countries. */
+  showSubdivisions?: boolean;
   className?: string;
 }) {
   const { data: world, error } = useWorldBorders();
+  const admin1 = useAdmin1(showSubdivisions);
   const visitedSet = useMemo(
     () => new Set(visitedCountries.map((c) => c.toUpperCase())),
     [visitedCountries],
@@ -186,6 +235,44 @@ export function WorldMap({
       (p) => !visitedKeys.has(`${p.country}|${p.name.toLowerCase()}`),
     );
   }, [plannedCities, pins]);
+
+  // For each visited city, resolve the admin-1 subdivision name via the
+  // country-state-city library. Build a per-country set of normalized
+  // state names to match against GeoJSON feature names. Countries where
+  // a city couldn't be resolved fall back to whole-country fill so the
+  // visited area is never invisible.
+  const subdivisionIndex = useMemo(() => {
+    const byCountry = new Map<string, Set<string>>();
+    const fallbackCountries = new Set<string>();
+    if (!showSubdivisions) return { byCountry, fallbackCountries };
+    const normCityName = (s: string) =>
+      s
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/\s+(city|town|village)$/i, "")
+        .trim();
+    for (const c of cities) {
+      const iso = (c.country || "").toUpperCase();
+      if (!iso || !c.name) continue;
+      const pool = City.getCitiesOfCountry(iso) ?? [];
+      const needle = normCityName(c.name);
+      const match =
+        pool.find((x) => normCityName(x.name) === needle) ||
+        pool.find((x) => normCityName(x.name).startsWith(needle)) ||
+        pool.find((x) => normCityName(x.name).includes(needle));
+      const stateCode = match?.stateCode;
+      const state = stateCode ? State.getStateByCodeAndCountry(stateCode, iso) : undefined;
+      if (!state?.name) {
+        fallbackCountries.add(iso);
+        continue;
+      }
+      const set = byCountry.get(iso) ?? new Set<string>();
+      set.add(normalizeName(state.name));
+      byCountry.set(iso, set);
+    }
+    return { byCountry, fallbackCountries };
+  }, [showSubdivisions, cities]);
 
   const visitedBounds = useMemo<L.LatLngBoundsExpression | null>(() => {
     if (!world) return null;
@@ -228,11 +315,61 @@ export function WorldMap({
         dashArray: "4 3",
       };
     }
+    // In subdivision mode, only fill the country if it's a fallback
+    // (no matching subdivision found). Otherwise leave country layer
+    // as borders only — the admin1 layer paints the visited regions.
+    if (showSubdivisions) {
+      const fallback = !!iso && visited && subdivisionIndex.fallbackCountries.has(iso);
+      if (fallback) {
+        return {
+          fillColor: "oklch(0.66 0.14 38)",
+          fillOpacity: 0.55,
+          color: "oklch(0.5 0.13 38)",
+          weight: 1,
+        };
+      }
+      return {
+        fillColor: "transparent",
+        fillOpacity: 0,
+        color: "oklch(0.82 0.01 90)",
+        weight: 0.75,
+      };
+    }
     return {
       fillColor: visited ? "oklch(0.66 0.14 38)" : "transparent",
       fillOpacity: visited ? 0.55 : 0,
       color: visited ? "oklch(0.5 0.13 38)" : "oklch(0.82 0.01 90)",
       weight: visited ? 1 : 0.75,
+    };
+  };
+
+  // Admin1 styling: color only subdivisions matching visited cities,
+  // and only when the parent country isn't in the fallback set.
+  const admin1Style = (feature?: GeoFeature) => {
+    const props = (feature?.properties ?? {}) as Record<string, unknown>;
+    const name = typeof props.name === "string" ? (props.name as string) : "";
+    // adm0_a3 is ISO 3166-1 alpha-3; map to alpha-2 via the world borders
+    // dataset isn't readily available here, so compare against visited
+    // entries by trying both: the admin1 dataset also exposes iso_3166_2
+    // (e.g. "IT-52") whose prefix is alpha-2.
+    const iso2 =
+      typeof props.iso_3166_2 === "string" && (props.iso_3166_2 as string).length >= 2
+        ? (props.iso_3166_2 as string).slice(0, 2).toUpperCase()
+        : "";
+    const iso = iso2;
+    const visited =
+      !!iso &&
+      visitedSet.has(iso) &&
+      !subdivisionIndex.fallbackCountries.has(iso) &&
+      (subdivisionIndex.byCountry.get(iso)?.has(normalizeName(name)) ?? false);
+    if (!visited) {
+      return { fillOpacity: 0, opacity: 0, weight: 0 };
+    }
+    return {
+      fillColor: "oklch(0.66 0.14 38)",
+      fillOpacity: 0.6,
+      color: "oklch(0.5 0.13 38)",
+      weight: 0.7,
     };
   };
 
@@ -259,9 +396,16 @@ export function WorldMap({
       <TileLayer url="https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png" />
       {world && (
         <GeoJSON
-          key={`${visitedSet.size}-${plannedSet.size}`}
+          key={`w-${visitedSet.size}-${plannedSet.size}-${showSubdivisions ? 1 : 0}-${subdivisionIndex.fallbackCountries.size}`}
           data={world as never}
           style={style as never}
+        />
+      )}
+      {showSubdivisions && admin1 && (
+        <GeoJSON
+          key={`a1-${visitedSet.size}-${subdivisionIndex.byCountry.size}`}
+          data={admin1 as never}
+          style={admin1Style as never}
         />
       )}
       {showPins &&

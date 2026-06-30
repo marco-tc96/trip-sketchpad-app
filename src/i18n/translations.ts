@@ -137,7 +137,7 @@ const it: Dict = {
   layover: "scalo",
   layovers: "scali",
   direct: "diretto",
-  work_vs_vacation: "Tipologia di vacanza",
+  work_vs_vacation: "Tipologia di viaggio",
   color: "Colore",
   move_photo: "Sposta",
   drag_photo_hint: "Trascina la foto per centrarla",
@@ -145,6 +145,16 @@ const it: Dict = {
   days_to_departure: "{{n}} giorni alla partenza",
   day_to_departure: "{{n}} giorno alla partenza",
   show_pins: "Pin",
+  show_subdivisions: "Province/Regioni",
+  most_visited_continents: "Continenti più visitati",
+  home_country_trips: "Viaggi nel paese d'origine",
+  most_visited_foreign_countries: "Paesi esteri più visitati",
+  continent_europe: "Europa",
+  continent_asia: "Asia",
+  continent_africa: "Africa",
+  continent_north_america: "Nord America",
+  continent_south_america: "Sud America",
+  continent_oceania: "Oceania",
 };
 
 const en: Dict = {
@@ -278,6 +288,16 @@ const en: Dict = {
   days_to_departure: "{{n}} days to departure",
   day_to_departure: "{{n}} day to departure",
   show_pins: "Pins",
+  show_subdivisions: "Regions",
+  most_visited_continents: "Most visited continents",
+  home_country_trips: "Trips in home country",
+  most_visited_foreign_countries: "Most visited foreign countries",
+  continent_europe: "Europe",
+  continent_asia: "Asia",
+  continent_africa: "Africa",
+  continent_north_america: "North America",
+  continent_south_america: "South America",
+  continent_oceania: "Oceania",
 };
 
 // Compact translations: fall back to English keys + light per-language overrides
@@ -394,6 +414,16 @@ const fr = override(en, {
   days_to_departure: "{{n}} jours avant le départ",
   day_to_departure: "{{n}} jour avant le départ",
   show_pins: "Repères",
+  show_subdivisions: "Régions",
+  most_visited_continents: "Continents les plus visités",
+  home_country_trips: "Voyages dans le pays d'origine",
+  most_visited_foreign_countries: "Pays étrangers les plus visités",
+  continent_europe: "Europe",
+  continent_asia: "Asie",
+  continent_africa: "Afrique",
+  continent_north_america: "Amérique du Nord",
+  continent_south_america: "Amérique du Sud",
+  continent_oceania: "Océanie",
 });
 
 const de = override(en, {
@@ -503,6 +533,16 @@ const de = override(en, {
   days_to_departure: "Noch {{n}} Tage bis zur Abreise",
   day_to_departure: "Noch {{n}} Tag bis zur Abreise",
   show_pins: "Pins",
+  show_subdivisions: "Regionen",
+  most_visited_continents: "Meistbesuchte Kontinente",
+  home_country_trips: "Reisen im Heimatland",
+  most_visited_foreign_countries: "Meistbesuchte Länder im Ausland",
+  continent_europe: "Europa",
+  continent_asia: "Asien",
+  continent_africa: "Afrika",
+  continent_north_america: "Nordamerika",
+  continent_south_america: "Südamerika",
+  continent_oceania: "Ozeanien",
 });
 
 const es = override(en, {
@@ -612,6 +652,16 @@ const es = override(en, {
   days_to_departure: "{{n}} días para la salida",
   day_to_departure: "{{n}} día para la salida",
   show_pins: "Pines",
+  show_subdivisions: "Regiones",
+  most_visited_continents: "Continentes más visitados",
+  home_country_trips: "Viajes en el país de origen",
+  most_visited_foreign_countries: "Países extranjeros más visitados",
+  continent_europe: "Europa",
+  continent_asia: "Asia",
+  continent_africa: "África",
+  continent_north_america: "América del Norte",
+  continent_south_america: "América del Sur",
+  continent_oceania: "Oceanía",
 });
 
 const pt = override(en, {
@@ -721,6 +771,16 @@ const pt = override(en, {
   days_to_departure: "{{n}} dias para a partida",
   day_to_departure: "{{n}} dia para a partida",
   show_pins: "Pins",
+  show_subdivisions: "Regiões",
+  most_visited_continents: "Continentes mais visitados",
+  home_country_trips: "Viagens no país de origem",
+  most_visited_foreign_countries: "Países estrangeiros mais visitados",
+  continent_europe: "Europa",
+  continent_asia: "Ásia",
+  continent_africa: "África",
+  continent_north_america: "América do Norte",
+  continent_south_america: "América do Sul",
+  continent_oceania: "Oceania",
 });
 
 const zh = override(en, {
@@ -818,7 +878,6 @@ const zh = override(en, {
   layovers: "经停",
   direct: "直达",
   work_vs_vacation: "行程类型",
-  edit_trip: "编辑行程",
   delete_trip: "删除行程",
   cover_auto: "自动",
   cover_map: "地图",
@@ -831,6 +890,16 @@ const zh = override(en, {
   days_to_departure: "距出发还有 {{n}} 天",
   day_to_departure: "距出发还有 {{n}} 天",
   show_pins: "图钉",
+  show_subdivisions: "地区",
+  most_visited_continents: "最常访问的大洲",
+  home_country_trips: "国内旅行",
+  most_visited_foreign_countries: "最常访问的国家",
+  continent_europe: "欧洲",
+  continent_asia: "亚洲",
+  continent_africa: "非洲",
+  continent_north_america: "北美洲",
+  continent_south_america: "南美洲",
+  continent_oceania: "大洋洲",
 });
 
 const ko = override(en, {
@@ -928,7 +997,6 @@ const ko = override(en, {
   layovers: "경유",
   direct: "직항",
   work_vs_vacation: "여행 유형",
-  edit_trip: "여행 편집",
   delete_trip: "여행 삭제",
   cover_auto: "자동",
   cover_map: "지도",
@@ -941,6 +1009,16 @@ const ko = override(en, {
   days_to_departure: "출발까지 {{n}}일",
   day_to_departure: "출발까지 {{n}}일",
   show_pins: "핀",
+  show_subdivisions: "지역",
+  most_visited_continents: "가장 많이 방문한 대륙",
+  home_country_trips: "자국 여행",
+  most_visited_foreign_countries: "가장 많이 방문한 외국",
+  continent_europe: "유럽",
+  continent_asia: "아시아",
+  continent_africa: "아프리카",
+  continent_north_america: "북미",
+  continent_south_america: "남미",
+  continent_oceania: "오세아니아",
 });
 
 const ja = override(en, {
@@ -1038,7 +1116,6 @@ const ja = override(en, {
   layovers: "経由",
   direct: "直行",
   work_vs_vacation: "旅行タイプ",
-  edit_trip: "旅行を編集",
   delete_trip: "旅行を削除",
   cover_auto: "自動",
   cover_map: "地図",
@@ -1051,6 +1128,16 @@ const ja = override(en, {
   days_to_departure: "出発まであと{{n}}日",
   day_to_departure: "出発まであと{{n}}日",
   show_pins: "ピン",
+  show_subdivisions: "地域",
+  most_visited_continents: "よく訪れた大陸",
+  home_country_trips: "自国の旅行",
+  most_visited_foreign_countries: "よく訪れた外国",
+  continent_europe: "ヨーロッパ",
+  continent_asia: "アジア",
+  continent_africa: "アフリカ",
+  continent_north_america: "北アメリカ",
+  continent_south_america: "南アメリカ",
+  continent_oceania: "オセアニア",
 });
 
 export const TRANSLATIONS: Record<Lang, Dict> = { it, en, fr, de, es, pt, zh, ko, ja };
