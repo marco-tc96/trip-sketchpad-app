@@ -1022,7 +1022,11 @@ function TimezoneBadge({
       }).formatToParts(d);
       const long = longParts.find((p) => p.type === "timeZoneName")?.value ?? "";
       if (!long) return null;
-      const acronym = long
+      // Remove "Standard" so "Central European Standard Time" → "CET"
+      // while "Central European Summer Time" → "CEST" is preserved.
+      // Without this, both map to "CEST" because "Standard" starts with "S".
+      const filtered = long.replace(/\bStandard\b\s*/i, "");
+      const acronym = filtered
         .split(/\s+/)
         .filter((w) => /^[A-Z]/.test(w))
         .map((w) => w[0])
