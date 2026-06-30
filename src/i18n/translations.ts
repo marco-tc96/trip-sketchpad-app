@@ -811,7 +811,6 @@ const zh = override(en, {
   layover: "经停",
   layovers: "经停",
   direct: "直达",
-<<<<<<< HEAD
   work_vs_vacation: "行程类型",
   edit_trip: "编辑行程",
   delete_trip: "删除行程",
@@ -825,9 +824,6 @@ const zh = override(en, {
   done: "完成",
   days_to_departure: "距出发还有 {{n}} 天",
   day_to_departure: "距出发还有 {{n}} 天",
-=======
-  work_vs_vacation: "出差与度假",
->>>>>>> 40a6c60496f35db6eb087019f5f03c01710c26e1
 });
 
 const ko = override(en, {
