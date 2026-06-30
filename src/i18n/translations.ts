@@ -857,8 +857,6 @@ const ko = override(en, {
   layovers: "경유",
   direct: "직항",
   work_vs_vacation: "출장 vs 휴가",
-  edit_trip: "여행 편집",
-  delete_trip: "여행 삭제",
 });
 
 const ja = override(en, {
