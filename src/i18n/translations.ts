@@ -137,7 +137,7 @@ const it: Dict = {
   layover: "scalo",
   layovers: "scali",
   direct: "diretto",
-  work_vs_vacation: "Tipologia di vacanza",
+  work_vs_vacation: "Tipologia di viaggio",
   color: "Colore",
   move_photo: "Sposta",
   drag_photo_hint: "Trascina la foto per centrarla",
@@ -145,6 +145,16 @@ const it: Dict = {
   days_to_departure: "{{n}} giorni alla partenza",
   day_to_departure: "{{n}} giorno alla partenza",
   show_pins: "Pin",
+  show_subdivisions: "Province/Regioni",
+  most_visited_continents: "Continenti più visitati",
+  home_country_trips: "Viaggi nel paese d'origine",
+  most_visited_foreign_countries: "Paesi esteri più visitati",
+  continent_europe: "Europa",
+  continent_asia: "Asia",
+  continent_africa: "Africa",
+  continent_north_america: "Nord America",
+  continent_south_america: "Sud America",
+  continent_oceania: "Oceania",
 };
 
 const en: Dict = {
@@ -278,6 +288,16 @@ const en: Dict = {
   days_to_departure: "{{n}} days to departure",
   day_to_departure: "{{n}} day to departure",
   show_pins: "Pins",
+  show_subdivisions: "Regions",
+  most_visited_continents: "Most visited continents",
+  home_country_trips: "Trips in home country",
+  most_visited_foreign_countries: "Most visited foreign countries",
+  continent_europe: "Europe",
+  continent_asia: "Asia",
+  continent_africa: "Africa",
+  continent_north_america: "North America",
+  continent_south_america: "South America",
+  continent_oceania: "Oceania",
 };
 
 // Compact translations: fall back to English keys + light per-language overrides
@@ -394,6 +414,16 @@ const fr = override(en, {
   days_to_departure: "{{n}} jours avant le départ",
   day_to_departure: "{{n}} jour avant le départ",
   show_pins: "Repères",
+  show_subdivisions: "Régions",
+  most_visited_continents: "Continents les plus visités",
+  home_country_trips: "Voyages dans le pays d'origine",
+  most_visited_foreign_countries: "Pays étrangers les plus visités",
+  continent_europe: "Europe",
+  continent_asia: "Asie",
+  continent_africa: "Afrique",
+  continent_north_america: "Amérique du Nord",
+  continent_south_america: "Amérique du Sud",
+  continent_oceania: "Océanie",
 });
 
 const de = override(en, {
