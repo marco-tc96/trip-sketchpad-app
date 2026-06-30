@@ -80,11 +80,12 @@ const it: Dict = {
   day: "Giorno",
   duration: "Durata",
   nights: "giorni",
-  trip_type: "Tipo di viaggio",
+  trip_type: "Tipologia di viaggio",
   vacation: "Vacanza",
   business: "Lavoro",
   daytrip: "Gita",
   edit_trip: "Modifica viaggio",
+  delete_trip: "Cancella viaggio",
   loading: "Caricamento...",
   welcome_back: "Bentornato",
   start_planning: "Inizia a pianificare il tuo prossimo viaggio",
@@ -210,6 +211,7 @@ const en: Dict = {
   business: "Business",
   daytrip: "Day trip",
   edit_trip: "Edit trip",
+  delete_trip: "Delete trip",
   loading: "Loading...",
   welcome_back: "Welcome back",
   start_planning: "Start planning your next trip",
@@ -339,6 +341,7 @@ const fr = override(en, {
   business: "D'affaires",
   daytrip: "Excursion",
   edit_trip: "Modifier le voyage",
+  delete_trip: "Supprimer le voyage",
   loading: "Chargement...",
   welcome_back: "Bon retour",
   start_planning: "Planifiez votre prochain voyage",
@@ -436,6 +439,7 @@ const de = override(en, {
   business: "Geschäftsreise",
   daytrip: "Tagesausflug",
   edit_trip: "Reise bearbeiten",
+  delete_trip: "Reise löschen",
   loading: "Lädt...",
   welcome_back: "Willkommen zurück",
   start_planning: "Plane deine nächste Reise",
@@ -533,6 +537,7 @@ const es = override(en, {
   business: "Negocios",
   daytrip: "Excursión",
   edit_trip: "Editar viaje",
+  delete_trip: "Eliminar viaje",
   loading: "Cargando...",
   welcome_back: "Bienvenido de nuevo",
   start_planning: "Planea tu próximo viaje",
@@ -630,6 +635,7 @@ const pt = override(en, {
   business: "Negócios",
   daytrip: "Excursão",
   edit_trip: "Editar viagem",
+  delete_trip: "Eliminar viagem",
   loading: "A carregar...",
   welcome_back: "Bem-vindo de volta",
   start_planning: "Planeie a próxima viagem",
@@ -754,6 +760,8 @@ const zh = override(en, {
   layovers: "经停",
   direct: "直达",
   work_vs_vacation: "出差与度假",
+  edit_trip: "编辑行程",
+  delete_trip: "删除行程",
 });
 
 const ko = override(en, {
@@ -851,6 +859,8 @@ const ko = override(en, {
   layovers: "경유",
   direct: "직항",
   work_vs_vacation: "출장 vs 휴가",
+  edit_trip: "여행 편집",
+  delete_trip: "여행 삭제",
 });
 
 const ja = override(en, {
@@ -948,6 +958,8 @@ const ja = override(en, {
   layovers: "経由",
   direct: "直行",
   work_vs_vacation: "出張 vs 休暇",
+  edit_trip: "旅行を編集",
+  delete_trip: "旅行を削除",
 });
 
 export const TRANSLATIONS: Record<Lang, Dict> = { it, en, fr, de, es, pt, zh, ko, ja };

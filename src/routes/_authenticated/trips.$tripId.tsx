@@ -49,17 +49,23 @@ function TripLayout() {
   const [editOpen, setEditOpen] = useState(false);
   const [coverMenuOpen, setCoverMenuOpen] = useState(false);
   const [focal, setFocal] = useState<string>("50% 50%");
+  const [zoom, setZoom] = useState<number>(1);
   const [repositioning, setRepositioning] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const titleSentinelRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const row = trip.data as { cover_type?: string; cover_bg?: string | null } | undefined;
     if (!row) return;
-    if (row.cover_type === "photo" && row.cover_bg && /^\d+(\.\d+)?%\s+\d+(\.\d+)?%$/.test(row.cover_bg)) {
-      setFocal(row.cover_bg);
-    } else {
-      setFocal("50% 50%");
+    if (row.cover_type === "photo" && row.cover_bg) {
+      const m = row.cover_bg.match(/^(\d+(?:\.\d+)?%\s+\d+(?:\.\d+)?%)(?:\s+scale\((\d+(?:\.\d+)?)\))?$/);
+      if (m) {
+        setFocal(m[1]);
+        setZoom(m[2] ? parseFloat(m[2]) : 1);
+        return;
+      }
     }
+    setFocal("50% 50%");
+    setZoom(1);
   }, [trip.data]);
   useEffect(() => {
     const root = document.querySelector<HTMLElement>("[data-trip-scroller]");
@@ -158,10 +164,12 @@ function TripLayout() {
   ];
 
   const isPhoto = coverType === "photo";
-  async function saveFocal(next: string) {
+  async function saveFocalAndZoom(nextFocal: string, nextZoom: number) {
     if (!isPhoto) return;
     try {
-      await updateFn({ data: { id: tripId, patch: { cover_bg: next } } });
+      const z = Math.round(nextZoom * 100) / 100;
+      const value = z !== 1 ? `${nextFocal} scale(${z})` : nextFocal;
+      await updateFn({ data: { id: tripId, patch: { cover_bg: value } } });
       qc.invalidateQueries({ queryKey: ["trip", tripId] });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t("error_generic"));
@@ -194,7 +202,9 @@ function TripLayout() {
           setSignedPhoto={setSignedPhoto}
           focal={focal}
           onFocalChange={setFocal}
-          onCommit={saveFocal}
+          zoom={zoom}
+          onZoomChange={setZoom}
+          onCommit={saveFocalAndZoom}
           repositioning={repositioning}
           onDone={() => setRepositioning(false)}
         />
@@ -267,6 +277,32 @@ function TripLayout() {
                 active={coverType === "color"}
                 current={tripRow.cover_bg}
                 onPick={(bg) => setCoverBg(bg)}
+              />
+              <div className="my-1 h-px bg-border/60" aria-hidden />
+              <CoverMenuRow
+                active={false}
+                onClick={() => {
+                  setCoverMenuOpen(false);
+                  setEditOpen(true);
+                }}
+                icon={Pencil}
+                label={t("edit_trip")}
+              />
+              <CoverMenuRow
+                active={false}
+                onClick={async () => {
+                  setCoverMenuOpen(false);
+                  if (!confirm(t("delete_confirm"))) return;
+                  try {
+                    await delFn({ data: { id: tripId } });
+                    qc.invalidateQueries({ queryKey: ["trips"] });
+                    nav({ to: "/trips" });
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : t("error_generic"));
+                  }
+                }}
+                icon={Trash2}
+                label={t("delete_trip")}
               />
             </div>
           </PopoverContent>
@@ -361,11 +397,11 @@ function TripLayout() {
 
         <header
           className={cn(
-            "flex flex-col gap-3 rounded-3xl border border-border/50 bg-background/70 p-4 shadow-soft backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:gap-4",
+            "flex flex-col items-center gap-3 rounded-3xl border border-border/50 bg-background/70 p-4 text-center shadow-soft backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:text-left",
             hasReservedSpace ? "mt-3 mb-6" : "mt-3 mb-10",
           )}
         >
-        <div className="flex min-w-0 items-center gap-3">
+        <div className="flex min-w-0 flex-col items-center gap-3 sm:flex-row sm:items-center">
           <span className="relative grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-secondary text-3xl">
             {trip.data.cover_emoji ?? "✈️"}
             <span
@@ -380,54 +416,39 @@ function TripLayout() {
             </span>
           </span>
           <div className="min-w-0">
-            <h1 className="truncate font-serif text-2xl font-bold tracking-tight sm:text-3xl">
+            {/* No truncate / no single-line clamp here: long titles now
+                wrap onto multiple lines on narrow (mobile) viewports
+                instead of being cut off mid-word. */}
+            <h1 className="font-serif text-2xl font-bold tracking-tight sm:text-3xl">
               {trip.data.title}
             </h1>
-            <p className="text-sm text-muted-foreground line-clamp-2">
+            <p className="text-sm text-muted-foreground">
               {[citiesLabel, localizedCountries].filter(Boolean).join(", ")}
             </p>
-            <p className="truncate text-xs text-muted-foreground/80">
+            <p className="text-xs text-muted-foreground/80">
               {fmt(trip.data.start_date)} → {fmt(trip.data.end_date)}
             </p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2 sm:flex-nowrap">
-          {profile.data && (
-            <div className="flex flex-col items-end gap-1">
-              <FxAverageWidget
-                from={profile.data.home_currency}
-                to={trip.data.local_currency}
-                start={trip.data.start_date}
-                end={trip.data.end_date}
-                fallback={trip.data.fx_rate_fallback}
-              />
-              <TimezoneBadge
-                home={(profile.data as { home_country?: string | null }).home_country ?? null}
-                destinations={countries}
-                startDate={trip.data.start_date}
-              />
-            </div>
-          )}
-          <Button variant="ghost" size="icon" onClick={() => setEditOpen(true)} aria-label={t("edit_trip")}>
-            <Pencil className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={async () => {
-              if (!confirm(t("delete_confirm"))) return;
-              try {
-                await delFn({ data: { id: tripId } });
-                qc.invalidateQueries({ queryKey: ["trips"] });
-                nav({ to: "/trips" });
-              } catch (e) {
-                toast.error(e instanceof Error ? e.message : t("error_generic"));
-              }
-            }}
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        </div>
+        {profile.data && (
+          // Centered as its own block on mobile (not pinned to the right
+          // edge next to action icons, which have moved into the
+          // hamburger menu), still right-aligned on wider screens.
+          <div className="flex flex-col items-center gap-1 sm:items-end">
+            <FxAverageWidget
+              from={profile.data.home_currency}
+              to={trip.data.local_currency}
+              start={trip.data.start_date}
+              end={trip.data.end_date}
+              fallback={trip.data.fx_rate_fallback}
+            />
+            <TimezoneBadge
+              home={(profile.data as { home_country?: string | null }).home_country ?? null}
+              destinations={countries}
+              startDate={trip.data.start_date}
+            />
+          </div>
+        )}
       </header>
         <div ref={titleSentinelRef} aria-hidden className="h-px w-full" />
         </section>
@@ -943,6 +964,8 @@ function FullScreenPhoto({
   setSignedPhoto,
   focal,
   onFocalChange,
+  zoom,
+  onZoomChange,
   onCommit,
   repositioning,
   onDone,
@@ -953,7 +976,9 @@ function FullScreenPhoto({
   setSignedPhoto: (v: string | null) => void;
   focal: string;
   onFocalChange: (v: string) => void;
-  onCommit: (v: string) => void;
+  zoom: number;
+  onZoomChange: (v: number) => void;
+  onCommit: (focal: string, zoom: number) => void;
   repositioning: boolean;
   onDone: () => void;
 }) {
@@ -975,6 +1000,9 @@ function FullScreenPhoto({
   const src = signedPhoto || (coverUrl && /^https?:\/\//i.test(coverUrl) ? coverUrl : null);
   const startRef = useRef<{ x: number; y: number; fx: number; fy: number } | null>(null);
   const [dragging, setDragging] = useState(false);
+  const ZOOM_MIN = 1;
+  const ZOOM_MAX = 2.5;
+  const ZOOM_STEP = 0.15;
 
   function parseFocal(v: string): { x: number; y: number } {
     const m = v.match(/(-?\d+(?:\.\d+)?)%\s+(-?\d+(?:\.\d+)?)%/);
@@ -1003,7 +1031,13 @@ function FullScreenPhoto({
     (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId);
     startRef.current = null;
     setDragging(false);
-    onCommit(focal);
+    onCommit(focal, zoom);
+  }
+
+  function adjustZoom(delta: number) {
+    const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.round((zoom + delta) * 100) / 100));
+    onZoomChange(next);
+    onCommit(focal, next);
   }
 
   if (!src) {
@@ -1028,8 +1062,8 @@ function FullScreenPhoto({
           src={src}
           alt=""
           draggable={false}
-          className="pointer-events-none h-full w-full object-cover"
-          style={{ objectPosition: focal }}
+          className="pointer-events-none h-full w-full object-cover transition-transform duration-150"
+          style={{ objectPosition: focal, transform: zoom !== 1 ? `scale(${zoom})` : undefined }}
         />
         <div
           aria-hidden
@@ -1041,13 +1075,39 @@ function FullScreenPhoto({
         />
       </div>
       {repositioning && (
-        <div className="fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 flex items-center gap-2 rounded-full bg-black/70 px-3 py-1.5 text-[12px] text-white backdrop-blur">
+        // Positioned well above the BottomDock (which sits near the very
+        // bottom of the viewport, plus its own safe-area padding) instead
+        // of right at bottom-6, which used to land underneath/behind it.
+        // Includes zoom controls alongside the existing drag-to-pan hint.
+        <div
+          className="fixed left-1/2 z-[60] flex -translate-x-1/2 items-center gap-2 rounded-full bg-black/70 px-3 py-1.5 text-[12px] text-white backdrop-blur"
+          style={{ bottom: "calc(5.5rem + env(safe-area-inset-bottom, 0px))" }}
+        >
           <Move className="h-3.5 w-3.5" />
-          <span>Trascina la foto per centrarla</span>
+          <span className="hidden sm:inline">Trascina la foto per centrarla</span>
+          <span className="mx-1 h-4 w-px bg-white/25" />
+          <button
+            type="button"
+            onClick={() => adjustZoom(-ZOOM_STEP)}
+            disabled={zoom <= ZOOM_MIN}
+            aria-label="Rimpicciolisci"
+            className="grid h-6 w-6 place-items-center rounded-full bg-white/15 text-sm font-semibold hover:bg-white/25 disabled:opacity-30"
+          >
+            −
+          </button>
+          <button
+            type="button"
+            onClick={() => adjustZoom(ZOOM_STEP)}
+            disabled={zoom >= ZOOM_MAX}
+            aria-label="Ingrandisci"
+            className="grid h-6 w-6 place-items-center rounded-full bg-white/15 text-sm font-semibold hover:bg-white/25 disabled:opacity-30"
+          >
+            +
+          </button>
           <button
             type="button"
             onClick={onDone}
-            className="ml-2 rounded-full bg-white/15 px-2.5 py-0.5 text-xs font-medium text-white hover:bg-white/25"
+            className="ml-1 rounded-full bg-white/15 px-2.5 py-0.5 text-xs font-medium text-white hover:bg-white/25"
           >
             Fatto
           </button>
