@@ -9,7 +9,8 @@ import { createTrip } from "@/lib/trips.functions";
 import { getProfile } from "@/lib/profile.functions";
 import {
   allCountries,
-  citiesOfCountry,
+  useCitiesOfCountry,
+  geocodeCity,
   countryByIso,
   currencyForCountryAt,
   flagOf,
@@ -94,13 +95,21 @@ function NewTrip() {
   }
 
   function toggleCity(c: CityPick) {
+    const key = `${c.country}|${c.name}`;
     setPickedCities((cs) => {
-      const key = `${c.country}|${c.name}`;
       const exists = cs.some((x) => `${x.country}|${x.name}` === key);
-      return exists
-        ? cs.filter((x) => `${x.country}|${x.name}` !== key)
-        : [...cs, c];
+      if (exists) return cs.filter((x) => `${x.country}|${x.name}` !== key);
+      return [...cs, c]; // add immediately (coordinates filled in below)
     });
+    // Geocode in the background to attach lat/lng for world map pins.
+    if (typeof c.lat !== "number" || typeof c.lng !== "number") {
+      geocodeCity(c.name, c.country).then((coords) => {
+        if (!coords) return;
+        setPickedCities((cs) =>
+          cs.map((x) => `${x.country}|${x.name}` === key ? { ...x, ...coords } : x),
+        );
+      }).catch(() => { /* coordinates are optional */ });
+    }
   }
 
   async function submit(e: React.FormEvent) {
@@ -412,13 +421,8 @@ function CityPicker({
   const [query, setQuery] = useState("");
   const multi = countries.length > 1;
 
-  const cities = useMemo(() => {
-    const out: { name: string; country: string; flag: string; lat?: number; lng?: number }[] = [];
-    for (const iso of countries) {
-      for (const c of citiesOfCountry(iso)) out.push(c);
-    }
-    return out;
-  }, [countries]);
+  // Reactive: re-renders automatically as cities load from the API
+  const cities = useCitiesOfCountry(countries);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -464,7 +468,9 @@ function CityPicker({
           />
           <CommandList className="max-h-72">
             {filtered.length === 0 && !canAddCustom && (
-              <CommandEmpty>Nessuna città</CommandEmpty>
+              <CommandEmpty>
+                {cities.length === 0 ? "Caricamento città…" : "Nessuna città"}
+              </CommandEmpty>
             )}
             {canAddCustom && (
               <CommandGroup heading="Aggiungi">
@@ -486,12 +492,12 @@ function CityPicker({
                       key={key}
                       value={key}
                       onSelect={() =>
-                      onToggle({
-                        name: c.name,
-                        country: c.country,
-                        lat: c.lat,
-                        lng: c.lng,
-                      })
+                        onToggle({
+                          name: c.name,
+                          country: c.country,
+                          lat: c.lat,
+                          lng: c.lng,
+                        })
                       }
                     >
                       <Check

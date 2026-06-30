@@ -21,9 +21,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "@tanstack/react-router";
-import { countryNameLocalized, citiesOfCountry, flagOf, localizedCountries, cityNameLocalized } from "@/lib/country-data";
+import { countryNameLocalized, citiesOfCountry, flagOf, localizedCountries, cityNameLocalized, primaryTimezoneOfCountry } from "@/lib/country-data";
 import { flagGradient } from "@/lib/flag-gradient";
-import { Country } from "country-state-city";
 
 export const Route = createFileRoute("/_authenticated/trips/$tripId")({
   component: TripLayout,
@@ -978,10 +977,7 @@ function TimezoneBadge({
   if (!home || destinations.length === 0) return null;
   const dest = destinations[0];
   if (dest.toUpperCase() === home.toUpperCase()) return null;
-  const zoneOf = (iso: string) => {
-    const c = Country.getCountryByCode(iso);
-    return c?.timezones?.[0]?.zoneName ?? null;
-  };
+  const zoneOf = (iso: string) => primaryTimezoneOfCountry(iso);
   const homeZone = zoneOf(home);
   const destZone = zoneOf(dest);
   if (!homeZone || !destZone) return null;
