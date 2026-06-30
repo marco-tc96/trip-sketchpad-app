@@ -145,7 +145,7 @@ const it: Dict = {
   days_to_departure: "{{n}} giorni alla partenza",
   day_to_departure: "{{n}} giorno alla partenza",
   show_pins: "Pin",
-  show_subdivisions: "Province/Regioni",
+  show_subdivisions: "Paesi/Regioni",
   most_visited_continents: "Continenti più visitati",
   home_country_trips: "Viaggi nel paese d'origine",
   most_visited_foreign_countries: "Paesi esteri più visitati",

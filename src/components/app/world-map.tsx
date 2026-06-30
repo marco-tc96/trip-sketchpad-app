@@ -122,19 +122,59 @@ function isoOf(feature: GeoFeature): string | null {
   return null;
 }
 
+// Comprehensive ISO 3166-1 alpha-3 → alpha-2 mapping (Natural Earth adm0_a3 field).
+// This is the reliable fallback when iso_3166_2 and hasc are empty/"-99".
+const A3_TO_A2: Record<string, string> = {
+  AFG:"AF",AGO:"AO",ALB:"AL",AND:"AD",ARE:"AE",ARG:"AR",ARM:"AM",ATG:"AG",AUS:"AU",AUT:"AT",
+  AZE:"AZ",BDI:"BI",BEL:"BE",BEN:"BJ",BFA:"BF",BGD:"BD",BGR:"BG",BHR:"BH",BHS:"BS",BIH:"BA",
+  BLR:"BY",BLZ:"BZ",BOL:"BO",BRA:"BR",BRB:"BB",BRN:"BN",BTN:"BT",BWA:"BW",CAF:"CF",CAN:"CA",
+  CHE:"CH",CHL:"CL",CHN:"CN",CIV:"CI",CMR:"CM",COD:"CD",COG:"CG",COL:"CO",COM:"KM",CPV:"CV",
+  CRI:"CR",CUB:"CU",CYP:"CY",CZE:"CZ",DEU:"DE",DJI:"DJ",DMA:"DM",DNK:"DK",DOM:"DO",DZA:"DZ",
+  ECU:"EC",EGY:"EG",ERI:"ER",ESP:"ES",EST:"EE",ETH:"ET",FIN:"FI",FJI:"FJ",FRA:"FR",FSM:"FM",
+  GAB:"GA",GBR:"GB",GEO:"GE",GHA:"GH",GIN:"GN",GMB:"GM",GNB:"GW",GNQ:"GQ",GRC:"GR",GRD:"GD",
+  GTM:"GT",GUY:"GY",HND:"HN",HRV:"HR",HTI:"HT",HUN:"HU",IDN:"ID",IND:"IN",IRL:"IE",IRN:"IR",
+  IRQ:"IQ",ISL:"IS",ISR:"IL",ITA:"IT",JAM:"JM",JOR:"JO",JPN:"JP",KAZ:"KZ",KEN:"KE",KGZ:"KG",
+  KHM:"KH",KIR:"KI",KNA:"KN",KOR:"KR",KWT:"KW",LAO:"LA",LBN:"LB",LBR:"LR",LBY:"LY",LCA:"LC",
+  LIE:"LI",LKA:"LK",LSO:"LS",LTU:"LT",LUX:"LU",LVA:"LV",MAR:"MA",MCO:"MC",MDA:"MD",MDG:"MG",
+  MDV:"MV",MEX:"MX",MHL:"MH",MKD:"MK",MLI:"ML",MLT:"MT",MMR:"MM",MNE:"ME",MNG:"MN",MOZ:"MZ",
+  MRT:"MR",MUS:"MU",MWI:"MW",MYS:"MY",NAM:"NA",NER:"NE",NGA:"NG",NIC:"NI",NLD:"NL",NOR:"NO",
+  NPL:"NP",NRU:"NR",NZL:"NZ",OMN:"OM",PAK:"PK",PAN:"PA",PER:"PE",PHL:"PH",PLW:"PW",PNG:"PG",
+  POL:"PL",PRI:"PR",PRK:"KP",PRT:"PT",PRY:"PY",PSE:"PS",QAT:"QA",ROM:"RO",ROU:"RO",RUS:"RU",
+  RWA:"RW",SAU:"SA",SDN:"SD",SEN:"SN",SGP:"SG",SLB:"SB",SLE:"SL",SLV:"SV",SMR:"SM",SOM:"SO",
+  SRB:"RS",SSD:"SS",STP:"ST",SUR:"SR",SVK:"SK",SVN:"SI",SWE:"SE",SWZ:"SZ",SYC:"SC",SYR:"SY",
+  TCD:"TD",TGO:"TG",THA:"TH",TJK:"TJ",TKM:"TM",TLS:"TL",TON:"TO",TTO:"TT",TUN:"TN",TUR:"TR",
+  TUV:"TV",TZA:"TZ",UGA:"UG",UKR:"UA",URY:"UY",USA:"US",UZB:"UZ",VAT:"VA",VCT:"VC",VEN:"VE",
+  VNM:"VN",VUT:"VU",WSM:"WS",YEM:"YE",ZAF:"ZA",ZMB:"ZM",ZWE:"ZW",
+  // territories / special cases
+  ABW:"AW",AIA:"AI",ALA:"AX",ANT:"AN",ASM:"AS",ATA:"AQ",ATF:"TF",BES:"BQ",BLM:"BL",BMU:"BM",
+  BVT:"BV",CCK:"CC",COK:"CK",CUW:"CW",CXR:"CX",CYM:"KY",ESH:"EH",FLK:"FK",FRO:"FO",GGY:"GG",
+  GIB:"GI",GLP:"GP",GRL:"GL",GUF:"GF",GUM:"GU",HKG:"HK",HMD:"HM",IMN:"IM",IOT:"IO",JEY:"JE",
+  MAC:"MO",MAF:"MF",MNP:"MP",MSR:"MS",MTQ:"MQ",MYT:"YT",NCL:"NC",NFK:"NF",NIU:"NU",PCN:"PN",
+  PYF:"PF",REU:"RE",SGS:"GS",SHN:"SH",SJM:"SJ",SPM:"PM",SXM:"SX",TCA:"TC",TKL:"TK",UMI:"UM",
+  VGB:"VG",VIR:"VI",WLF:"WF",WSM:"WS",
+  // Kosovo
+  XKX:"XK",
+};
+
 // Extract 2-letter country ISO from an admin-1 feature (iso_3166_2 "IT-52" → "IT").
 function countryIsoOfAdmin1(feature: GeoFeature): string | null {
   const props = feature.properties ?? {};
+  // 1. iso_3166_2 field: "IT-52" → "IT"
   const raw3166 = (props.iso_3166_2 as string) ?? "";
   const parts = raw3166.split("-");
   if (parts.length >= 2 && parts[0].length === 2 && raw3166 !== "-99") {
     return parts[0].toUpperCase();
   }
-  // Fallback: hasc field ("IT.TOS" → "IT")
+  // 2. hasc field: "IT.TOS" → "IT"
   const hasc = (props.hasc as string) ?? "";
   const hp = hasc.split(".");
-  if (hp.length >= 2 && hp[0].length === 2) {
+  if (hp.length >= 2 && hp[0].length === 2 && hp[0] !== "-9") {
     return hp[0].toUpperCase();
+  }
+  // 3. adm0_a3 field (always present in Natural Earth): "ITA" → "IT"
+  const a3 = ((props.adm0_a3 as string) ?? "").trim();
+  if (a3 && a3 !== "-99" && a3.length === 3) {
+    return A3_TO_A2[a3] ?? null;
   }
   return null;
 }
