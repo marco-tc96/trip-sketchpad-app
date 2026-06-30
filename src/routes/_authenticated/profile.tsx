@@ -30,32 +30,6 @@ export const Route = createFileRoute("/_authenticated/profile")({
 type Trip = Awaited<ReturnType<typeof listTrips>>[number];
 type City = { name: string; country: string };
 
-const CONTINENT_BY_ISO: Record<string, string> = {
-  IT:"Europe", FR:"Europe", DE:"Europe", ES:"Europe", PT:"Europe", GB:"Europe", NL:"Europe", BE:"Europe", CH:"Europe", AT:"Europe", PL:"Europe", SE:"Europe", NO:"Europe", DK:"Europe", FI:"Europe", GR:"Europe", CZ:"Europe", HU:"Europe", RO:"Europe", BG:"Europe", HR:"Europe", SK:"Europe", SI:"Europe", LT:"Europe", LV:"Europe", EE:"Europe", LU:"Europe", MT:"Europe", CY:"Europe", IE:"Europe", IS:"Europe", AL:"Europe", RS:"Europe", BA:"Europe", ME:"Europe", MK:"Europe", MD:"Europe", BY:"Europe", UA:"Europe", RU:"Europe", LI:"Europe", MC:"Europe", SM:"Europe", VA:"Europe", AD:"Europe", XK:"Europe",
-  CN:"Asia", JP:"Asia", IN:"Asia", KR:"Asia", TH:"Asia", VN:"Asia", ID:"Asia", MY:"Asia", SG:"Asia", PH:"Asia", TW:"Asia", HK:"Asia", MO:"Asia", TR:"Asia", SA:"Asia", AE:"Asia", IL:"Asia", JO:"Asia", LB:"Asia", KW:"Asia", QA:"Asia", BH:"Asia", OM:"Asia", IQ:"Asia", IR:"Asia", SY:"Asia", YE:"Asia", AF:"Asia", PK:"Asia", BD:"Asia", LK:"Asia", NP:"Asia", BT:"Asia", MM:"Asia", KH:"Asia", LA:"Asia", MN:"Asia", KZ:"Asia", UZ:"Asia", TM:"Asia", TJ:"Asia", KG:"Asia", AZ:"Asia", AM:"Asia", GE:"Asia", PS:"Asia", TL:"Asia",
-  NG:"Africa", EG:"Africa", ZA:"Africa", KE:"Africa", ET:"Africa", GH:"Africa", TZ:"Africa", MA:"Africa", DZ:"Africa", AO:"Africa", CM:"Africa", CI:"Africa", SN:"Africa", MG:"Africa", MZ:"Africa", ZM:"Africa", ZW:"Africa", TN:"Africa", LY:"Africa", SD:"Africa", SS:"Africa", UG:"Africa", CD:"Africa", CG:"Africa", GA:"Africa", BF:"Africa", ML:"Africa", NE:"Africa", TD:"Africa", SO:"Africa", ER:"Africa", DJ:"Africa", RW:"Africa", BI:"Africa", MW:"Africa", NA:"Africa", BW:"Africa", LS:"Africa", SZ:"Africa", MR:"Africa", GM:"Africa", GN:"Africa", SL:"Africa", LR:"Africa", GW:"Africa", BJ:"Africa", TG:"Africa", GQ:"Africa", CF:"Africa", CV:"Africa", ST:"Africa", KM:"Africa", MU:"Africa", SC:"Africa",
-  US:"North America", CA:"North America", MX:"North America", GT:"North America", BZ:"North America", SV:"North America", HN:"North America", NI:"North America", CR:"North America", PA:"North America", CU:"North America", JM:"North America", HT:"North America", DO:"North America", TT:"North America", BB:"North America", LC:"North America", VC:"North America", GD:"North America", AG:"North America", DM:"North America", KN:"North America",
-  BR:"South America", AR:"South America", CL:"South America", CO:"South America", PE:"South America", VE:"South America", EC:"South America", BO:"South America", PY:"South America", UY:"South America", GY:"South America", SR:"South America",
-  AU:"Oceania", NZ:"Oceania", PG:"Oceania", FJ:"Oceania", SB:"Oceania", VU:"Oceania", WS:"Oceania", TO:"Oceania", KI:"Oceania", FM:"Oceania", PW:"Oceania", MH:"Oceania", NR:"Oceania", TV:"Oceania",
-};
-
-const CONTINENT_KEY: Record<string, string> = {
-  "Europe": "continent_europe",
-  "Asia": "continent_asia",
-  "Africa": "continent_africa",
-  "North America": "continent_north_america",
-  "South America": "continent_south_america",
-  "Oceania": "continent_oceania",
-};
-
-function getCities(t: Trip): City[] {
-  const raw = (t as unknown as { cities?: unknown }).cities;
-  if (!Array.isArray(raw)) return [];
-  return raw.filter(
-    (c): c is City => !!c && typeof c === "object" && typeof (c as City).name === "string",
-  );
-}
-
 // ---- Continent lookup ----
 const CONTINENT_BY_ISO: Record<string, string> = {
   // Europe
@@ -111,38 +85,21 @@ const CONTINENT_BY_ISO: Record<string, string> = {
   NR: "Oceania", TV: "Oceania",
 };
 
-const CONTINENT_TRANSLATIONS: Record<string, Record<string, string>> = {
-  Europe: {
-    it: "Europa", en: "Europe", fr: "Europe", de: "Europa",
-    es: "Europa", pt: "Europa", zh: "欧洲", ko: "유럽", ja: "ヨーロッパ",
-  },
-  Asia: {
-    it: "Asia", en: "Asia", fr: "Asie", de: "Asien",
-    es: "Asia", pt: "Ásia", zh: "亚洲", ko: "아시아", ja: "アジア",
-  },
-  Africa: {
-    it: "Africa", en: "Africa", fr: "Afrique", de: "Afrika",
-    es: "África", pt: "África", zh: "非洲", ko: "아프리카", ja: "アフリカ",
-  },
-  "North America": {
-    it: "America del Nord", en: "North America", fr: "Amérique du Nord",
-    de: "Nordamerika", es: "América del Norte", pt: "América do Norte",
-    zh: "北美洲", ko: "북아메리카", ja: "北アメリカ",
-  },
-  "South America": {
-    it: "America del Sud", en: "South America", fr: "Amérique du Sud",
-    de: "Südamerika", es: "América del Sur", pt: "América do Sul",
-    zh: "南美洲", ko: "남아메리카", ja: "南アメリカ",
-  },
-  Oceania: {
-    it: "Oceania", en: "Oceania", fr: "Océanie", de: "Ozeanien",
-    es: "Oceanía", pt: "Oceania", zh: "大洋洲", ko: "오세아니아", ja: "オセアニア",
-  },
+const CONTINENT_KEY: Record<string, string> = {
+  "Europe": "continent_europe",
+  "Asia": "continent_asia",
+  "Africa": "continent_africa",
+  "North America": "continent_north_america",
+  "South America": "continent_south_america",
+  "Oceania": "continent_oceania",
 };
 
-function continentNameLocalized(name: string, lang: string): string {
-  const base = lang.split("-")[0];
-  return CONTINENT_TRANSLATIONS[name]?.[base] ?? name;
+function getCities(tr: Trip): City[] {
+  const raw = (tr as unknown as { cities?: unknown }).cities;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (c): c is City => !!c && typeof c === "object" && typeof (c as City).name === "string",
+  );
 }
 
 function ProfilePage() {
@@ -256,9 +213,9 @@ function ProfilePage() {
       .map(([iso, count]) => ({ iso, count }))
       .sort((a, b) => b.count - a.count || a.iso.localeCompare(b.iso));
 
-    // Home country vs foreign split
+    // Home country count and foreign countries ranked
     const homeCountryCount = homeIso ? (countryCounts.get(homeIso) ?? 0) : 0;
-    const foreignCountriesRanked = countriesRanked.filter((r) => r.iso !== homeIso);
+    const foreignCountriesRanked = countriesRanked.filter((r) => r.iso.toUpperCase() !== (homeIso ?? ""));
 
     const citiesRanked = [...cityCounts.values()].sort(
       (a, b) => b.count - a.count || a.name.localeCompare(b.name),
@@ -288,41 +245,6 @@ function ProfilePage() {
 
   const homeCountryIso = (prof.data as { home_country?: string | null } | undefined)?.home_country;
   const username = (prof.data as { username?: string | null } | undefined)?.username;
-  const homeIsoUpper = (homeCountryIso ?? "").toUpperCase();
-
-  const homeCountryStats = useMemo(() => {
-    if (!homeIsoUpper) return { count: 0 };
-    let count = 0;
-    for (const tr of stats.past) {
-      const cs = (tr as unknown as { countries?: string[] }).countries ?? [];
-      if (cs.some((c) => c.toUpperCase() === homeIsoUpper)) count += 1;
-    }
-    return { count };
-  }, [stats.past, homeIsoUpper]);
-
-  const foreignCountriesRanked = useMemo(
-    () =>
-      homeIsoUpper
-        ? stats.countriesRanked.filter((r) => r.iso.toUpperCase() !== homeIsoUpper)
-        : stats.countriesRanked,
-    [stats.countriesRanked, homeIsoUpper],
-  );
-
-  const continentsRanked = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const tr of stats.past) {
-      const cs = (tr as unknown as { countries?: string[] }).countries ?? [];
-      const seen = new Set<string>();
-      for (const c of cs) {
-        const cont = CONTINENT_BY_ISO[c.toUpperCase()];
-        if (cont) seen.add(cont);
-      }
-      for (const cont of seen) counts.set(cont, (counts.get(cont) ?? 0) + 1);
-    }
-    return [...counts.entries()]
-      .map(([name, count]) => ({ name, count }))
-      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-  }, [stats.past]);
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-6 sm:py-8">
@@ -407,7 +329,6 @@ function ProfilePage() {
 
         {/* Ranked lists */}
         {stats.countriesRanked.length > 0 && (
-<<<<<<< HEAD
           <div className="mt-4 space-y-4">
             {/* Home country trips */}
             {homeCountryIso && stats.homeCountryCount > 0 && (
@@ -473,67 +394,13 @@ function ProfilePage() {
                   left: (
                     <>
                       <span>🌍</span>
-                      <span>{continentNameLocalized(r.name, lang)}</span>
+                      <span>{t(CONTINENT_KEY[r.name] ?? r.name)}</span>
                     </>
                   ),
-=======
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            {homeIsoUpper && homeCountryStats.count > 0 ? (
-              <div className="space-y-4">
-                <RankList
-                  title={t("home_country_trips")}
-                  rows={[{
-                    key: homeIsoUpper,
-                    left: <><span>{flagOf(homeIsoUpper)}</span><span>{countryNameLocalized(homeIsoUpper, lang)}</span></>,
-                    count: homeCountryStats.count,
-                  }]}
-                />
-                {foreignCountriesRanked.length > 0 && (
-                  <RankList
-                    title={t("most_visited_foreign_countries")}
-                    rows={foreignCountriesRanked.map((r) => ({
-                      key: r.iso,
-                      left: <><span>{flagOf(r.iso)}</span><span>{countryNameLocalized(r.iso, lang)}</span></>,
-                      count: r.count,
-                    }))}
-                  />
-                )}
-              </div>
-            ) : (
-              <RankList
-                title={t("most_visited_countries")}
-                rows={stats.countriesRanked.map((r) => ({
-                  key: r.iso,
-                  left: <><span>{flagOf(r.iso)}</span><span>{countryNameLocalized(r.iso, lang)}</span></>,
->>>>>>> f069908ab41303142f6d26bec04104924e672b6e
                   count: r.count,
                 }))}
               />
             )}
-<<<<<<< HEAD
-=======
-            <RankList
-              title={t("most_visited_cities")}
-              rows={stats.citiesRanked.map((r) => ({
-                key: `${r.country}|${r.name}`,
-                left: <><span>{flagOf(r.country)}</span><span>{cityNameLocalized(r.name, lang)}</span></>,
-                count: r.count,
-              }))}
-            />
-          </div>
-        )}
-
-        {continentsRanked.length > 0 && (
-          <div className="mt-4">
-            <RankList
-              title={t("most_visited_continents")}
-              rows={continentsRanked.map((r) => ({
-                key: r.name,
-                left: <><span>🌍</span><span>{t(CONTINENT_KEY[r.name] ?? r.name)}</span></>,
-                count: r.count,
-              }))}
-            />
->>>>>>> f069908ab41303142f6d26bec04104924e672b6e
           </div>
         )}
 

@@ -207,6 +207,7 @@ function TripLayout() {
           onCommit={saveFocalAndZoom}
           repositioning={repositioning}
           onDone={() => setRepositioning(false)}
+          showControls={!scrolled}
         />
       )}
 
@@ -376,7 +377,10 @@ function TripLayout() {
           </div>
         )}
 
-        {coverType === "photo" && <div className="flex-1" aria-hidden />}
+        {/* Photo spacer: pointer-events-none so touches fall through to
+            the fixed photo beneath (z-[2]), allowing free pan/zoom
+            without needing to enable repositioning mode first. */}
+        {coverType === "photo" && <div className="flex-1 pointer-events-none" aria-hidden />}
 
         {/* Swipe-up hint — bigger tappable target, also scrolls the
             content into view when tapped/clicked, not just decorative. */}
@@ -1062,6 +1066,7 @@ function FullScreenPhoto({
   onCommit,
   repositioning,
   onDone,
+  showControls = false,
 }: {
   tripId: string;
   coverUrl: string | null;
@@ -1074,6 +1079,8 @@ function FullScreenPhoto({
   onCommit: (focal: string, zoom: number) => void;
   repositioning: boolean;
   onDone: () => void;
+  /** When true (photo is visible / not scrolled), enable pan/zoom and show controls. */
+  showControls?: boolean;
 }) {
   const { t } = useTranslation();
   useEffect(() => {
@@ -1091,17 +1098,23 @@ function FullScreenPhoto({
       cancelled = true;
     };
   }, [coverUrl, tripId, setSignedPhoto]);
+
   const src = signedPhoto || (coverUrl && /^https?:\/\//i.test(coverUrl) ? coverUrl : null);
   const startRef = useRef<{ x: number; y: number; fx: number; fy: number } | null>(null);
   const [dragging, setDragging] = useState(false);
   const ZOOM_MIN = 1;
   const ZOOM_MAX = 2.5;
   const ZOOM_STEP = 0.15;
+
   // Tracks active pointers for pinch-to-zoom: when a second finger touches
   // down, we switch from single-finger pan to two-finger pinch, using the
   // change in distance between the two touch points to scale the photo.
   const pointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
   const pinchRef = useRef<{ dist: number; zoom: number } | null>(null);
+
+  // The photo is interactive when it's visible (showControls) OR when the
+  // user has explicitly activated repositioning mode from the menu.
+  const isActive = showControls || repositioning;
 
   function parseFocal(v: string): { x: number; y: number } {
     const m = v.match(/(-?\d+(?:\.\d+)?)%\s+(-?\d+(?:\.\d+)?)%/);
@@ -1129,6 +1142,7 @@ function FullScreenPhoto({
       setDragging(true);
     }
   }
+
   function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
     if (pointersRef.current.has(e.pointerId)) {
       pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -1150,6 +1164,7 @@ function FullScreenPhoto({
     const ny = Math.max(0, Math.min(100, startRef.current.fy - dy));
     onFocalChange(`${nx.toFixed(1)}% ${ny.toFixed(1)}%`);
   }
+
   function onPointerUp(e: React.PointerEvent<HTMLDivElement>) {
     (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId);
     pointersRef.current.delete(e.pointerId);
@@ -1181,13 +1196,17 @@ function FullScreenPhoto({
       <div
         className={cn(
           "fixed inset-0 touch-none select-none overflow-hidden",
-          repositioning ? "z-50" : "z-0 pointer-events-none",
+          // In repositioning mode: raise above everything (z-50) for fine-tuning.
+          // When photo is visible (showControls): z-[2] so touches can reach it
+          // through the pointer-events-none spacer in main.
+          // Otherwise: hidden from pointer events entirely.
+          repositioning ? "z-50" : isActive ? "z-[2]" : "z-0 pointer-events-none",
           dragging ? "cursor-grabbing" : "cursor-grab",
         )}
-        onPointerDown={repositioning ? onPointerDown : undefined}
-        onPointerMove={repositioning ? onPointerMove : undefined}
-        onPointerUp={repositioning ? onPointerUp : undefined}
-        onPointerCancel={repositioning ? onPointerUp : undefined}
+        onPointerDown={isActive ? onPointerDown : undefined}
+        onPointerMove={isActive ? onPointerMove : undefined}
+        onPointerUp={isActive ? onPointerUp : undefined}
+        onPointerCancel={isActive ? onPointerUp : undefined}
         title="Trascina per centrare"
       >
         <img
@@ -1195,7 +1214,13 @@ function FullScreenPhoto({
           alt=""
           draggable={false}
           className="pointer-events-none h-full w-full object-cover transition-transform duration-150"
-          style={{ objectPosition: focal, transform: zoom !== 1 ? `scale(${zoom})` : undefined }}
+          style={{
+            objectPosition: focal,
+            transform: zoom !== 1 ? `scale(${zoom})` : undefined,
+            // Makes the zoom pivot on the focal point instead of the
+            // viewport center, so pan + zoom stay visually consistent.
+            transformOrigin: focal,
+          }}
         />
         <div
           aria-hidden
@@ -1206,11 +1231,11 @@ function FullScreenPhoto({
           }}
         />
       </div>
-      {repositioning && (
-        // Positioned well above the BottomDock (which sits near the very
-        // bottom of the viewport, plus its own safe-area padding) instead
-        // of right at bottom-6, which used to land underneath/behind it.
-        // Includes zoom controls alongside the existing drag-to-pan hint.
+
+      {/* Zoom controls — shown when the photo is visible (showControls) or in
+          explicit repositioning mode. The "Done" button only appears in
+          repositioning mode since it confirms fine-tuning from the menu. */}
+      {isActive && (
         <div
           className="fixed left-1/2 z-[60] flex -translate-x-1/2 items-center gap-2 rounded-full bg-black/70 px-3 py-1.5 text-[12px] text-white backdrop-blur"
           style={{ bottom: "calc(5.5rem + env(safe-area-inset-bottom, 0px))" }}
@@ -1236,13 +1261,15 @@ function FullScreenPhoto({
           >
             +
           </button>
-          <button
-            type="button"
-            onClick={onDone}
-            className="ml-1 rounded-full bg-white/15 px-2.5 py-0.5 text-xs font-medium text-white hover:bg-white/25"
-          >
-            {t("done")}
-          </button>
+          {repositioning && (
+            <button
+              type="button"
+              onClick={onDone}
+              className="ml-1 rounded-full bg-white/15 px-2.5 py-0.5 text-xs font-medium text-white hover:bg-white/25"
+            >
+              {t("done")}
+            </button>
+          )}
         </div>
       )}
     </>

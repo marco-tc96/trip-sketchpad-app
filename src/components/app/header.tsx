@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 export function AppHeader({ right }: { right?: React.ReactNode }) {
   const { t } = useTranslation();
   return (
-    <header className="sticky top-0 z-40 border-b border-border/60 bg-background/85 backdrop-blur">
+    <header className="border-b border-border/60 bg-background/85 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3">
         <Link to="/trips" className="flex items-center gap-2 min-w-0">
           <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-warm-gradient text-primary-foreground">

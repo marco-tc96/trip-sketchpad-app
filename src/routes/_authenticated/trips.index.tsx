@@ -1,11 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-<<<<<<< HEAD
 import { Plus, MapPin, Calendar, Briefcase, Palmtree, Footprints, Globe2, Pin, PinOff, Layers } from "lucide-react";
-=======
-import { Plus, MapPin, Calendar, Briefcase, Palmtree, Footprints, Globe2, Pin, PinOff, Map as MapIcon } from "lucide-react";
->>>>>>> f069908ab41303142f6d26bec04104924e672b6e
 import { useTranslation } from "react-i18next";
 import { useEffect, useMemo, useState } from "react";
 import { listTrips } from "@/lib/trips.functions";
@@ -41,7 +37,7 @@ function TripsList() {
     () =>
       trips
         .filter((tr) => tr.start_date > today)
-        .sort((a, b) => a.start_date.localeCompare(a.start_date)),
+        .sort((a, b) => a.start_date.localeCompare(b.start_date)), // nearest first
     [trips, today],
   );
   const past = useMemo(
@@ -136,23 +132,18 @@ function TripsList() {
               · {visitedCountries.length}
             </span>
 
-            {/* Pins toggle */}
+            {/* Subdivision toggle */}
             <label className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
-              <MapIcon className="h-3.5 w-3.5" />
+              <Layers className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">{t("show_subdivisions")}</span>
               <Switch checked={showSubdivisions} onCheckedChange={setShowSubdivisions} />
             </label>
+
+            {/* Pins toggle */}
             <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
               {showPins ? <Pin className="h-3.5 w-3.5" /> : <PinOff className="h-3.5 w-3.5" />}
               <span className="hidden sm:inline">{t("show_pins")}</span>
               <Switch checked={showPins} onCheckedChange={setShowPins} />
-            </label>
-
-            {/* Subdivision toggle */}
-            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Layers className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">{t("show_subdivisions")}</span>
-              <Switch checked={showSubdivisions} onCheckedChange={setShowSubdivisions} />
             </label>
           </div>
           <WorldMap
