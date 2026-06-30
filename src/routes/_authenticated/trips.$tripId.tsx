@@ -1250,10 +1250,10 @@ function FullScreenPhoto({
         />
       </div>
 
-      {/* Zoom controls — shown when the photo is visible (showControls) or in
-          explicit repositioning mode. The "Done" button only appears in
-          repositioning mode since it confirms fine-tuning from the menu. */}
-      {isActive && (
+      {/* Zoom/pan controls — only shown in explicit repositioning mode
+          (activated from the hamburger menu). The photo remains pannable
+          when visible, but the toolbar stays hidden until the user asks. */}
+      {repositioning && (
         <div
           className="fixed left-1/2 z-[60] flex -translate-x-1/2 items-center gap-2 rounded-full bg-black/70 px-3 py-1.5 text-[12px] text-white backdrop-blur"
           style={{ bottom: "calc(5.5rem + env(safe-area-inset-bottom, 0px))" }}

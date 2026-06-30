@@ -151,7 +151,7 @@ const A3_TO_A2: Record<string, string> = {
   GIB:"GI",GLP:"GP",GRL:"GL",GUF:"GF",GUM:"GU",HKG:"HK",HMD:"HM",IMN:"IM",IOT:"IO",JEY:"JE",
   MAC:"MO",MAF:"MF",MNP:"MP",MSR:"MS",MTQ:"MQ",MYT:"YT",NCL:"NC",NFK:"NF",NIU:"NU",PCN:"PN",
   PYF:"PF",REU:"RE",SGS:"GS",SHN:"SH",SJM:"SJ",SPM:"PM",SXM:"SX",TCA:"TC",TKL:"TK",UMI:"UM",
-  VGB:"VG",VIR:"VI",WLF:"WF",WSM:"WS",
+  VGB:"VG",VIR:"VI",WLF:"WF",
   // Kosovo
   XKX:"XK",
 };
@@ -254,7 +254,7 @@ function computeSubdivData(
   admin1Geo: GeoCollection,
 ): { subdivKeys: Set<string>; fallbackCountries: Set<string> } {
   const norm = (s: string) =>
-    s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+    s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
 
   const subdivKeys = new Set<string>();
   const fallbackCountries = new Set<string>();
@@ -301,6 +301,7 @@ export function WorldMap({
   cities,
   plannedCountries = [],
   plannedCities = [],
+  homeCountry = null,
   showPins = true,
   showSubdivisions = false,
   className,
@@ -309,6 +310,8 @@ export function WorldMap({
   cities: WorldMapCity[];
   plannedCountries?: string[];
   plannedCities?: WorldMapCity[];
+  /** ISO-2 of the user\'s home country — shown in green on the map. */
+  homeCountry?: string | null;
   showPins?: boolean;
   showSubdivisions?: boolean;
   className?: string;
@@ -327,6 +330,7 @@ export function WorldMap({
       ),
     [plannedCountries, visitedSet],
   );
+  const homeIso = homeCountry ? homeCountry.toUpperCase() : null;
 
   const pins = useMemo(() => dedupePins(enrichCoords(cities)), [cities]);
   const plannedPins = useMemo(() => {
@@ -388,6 +392,16 @@ export function WorldMap({
     const iso = feature ? isoOf(feature) : null;
     const visited = !!iso && visitedSet.has(iso);
     const planned = !!iso && !visited && plannedSet.has(iso);
+    const isHome = !!iso && !!homeIso && iso === homeIso && !visited;
+
+    if (isHome) {
+      return {
+        fillColor: "oklch(0.65 0.15 145)",
+        fillOpacity: 0.55,
+        color: "oklch(0.48 0.13 145)",
+        weight: 1,
+      };
+    }
 
     if (showSubdivisions) {
       if (planned) {
@@ -431,7 +445,7 @@ export function WorldMap({
     if (!feature?.properties) return emptyStyle;
     const props = feature.properties;
     const norm = (s: string) =>
-      s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+      s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
 
     const countryIso = countryIsoOfAdmin1(feature);
     if (!countryIso) return emptyStyle;
@@ -452,10 +466,11 @@ export function WorldMap({
     }
     const isInVisited = visitedSet.has(countryIso);
     const isInPlanned = plannedSet.has(countryIso);
+    const isInHome = !!homeIso && countryIso === homeIso;
     return {
       fillColor: "transparent", fillOpacity: 0,
-      color: isInVisited ? "oklch(0.72 0.09 38)" : isInPlanned ? "oklch(0.75 0.08 255)" : "oklch(0.88 0.005 90)",
-      weight: isInVisited || isInPlanned ? 0.45 : 0.25,
+      color: isInVisited ? "oklch(0.72 0.09 38)" : isInPlanned ? "oklch(0.75 0.08 255)" : isInHome ? "oklch(0.55 0.12 145)" : "oklch(0.88 0.005 90)",
+      weight: isInVisited || isInPlanned || isInHome ? 0.45 : 0.25,
     };
   };
 
@@ -483,7 +498,7 @@ export function WorldMap({
 
       {world && (
         <GeoJSON
-          key={`country-${visitedSet.size}-${plannedSet.size}-${showSubdivisions}-${visitedSubdivData.fallbackCountries.size}-${plannedSubdivData.fallbackCountries.size}`}
+          key={`country-${visitedSet.size}-${plannedSet.size}-${homeIso}-${showSubdivisions}-${visitedSubdivData.fallbackCountries.size}-${plannedSubdivData.fallbackCountries.size}`}
           data={world as never}
           style={countryStyle as never}
         />
@@ -491,7 +506,7 @@ export function WorldMap({
 
       {showSubdivisions && subdivWorld && (
         <GeoJSON
-          key={`subdiv-${visitedSubdivData.subdivKeys.size}-${visitedSubdivData.fallbackCountries.size}-${plannedSubdivData.subdivKeys.size}`}
+          key={`subdiv-${visitedSubdivData.subdivKeys.size}-${visitedSubdivData.fallbackCountries.size}-${plannedSubdivData.subdivKeys.size}-${homeIso}`}
           data={subdivWorld as never}
           style={subdivStyle as never}
         />

@@ -5,6 +5,7 @@ import { Plus, MapPin, Calendar, Briefcase, Palmtree, Footprints, Globe2, Pin, P
 import { useTranslation } from "react-i18next";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { listTrips } from "@/lib/trips.functions";
+import { getProfile } from "@/lib/profile.functions";
 import { Button } from "@/components/ui/button";
 import { flagOf } from "@/lib/country-data";
 import { CityCover } from "@/components/app/city-cover";
@@ -22,7 +23,10 @@ type Trip = Awaited<ReturnType<typeof listTrips>>[number];
 function TripsList() {
   const { t } = useTranslation();
   const fn = useServerFn(listTrips);
+  const profileFn = useServerFn(getProfile);
   const q = useQuery({ queryKey: ["trips"], queryFn: () => fn() });
+  const profileQ = useQuery({ queryKey: ["profile"], queryFn: () => profileFn() });
+  const homeCountry = (profileQ.data as { home_country?: string | null } | undefined)?.home_country ?? null;
 
   const today = new Date().toISOString().slice(0, 10);
   const trips = q.data ?? [];
@@ -120,6 +124,7 @@ function TripsList() {
           <WorldMap
             visitedCountries={visitedCountries} cities={visitedCities}
             plannedCountries={plannedCountries} plannedCities={plannedCities}
+            homeCountry={homeCountry}
             showPins={showPins} showSubdivisions={showSubdivisions}
             className="h-[280px] w-full sm:h-[360px]"
           />

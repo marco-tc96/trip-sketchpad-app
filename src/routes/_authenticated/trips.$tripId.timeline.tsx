@@ -399,9 +399,7 @@ function JourneyLeg({
                         title={stops ? stops : undefined}
                       >
                         <span>
-                          {legs.length === 2
-                            ? t("layover")
-                            : `${legs.length - 1} ${t("layovers")}`}
+                          {`${legs.length - 1} ${legs.length === 2 ? t("layover") : t("layovers")}`}
                         </span>
                         {stopCodes && <span className="opacity-80">· {stopCodes}</span>}
                       </span>
@@ -556,9 +554,11 @@ function codeOf(label: string, airports?: AirportHub[]): string {
 function nameOf(label: string, lang?: string): string {
   const m = label.match(/^[A-Z]{3}\s*-\s*(.+)$/);
   const rest = m ? m[1].trim() : label;
-  const firstWord = rest.split(/\s+/)[0] ?? rest;
-  const base = firstWord || rest;
-  return lang ? cityNameLocalized(base, lang) : base;
+  // Localize the city component (first word) while preserving the airport
+  // qualifier (e.g. "Malpensa", "Incheon") so multi-airport cities are clear.
+  const parts = rest.split(/\s+/);
+  const city = lang ? cityNameLocalized(parts[0] ?? rest, lang) : (parts[0] ?? rest);
+  return parts.length > 1 ? `${city} ${parts.slice(1).join(" ")}` : city;
 }
 function fmtTime(iso: string | null, lang?: string): string {
   if (!iso) return "";
