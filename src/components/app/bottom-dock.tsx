@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
-import { Compass, User, Plus, Cloud, Bell } from "lucide-react";
+import { Compass, User, Plus, Bell } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -34,9 +34,6 @@ export function BottomDock() {
   const unreadCount = countData?.count ?? 0;
 
   const isNewTripPage = loc.pathname === "/trips/new";
-  // loc.search is the parsed search object in TanStack Router
-  const searchParams = loc.search as Record<string, unknown>;
-  const isWishlistMode = isNewTripPage && Boolean(searchParams?.wishlist);
 
   return (
     <nav
@@ -65,36 +62,20 @@ export function BottomDock() {
         );
       })()}
 
-      {/* New trip action button */}
+      {/* Nuovo — apre la pagina con toggle viaggio/wishlist interno */}
       <button
         type="button"
         onClick={() => nav({ to: "/trips/new" })}
-        aria-label="Nuovo viaggio"
+        aria-label="Nuovo viaggio o wishlist"
         className={cn(
           "flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-medium transition",
-          isNewTripPage && !isWishlistMode
+          isNewTripPage
             ? "bg-primary text-primary-foreground shadow-soft"
             : "text-muted-foreground hover:bg-muted hover:text-foreground",
         )}
       >
         <Plus className="h-4 w-4" />
         <span className="hidden sm:inline">Nuovo</span>
-      </button>
-
-      {/* Wishlist action button */}
-      <button
-        type="button"
-        onClick={() => nav({ to: "/trips/new", search: { wishlist: true } })}
-        aria-label="Viaggio dei sogni"
-        className={cn(
-          "flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-medium transition",
-          isWishlistMode
-            ? "bg-[oklch(0.55_0.13_255)] text-white shadow-soft"
-            : "text-muted-foreground hover:bg-muted hover:text-foreground",
-        )}
-      >
-        <Cloud className="h-4 w-4" />
-        <span className="hidden sm:inline">Wishlist</span>
       </button>
 
       {/* Profile nav */}
