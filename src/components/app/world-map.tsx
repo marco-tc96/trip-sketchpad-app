@@ -387,6 +387,14 @@ function featureBBoxArea(feature: GeoFeature): number {
 }
 
 function isPreferredAdmin1(feature: GeoFeature, iso: string): boolean {
+  // Spain: autonomous communities have 2-part HASC (ES.XX); provinces have 3-part (ES.XX.YY)
+  if (iso === "ES") {
+    const hasc = String((feature.properties ?? {}).hasc ?? "");
+    if (hasc && hasc.startsWith("ES.") && hasc !== "-9.-9") {
+      return hasc.split(".").length === 2;
+    }
+    // hasc missing — fall through to type_en check
+  }
   const preferred = ADMIN1_PREFERRED_TYPES[iso];
   if (!preferred) return true; // no filter for this country
   const typeEn = String((feature.properties ?? {}).type_en ?? "").toLowerCase();
@@ -602,30 +610,40 @@ export function WorldMap({
   const { data: subdivWorld, loading: subdivLoading, progress: subdivProgress } =
     useSubdivisionBorders(showSubdivisions);
 
-  const visitedSet = useMemo(
-    () => new Set(visitedCountries.map(normIso)),
-    [visitedCountries],
-  );
-  const ongoingSet = useMemo(
-    () => new Set(ongoingCountries.map(normIso).filter((c) => !visitedSet.has(c))),
-    [ongoingCountries, visitedSet],
-  );
-  const plannedSet = useMemo(
-    () => new Set(
-      plannedCountries
-        .map(normIso)
-        .filter((c) => !visitedSet.has(c) && !ongoingSet.has(c)),
-    ),
-    [plannedCountries, visitedSet, ongoingSet],
-  );
-  const wishlistSet = useMemo(
-    () => new Set(
-      wishlistCountries
-        .map(normIso)
-        .filter((c) => !visitedSet.has(c) && !ongoingSet.has(c) && !plannedSet.has(c)),
-    ),
-    [wishlistCountries, visitedSet, ongoingSet, plannedSet],
-  );
+  // Derive country ISO sets from both the explicit countries arrays AND the city data,
+  // so that a trip with empty `countries` but with city pins still colors correctly.
+  const visitedSet = useMemo(() => {
+    const s = new Set(visitedCountries.map(normIso));
+    for (const c of cities) { const n = normIso(c.country); if (n) s.add(n); }
+    return s;
+  }, [visitedCountries, cities]);
+
+  const ongoingSet = useMemo(() => {
+    const s = new Set<string>();
+    for (const c of ongoingCountries) { const n = normIso(c); if (!visitedSet.has(n)) s.add(n); }
+    for (const c of ongoingCities) { const n = normIso(c.country); if (n && !visitedSet.has(n)) s.add(n); }
+    return s;
+  }, [ongoingCountries, ongoingCities, visitedSet]);
+
+  const plannedSet = useMemo(() => {
+    const s = new Set<string>();
+    for (const c of plannedCountries) { const n = normIso(c); if (!visitedSet.has(n) && !ongoingSet.has(n)) s.add(n); }
+    for (const c of plannedCities) { const n = normIso(c.country); if (n && !visitedSet.has(n) && !ongoingSet.has(n)) s.add(n); }
+    return s;
+  }, [plannedCountries, plannedCities, visitedSet, ongoingSet]);
+
+  const wishlistSet = useMemo(() => {
+    const s = new Set<string>();
+    for (const c of wishlistCountries) {
+      const n = normIso(c);
+      if (!visitedSet.has(n) && !ongoingSet.has(n) && !plannedSet.has(n)) s.add(n);
+    }
+    for (const c of wishlistCities) {
+      const n = normIso(c.country);
+      if (n && !visitedSet.has(n) && !ongoingSet.has(n) && !plannedSet.has(n)) s.add(n);
+    }
+    return s;
+  }, [wishlistCountries, wishlistCities, visitedSet, ongoingSet, plannedSet]);
   const homeIso = homeCountry ? normIso(homeCountry) : null;
 
   const pins = useMemo(() => dedupePins(enrichCoords(cities)), [cities]);
@@ -699,6 +717,12 @@ export function WorldMap({
     return set;
   }, [plannedSubdivData.subdivKeys]);
 
+  const wishlistSubdivCountries = useMemo(() => {
+    const set = new Set<string>();
+    for (const key of wishlistSubdivData.subdivKeys) set.add(key.split("|")[0]);
+    return set;
+  }, [wishlistSubdivData.subdivKeys]);
+
   const visitedBounds = useMemo<L.LatLngBoundsExpression | null>(() => {
     if (!world) return null;
     const pts: [number, number][] = [];
@@ -734,8 +758,12 @@ export function WorldMap({
     const wishlist = !!iso && !visited && !ongoing && !planned && wishlistSet.has(iso);
     const isHome = !!iso && !!homeIso && iso === homeIso;
 
+    // Only activate subdivision mode once the data is actually loaded.
+    // While loading, render solid country fills so nothing goes invisible.
+    const useSubdiv = showSubdivisions && !!subdivWorld;
+
     if (isHome) {
-      if (showSubdivisions) {
+      if (useSubdiv) {
         const isFallback = visited && visitedSubdivData.fallbackCountries.has(iso);
         if (isFallback) {
           return { fillColor: "oklch(0.65 0.15 145)", fillOpacity: 0.55, color: "oklch(0.48 0.13 145)", weight: 1 };
@@ -746,7 +774,7 @@ export function WorldMap({
       return { fillColor: "oklch(0.65 0.15 145)", fillOpacity: 0.55, color: "oklch(0.48 0.13 145)", weight: 1 };
     }
 
-    if (showSubdivisions) {
+    if (useSubdiv) {
       if (ongoing) {
         const hasResolvedSubdivs =
           ongoingSubdivCountries.has(iso!) && !ongoingSubdivData.fallbackCountries.has(iso!);
@@ -764,6 +792,13 @@ export function WorldMap({
         return { fillColor: "oklch(0.88 0 0)", fillOpacity: 0.55, color: "oklch(0.65 0 0)", weight: 1 };
       }
       if (wishlist) {
+        // When subdivisions are resolved for this country, hide the country fill
+        // (just keep the dashed border) so only the individual regions are colored.
+        const hasResolvedSubdivs =
+          wishlistSubdivCountries.has(iso!) && !wishlistSubdivData.fallbackCountries.has(iso!);
+        if (hasResolvedSubdivs) {
+          return { fillColor: "transparent", fillOpacity: 0, color: "oklch(0.6 0.13 255)", weight: 1, dashArray: "4 3" };
+        }
         return {
           fillColor: "oklch(0.93 0.03 255)", fillOpacity: 0.55,
           color: "oklch(0.6 0.13 255)", weight: 1, dashArray: "4 3",
@@ -778,7 +813,7 @@ export function WorldMap({
       };
     }
 
-    // No subdivisions
+    // No subdivisions (or data still loading)
     if (ongoing) {
       return { fillColor: "oklch(0.88 0.14 95)", fillOpacity: 0.55, color: "oklch(0.68 0.16 85)", weight: 1 };
     }
@@ -820,17 +855,16 @@ export function WorldMap({
     const isWishlist = !isVisited && !isOngoing && !isPlanned && wishlistSubdivData.subdivKeys.has(key);
     const isInHome = !!homeIso && countryIso === homeIso;
 
-    // ── Home country: always use green tones, never orange ──
+    // ── Home country: green tones for regions WITH pins only ──
     if (isInHome) {
       if (isVisited) {
-        // Darker green for visited home regions
         return { fillColor: "oklch(0.55 0.17 145)", fillOpacity: 0.70, color: "oklch(0.40 0.14 145)", weight: 0.75 };
       }
       if (isOngoing) {
         return { fillColor: "oklch(0.58 0.15 145)", fillOpacity: 0.65, color: "oklch(0.42 0.13 145)", weight: 0.75 };
       }
-      // Unvisited home region: lighter green
-      return { fillColor: "oklch(0.78 0.08 145)", fillOpacity: 0.22, color: "oklch(0.55 0.10 145)", weight: 0.4 };
+      // Unvisited home region: invisible (user wants only pinned regions colored)
+      return emptyStyle;
     }
 
     // ── Non-home regions WITH a pin: show colored fill + precise border ──
@@ -862,7 +896,7 @@ export function WorldMap({
     );
   }
 
-  const geoKey = `country-v${visitedSet.size}-o${ongoingSet.size}-p${plannedSet.size}-w${wishlistSet.size}-h${homeIso}-s${showSubdivisions ? 1 : 0}-vf${visitedSubdivData.fallbackCountries.size}-pf${plannedSubdivData.fallbackCountries.size}-wf${wishlistSubdivData.fallbackCountries.size}`;
+  const geoKey = `country-v${visitedSet.size}-o${ongoingSet.size}-p${plannedSet.size}-w${wishlistSet.size}-h${homeIso}-s${showSubdivisions ? 1 : 0}-sl${subdivWorld ? 1 : 0}-vf${visitedSubdivData.fallbackCountries.size}-of${ongoingSubdivData.fallbackCountries.size}-pf${plannedSubdivData.fallbackCountries.size}-wf${wishlistSubdivData.fallbackCountries.size}-ws${wishlistSubdivCountries.size}`;
   const subdivKey = `subdiv-v${visitedSubdivData.subdivKeys.size}-o${ongoingSubdivData.subdivKeys.size}-p${plannedSubdivData.subdivKeys.size}-w${wishlistSubdivData.subdivKeys.size}-h${homeIso}`;
 
   return (

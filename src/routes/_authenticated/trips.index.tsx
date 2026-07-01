@@ -331,26 +331,26 @@ function Section({
   return (
     <section>
       {/* Header row */}
-      <div className="mb-3 flex items-center">
-        <h2 className="flex-1 text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground sm:text-left">
+      <div className="mb-3 flex items-center gap-2">
+        <h2 className="text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground sm:text-left">
           {title}
         </h2>
+        <span
+          className="flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold text-white"
+          style={{ backgroundColor: dotColor }}
+        >
+          {filtered.length}
+        </span>
         {withYearSelector && years.length > 1 && (
           <select
             value={selectedYear}
             onChange={(e) => setSelectedYear(e.target.value)}
-            className="cursor-pointer rounded-full border border-border bg-transparent px-2.5 py-0.5 text-xs text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            className="ml-auto cursor-pointer rounded-full border border-border bg-transparent px-2.5 py-0.5 text-xs text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
           >
             <option value="all">{t("all_years")}</option>
             {years.map((y) => <option key={y} value={y}>{y}</option>)}
           </select>
         )}
-        <span
-          className="ml-2 flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold text-white"
-          style={{ backgroundColor: dotColor }}
-        >
-          {filtered.length}
-        </span>
       </div>
 
       {/* ─── Mobile carousel ─── */}
