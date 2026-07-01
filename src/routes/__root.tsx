@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import {
   Outlet,
   Link,
@@ -7,6 +7,7 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useState, type ReactNode } from "react";
 import { Compass } from "lucide-react";
 
@@ -23,6 +24,7 @@ import "@/i18n";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { ThemeProvider } from "@/lib/theme";
 import { Toaster } from "@/components/ui/sonner";
+import { subscribePush, checkTripNotifications } from "@/lib/notifications.functions";
 
 function NotFoundComponent() {
   return (
@@ -130,6 +132,93 @@ function SplashWrapper({ children }: { children: ReactNode }) {
   );
 }
 
+// ── Push helpers ──────────────────────────────────────────────────────────────
+
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = atob(base64);
+  return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  return btoa(String.fromCharCode(...new Uint8Array(buffer)));
+}
+
+// ── Notification bootstrap ────────────────────────────────────────────────────
+
+/**
+ * Mounts inside AuthProvider. Renders nothing.
+ * 1. Registers /sw.js and subscribes to Web Push (once per user session).
+ * 2. Polls checkTripNotifications every 5 min so in-app notifications
+ *    appear even before the edge-function cron fires.
+ */
+function NotificationBootstrap() {
+  const { user } = useAuth();
+  const subscribeFn = useServerFn(subscribePush);
+  const checkFn = useServerFn(checkTripNotifications);
+  const qc = useQueryClient();
+
+  // Register service worker + subscribe to Web Push
+  useEffect(() => {
+    if (!user) return;
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+    const vapidKey = "BHxhapEufuQxX5IHMuzyHNRAQQuSFdfTv0mUqmVPclpd7uiwlD_O8kcNThXqrLJM39EbkZ5VinIWkYVM7wSUtVI";
+
+    (async () => {
+      try {
+        const reg = await navigator.serviceWorker.register("/sw.js");
+        let perm = Notification.permission;
+        if (perm === "default") perm = await Notification.requestPermission();
+        if (perm !== "granted") return;
+
+        let sub = await reg.pushManager.getSubscription();
+        if (!sub) {
+          sub = await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(vapidKey),
+          });
+        }
+
+        const p256dh = sub.getKey("p256dh");
+        const authKey = sub.getKey("auth");
+        if (!p256dh || !authKey) return;
+
+        await subscribeFn({
+          data: {
+            endpoint: sub.endpoint,
+            p256dh: arrayBufferToBase64(p256dh),
+            auth: arrayBufferToBase64(authKey),
+          },
+        });
+      } catch (e) {
+        console.error("[Voyager] Push subscription failed:", e);
+      }
+    })();
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Poll for trip notifications every 5 minutes
+  useEffect(() => {
+    if (!user) return;
+
+    const check = async () => {
+      try {
+        await checkFn();
+        qc.invalidateQueries({ queryKey: ["notifications"] });
+        qc.invalidateQueries({ queryKey: ["notifications-count"] });
+      } catch (e) {
+        console.error("[Voyager] Notification check failed:", e);
+      }
+    };
+
+    check();
+    const id = setInterval(check, 5 * 60_000);
+    return () => clearInterval(id);
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return null;
+}
+
 // ── Root route ────────────────────────────────────────────────────────────────
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
@@ -188,6 +277,7 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <AuthProvider>
+          <NotificationBootstrap />
           <SplashWrapper>
             <Outlet />
           </SplashWrapper>
