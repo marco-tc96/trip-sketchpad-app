@@ -130,7 +130,7 @@ function simplifyGeoCollection(geo: GeoCollection, eps: number): GeoCollection {
 
 const IDB_DB = "voyager-geo";
 const IDB_STORE = "tiles";
-const ADMIN1_KEY = "ne_admin1_v3"; // bumped: new simplification + type_en preserved
+const ADMIN1_KEY = "ne_admin1_v4"; // bumped: Spain whitelist + subdivStyle membership-only logic
 
 async function idbGet(key: string): Promise<GeoCollection | null> {
   if (typeof indexedDB === "undefined") return null;
@@ -310,7 +310,8 @@ function isoOf(feature: GeoFeature): string | null {
     }
   }
   // Fallback: derive from 3-letter ISO code
-  const a3Keys = ["ISO_A3", "ISO_A3_EH", "adm0_a3"];
+  // NOTE: datasets/geo-countries uses "ISO3166-1-Alpha-3" (with full hyphens), not "ISO_A3"
+  const a3Keys = ["ISO3166-1-Alpha-3", "ISO_A3", "ISO_A3_EH", "adm0_a3"];
   for (const key of a3Keys) {
     const v = String(p[key] ?? "").trim();
     if (v.length === 3 && v !== "-99" && A3_TO_A2[v]) return A3_TO_A2[v];
@@ -362,6 +363,16 @@ const ADMIN1_PREFERRED_TYPES: Record<string, string[]> = {
   ES: ["autonomous community", "autonomous city"],
 };
 
+// Exhaustive whitelist of Spanish autonomous community + autonomous city HASC codes.
+// Provinces have 3-part codes (ES.AN.AL, etc.) — this set only contains 2-part ones.
+const ES_COMMUNITY_HASC = new Set([
+  "ES.AN", "ES.AR", "ES.AS", "ES.IB", "ES.PM", // Andalucía, Aragón, Asturias, Baleares (alt)
+  "ES.CN", "ES.CB", "ES.CM", "ES.CL", "ES.CT", "ES.CA", // Canarias, Cantabria, C-La Mancha, C y León, Cataluña
+  "ES.EX", "ES.GA", "ES.MD", "ES.MU", "ES.NA", "ES.NC",  // Extremadura, Galicia, Madrid, Murcia, Navarra
+  "ES.PV", "ES.LO", "ES.LR", "ES.VC", "ES.VL",           // País Vasco, La Rioja, Valenciana
+  "ES.CE", "ES.ML",                                        // Ceuta, Melilla
+]);
+
 // Bounding-box area proxy — used to pick the largest matching feature (region > province)
 function featureBBoxArea(feature: GeoFeature): number {
   const g = feature.geometry;
@@ -387,13 +398,14 @@ function featureBBoxArea(feature: GeoFeature): number {
 }
 
 function isPreferredAdmin1(feature: GeoFeature, iso: string): boolean {
-  // Spain: autonomous communities have 2-part HASC (ES.XX); provinces have 3-part (ES.XX.YY)
+  // Spain: use explicit whitelist of community HASC codes instead of 2-part count,
+  // because some provinces may also have 2-part HASC in certain dataset versions.
   if (iso === "ES") {
     const hasc = String((feature.properties ?? {}).hasc ?? "");
     if (hasc && hasc.startsWith("ES.") && hasc !== "-9.-9") {
-      return hasc.split(".").length === 2;
+      return ES_COMMUNITY_HASC.has(hasc);
     }
-    // hasc missing — fall through to type_en check
+    // No HASC — fall through to type_en check
   }
   const preferred = ADMIN1_PREFERRED_TYPES[iso];
   if (!preferred) return true; // no filter for this country
@@ -844,15 +856,22 @@ export function WorldMap({
     const countryIso = countryIsoOfAdmin1(feature);
     if (!countryIso) return emptyStyle;
 
-    // Skip features at wrong admin level (e.g. Italian provinces when we want regions)
-    if (!isPreferredAdmin1(feature, countryIso)) return emptyStyle;
-
+    // NOTE: We do NOT call isPreferredAdmin1 here.
+    // computeSubdivData already filtered to the correct admin level (regions for IT/ES)
+    // and may have used a size-based fallback when type_en data is inconsistent.
+    // We rely entirely on subdivKeys membership to decide visibility — features not in
+    // any subdivKeys set are rendered invisible, so wrong-level features never show color.
     const featureName = norm((props.name as string) ?? "");
+    if (!featureName) return emptyStyle;
     const key = `${countryIso}|${featureName}`;
     const isVisited = visitedSubdivData.subdivKeys.has(key);
     const isOngoing = !isVisited && ongoingSubdivData.subdivKeys.has(key);
     const isPlanned = !isVisited && !isOngoing && plannedSubdivData.subdivKeys.has(key);
     const isWishlist = !isVisited && !isOngoing && !isPlanned && wishlistSubdivData.subdivKeys.has(key);
+
+    // Not in any active set → invisible (no border clutter from unvisited admin1 features)
+    if (!isVisited && !isOngoing && !isPlanned && !isWishlist) return emptyStyle;
+
     const isInHome = !!homeIso && countryIso === homeIso;
 
     // ── Home country: green tones for regions WITH pins only ──
@@ -863,7 +882,6 @@ export function WorldMap({
       if (isOngoing) {
         return { fillColor: "oklch(0.58 0.15 145)", fillOpacity: 0.65, color: "oklch(0.42 0.13 145)", weight: 0.75 };
       }
-      // Unvisited home region: invisible (user wants only pinned regions colored)
       return emptyStyle;
     }
 
@@ -884,7 +902,6 @@ export function WorldMap({
       };
     }
 
-    // ── Everything else: completely invisible (no border clutter) ──
     return emptyStyle;
   };
 

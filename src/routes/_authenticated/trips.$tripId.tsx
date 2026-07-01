@@ -21,7 +21,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "@tanstack/react-router";
-import { countryNameLocalized, citiesOfCountry, flagOf, localizedCountries, cityNameLocalized, primaryTimezoneOfCountry, currencyForCountryAt } from "@/lib/country-data";
+import { countryNameLocalized, citiesOfCountry, flagOf, localizedCountries, cityNameLocalized, primaryTimezoneOfCountry, currencyForCountryAt, geocodeCity } from "@/lib/country-data";
 import { flagGradient } from "@/lib/flag-gradient";
 
 export const Route = createFileRoute("/_authenticated/trips/$tripId")({
@@ -576,6 +576,7 @@ function EditTripDialog({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [countryQuery, setCountryQuery] = useState("");
   const [countryPickerOpen, setCountryPickerOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -849,20 +850,39 @@ function EditTripDialog({
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>{t("cancel")}</Button>
           <Button
-            onClick={() =>
-              onSave({
-                title: title.trim() || initialTitle,
-                cities,
-                countries,
-                destination: cities[0]?.name ?? null,
-                trip_type: type,
-                cover_emoji: emoji || "✈️",
-                start_date: startDate || initialStartDate,
-                end_date: endDate || initialEndDate,
-              })
-            }
+            disabled={saving}
+            onClick={async () => {
+              setSaving(true);
+              try {
+                // Geocode any cities that are missing lat/lng so pins appear on the map.
+                // Cities selected from the countriesnow list don't carry coordinates;
+                // we resolve them here before persisting, one at a time to respect
+                // Nominatim's rate-limit.
+                const geocoded: typeof cities = [];
+                for (const c of cities) {
+                  if (typeof c.lat === "number" && typeof c.lng === "number") {
+                    geocoded.push(c);
+                  } else {
+                    const coords = await geocodeCity(c.name, c.country);
+                    geocoded.push(coords ? { ...c, ...coords } : c);
+                  }
+                }
+                await onSave({
+                  title: title.trim() || initialTitle,
+                  cities: geocoded,
+                  countries,
+                  destination: cities[0]?.name ?? null,
+                  trip_type: type,
+                  cover_emoji: emoji || "✈️",
+                  start_date: startDate || initialStartDate,
+                  end_date: endDate || initialEndDate,
+                });
+              } finally {
+                setSaving(false);
+              }
+            }}
           >
-            {t("save")}
+            {saving ? "…" : t("save")}
           </Button>
         </DialogFooter>
       </DialogContent>
