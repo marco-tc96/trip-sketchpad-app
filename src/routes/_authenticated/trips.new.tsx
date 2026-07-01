@@ -157,21 +157,17 @@ function NewTrip() {
   }
 
   return (
-    <main className="mx-auto max-w-2xl px-4 py-8">
+    <main className="mx-auto max-w-2xl px-4 py-6 sm:py-8">
+      {/* ── Page title ── */}
       {wishlist ? (
-        <div>
-          <div className="flex items-center gap-2">
-            <Cloud className="h-6 w-6 text-[oklch(0.55_0.13_255)]" />
-            <h1 className="font-serif text-3xl font-bold">Viaggio dei sogni</h1>
-          </div>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Salva i luoghi che vorresti visitare, senza data — potrai pianificare l'itinerario in seguito.
-          </p>
+        <div className="flex items-center gap-2">
+          <Cloud className="h-5 w-5 text-[oklch(0.55_0.13_255)]" />
+          <h1 className="font-serif text-2xl font-bold">Viaggio dei sogni</h1>
         </div>
       ) : (
         <div className="flex items-center gap-2">
-          <MapPin className="h-6 w-6 text-primary" />
-          <h1 className="font-serif text-3xl font-bold">{t("new_trip")}</h1>
+          <MapPin className="h-5 w-5 text-primary" />
+          <h1 className="font-serif text-2xl font-bold">{t("new_trip")}</h1>
         </div>
       )}
 

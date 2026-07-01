@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { MapPin, Calendar, Briefcase, Palmtree, Footprints, Globe2, Pin, PinOff, Layers, Cloud } from "lucide-react";
+import { MapPin, Calendar, Briefcase, Palmtree, Footprints, Globe2, Pin, PinOff, Layers, Cloud, Compass } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { listTrips } from "@/lib/trips.functions";
@@ -173,10 +173,11 @@ function TripsList() {
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-6 sm:py-8">
-      <div className="flex items-end justify-between gap-3">
-        <div>
-          <h1 className="font-serif text-3xl font-bold tracking-tight sm:text-4xl">{t("trips")}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">{t("start_planning")}</p>
+      {/* ── Page title ── */}
+      <div className="flex items-center justify-between pb-2">
+        <div className="flex items-center gap-2">
+          <Compass className="h-5 w-5 text-primary" />
+          <h1 className="font-serif text-2xl font-bold">{t("trips")}</h1>
         </div>
       </div>
 

@@ -3,6 +3,7 @@ import { MapContainer, TileLayer, GeoJSON, Marker, Tooltip, useMap } from "react
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { cityNameLocalized } from "@/lib/country-data";
+import { Switch } from "@/components/ui/switch";
 
 export type WorldMapCity = { name: string; country: string; lat?: number; lng?: number };
 
@@ -838,6 +839,8 @@ export function WorldMap({
   lang?: string;
   className?: string;
 }) {
+  const [showDebug, setShowDebug] = useState(false);
+
   const { data: world, error } = useWorldBorders();
   const { data: subdivWorld, loading: subdivLoading, progress: subdivProgress } =
     useSubdivisionBorders(showSubdivisions);
@@ -1132,9 +1135,11 @@ export function WorldMap({
 
   if (error) {
     return (
-      <div className={`grid place-items-center rounded-3xl bg-muted text-xs text-muted-foreground ${className ?? ""}`}>
-        Mappa non disponibile al momento
-      </div>
+      <>
+        <div className={`grid place-items-center rounded-3xl bg-muted text-xs text-muted-foreground ${className ?? ""}`}>
+          Mappa non disponibile al momento
+        </div>
+      </>
     );
   }
 
@@ -1142,6 +1147,7 @@ export function WorldMap({
   const subdivKey = `subdiv-v${visitedSubdivData.subdivKeys.size}-o${ongoingSubdivData.subdivKeys.size}-p${plannedSubdivData.subdivKeys.size}-w${wishlistSubdivData.subdivKeys.size}-h${homeIso}`;
 
   return (
+    <>
     <div className={`relative ${className ?? ""}`}>
       <MapContainer
         center={[20, 10]}
@@ -1211,9 +1217,19 @@ export function WorldMap({
         </div>
       )}
 
-      {showSubdivisions && !subdivLoading && debugRows.length > 0 && (
-        <SubdivisionDebugTable rows={debugRows} />
-      )}
     </div>
+
+    {showSubdivisions && !subdivLoading && debugRows.length > 0 && (
+      <div className="mt-2 px-1">
+        <label className="flex cursor-pointer items-center gap-2 w-fit select-none">
+          <Switch checked={showDebug} onCheckedChange={setShowDebug} />
+          <span className="text-xs text-muted-foreground">
+            🔍 Debug regioni ({debugRows.length} pin)
+          </span>
+        </label>
+        {showDebug && <SubdivisionDebugTable rows={debugRows} />}
+      </div>
+    )}
+  </>
   );
 }
