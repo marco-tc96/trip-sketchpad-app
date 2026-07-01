@@ -102,23 +102,26 @@ function ProfilePage() {
   const stats = useMemo(() => {
     const all = trips.data ?? [];
     const today = new Date().toISOString().slice(0, 10);
-    const past = all.filter((tr) => tr.end_date < today);
+    // Only count completed past trips — exclude:
+    //   • planned trips (end_date >= today, i.e. future)
+    //   • ongoing trips (start_date <= today && end_date >= today)
+    //   • wishlist trips (trip_type === "wishlist", sentinel dates 2099)
+    const past = all.filter((tr) =>
+      tr.end_date < today &&
+      (tr as unknown as { trip_type?: string }).trip_type !== "wishlist",
+    );
     const homeIso = (prof.data as { home_country?: string | null } | undefined)?.home_country?.toUpperCase() ?? null;
     const countrySet = new Set<string>();
     const cityKey = new Set<string>();
     const countryCounts = new Map<string, number>();
     const cityCounts = new Map<string, { name: string; country: string; count: number }>();
     const continentCounts = new Map<string, number>();
-    // Track the date of the first visit for each country/city/continent,
-    // used as tiebreaker when visit counts are equal (earlier = higher rank).
     const countryFirstVisit = new Map<string, string>();
     const cityFirstVisit = new Map<string, string>();
     const continentFirstVisit = new Map<string, string>();
     let nights = 0, business = 0, vacation = 0, daytrip = 0;
     const byYear: Record<string, { business: number; vacation: number; daytrip: number }> = {};
 
-    // Sort ascending by start_date so the first encounter in the loop
-    // is always the chronologically earliest visit.
     const sortedPast = [...past].sort((a, b) => a.start_date.localeCompare(b.start_date));
 
     for (const tr of sortedPast) {
@@ -167,7 +170,6 @@ function ProfilePage() {
 
     return {
       past,
-      // Sorted alphabetically by localized name in the user's selected language
       countries: [...countrySet].sort((a, b) =>
         countryNameLocalized(a, lang).localeCompare(countryNameLocalized(b, lang), lang),
       ),
