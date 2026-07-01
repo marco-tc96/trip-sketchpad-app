@@ -159,6 +159,9 @@ const it: Dict = {
   continent_south_america: "Sud America",
   continent_oceania: "Oceania",
   all_years: "Tutti gli anni",
+  notifications: "Notifiche",
+  no_notifications: "Nessuna notifica per ora.",
+  mark_all_read: "Segna tutte come lette",
 };
 
 const en: Dict = {
@@ -306,6 +309,9 @@ const en: Dict = {
   continent_south_america: "South America",
   continent_oceania: "Oceania",
   all_years: "All years",
+  notifications: "Notifications",
+  no_notifications: "No notifications yet.",
+  mark_all_read: "Mark all as read",
 };
 
 // Compact translations: fall back to English keys + light per-language overrides

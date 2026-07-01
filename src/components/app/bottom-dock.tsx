@@ -1,6 +1,9 @@
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
-import { Compass, User, Plus, Cloud } from "lucide-react";
+import { Compass, User, Plus, Cloud, Bell } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useQuery } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
+import { countUnreadNotifications } from "@/lib/notifications.functions";
 import { cn } from "@/lib/utils";
 
 type NavItem = {
@@ -20,6 +23,15 @@ export function BottomDock() {
   const { t } = useTranslation();
   const loc = useLocation();
   const nav = useNavigate();
+
+  const countFn = useServerFn(countUnreadNotifications);
+  const { data: countData } = useQuery({
+    queryKey: ["notifications-count"],
+    queryFn: () => countFn(),
+    staleTime: 5 * 60 * 1000, // refresh every 5 min in background
+    refetchOnWindowFocus: true,
+  });
+  const unreadCount = countData?.count ?? 0;
 
   const isNewTripPage = loc.pathname === "/trips/new";
   // loc.search is the parsed search object in TanStack Router
@@ -105,6 +117,27 @@ export function BottomDock() {
           </Link>
         );
       })()}
+
+      {/* Notifications nav */}
+      <Link
+        to="/notifications"
+        className={cn(
+          "group flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-medium transition",
+          loc.pathname.startsWith("/notifications")
+            ? "bg-primary text-primary-foreground shadow-soft"
+            : "text-muted-foreground hover:bg-muted hover:text-foreground",
+        )}
+      >
+        <span className="relative">
+          <Bell className="h-4 w-4" />
+          {unreadCount > 0 && (
+            <span className="absolute -right-1.5 -top-1.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-destructive text-[8px] font-bold text-white leading-none">
+              {unreadCount > 9 ? "9+" : unreadCount}
+            </span>
+          )}
+        </span>
+        <span className="hidden sm:inline">{t("notifications")}</span>
+      </Link>
     </nav>
   );
 }
