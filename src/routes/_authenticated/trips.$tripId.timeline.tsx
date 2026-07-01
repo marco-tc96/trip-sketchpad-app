@@ -149,19 +149,32 @@ function TimelineView() {
   const lodgings = middle.filter((i) => i.kind === "lodging");
   const nonLodging = middle.filter((i) => i.kind !== "lodging");
 
-  const start = new Date(trip.data.start_date);
-  const end = new Date(trip.data.end_date);
-  const dayCount = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000) + 1);
-  const groups = Array.from({ length: dayCount }, (_, i) => {
-    const d = new Date(start.getTime() + i * 86400000);
-    const iso = d.toISOString().slice(0, 10);
-    return {
-      label: `${t("day_of", { n: i + 1 })} · ${d.toLocaleDateString(lang, { weekday: "short", day: "2-digit", month: "short" })}`,
-      items: nonLodging.filter((it) =>
-        it.start_at ? it.start_at.slice(0, 10) === iso : it.day_index === i + 1,
-      ),
-    };
-  });
+  const isWishlist = trip.data.start_date >= "2099-01-01";
+  const maxDayIndex = nonLodging.reduce((m, it) => Math.max(m, it.day_index ?? 0), 0);
+
+  type DayGroup = { label: string; dayIndex: number | null; items: ItemRow[] };
+  const groups: DayGroup[] = isWishlist
+    ? Array.from({ length: Math.max(1, maxDayIndex) }, (_, i) => ({
+        label: `GIORNO ${i + 1}`,
+        dayIndex: i + 1,
+        items: nonLodging.filter((it) => it.day_index === i + 1),
+      }))
+    : (() => {
+        const start = new Date(trip.data.start_date);
+        const end = new Date(trip.data.end_date);
+        const dayCount = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000) + 1);
+        return Array.from({ length: dayCount }, (_, i) => {
+          const d = new Date(start.getTime() + i * 86400000);
+          const iso = d.toISOString().slice(0, 10);
+          return {
+            label: `${t("day_of", { n: i + 1 })} · ${d.toLocaleDateString(lang, { weekday: "short", day: "2-digit", month: "short" })}`,
+            dayIndex: i + 1,
+            items: nonLodging.filter((it) =>
+              it.start_at ? it.start_at.slice(0, 10) === iso : it.day_index === i + 1,
+            ),
+          };
+        });
+      })();
 
   async function del(id: string) {
     if (!confirm(t("delete_confirm"))) return;
@@ -171,9 +184,9 @@ function TimelineView() {
 
   return (
     <div>
-      <TripStats trip={trip.data} expenses={expenses.data ?? []} homeCcy={profile.data?.home_currency ?? "EUR"} />
+      <TripStats trip={trip.data} expenses={expenses.data ?? []} homeCcy={profile.data?.home_currency ?? "EUR"} isWishlist={isWishlist} wishlistDays={maxDayIndex} />
       <div className="mb-4 flex items-center justify-end">
-          <AddItemDialog tripId={tripId} tripCities={tripCities} tripCountries={tripCountries} />
+          <AddItemDialog tripId={tripId} tripCities={tripCities} tripCountries={tripCountries} isWishlist={isWishlist} maxDayIndex={maxDayIndex} />
       </div>
 
       <div className="space-y-6">
@@ -199,6 +212,8 @@ function TimelineView() {
                           tripCities={tripCities}
                           tripCountries={tripCountries}
                           existing={it as ItemRow}
+                          isWishlist={isWishlist}
+                          maxDayIndex={maxDayIndex}
                           trigger={
                             <button
                               type="button"
@@ -244,16 +259,22 @@ function TripStats({
   trip,
   expenses,
   homeCcy,
+  isWishlist,
+  wishlistDays,
 }: {
   trip: { start_date: string; end_date: string };
   expenses: Array<{ amount: number; amount_home: number | null; currency: string }>;
   homeCcy: string;
+  isWishlist?: boolean;
+  wishlistDays?: number;
 }) {
   const { t } = useTranslation();
-  const days = Math.max(
-    1,
-    Math.round((new Date(trip.end_date).getTime() - new Date(trip.start_date).getTime()) / 86400000) + 1,
-  );
+  const days = isWishlist
+    ? (wishlistDays ?? 0)
+    : Math.max(
+        1,
+        Math.round((new Date(trip.end_date).getTime() - new Date(trip.start_date).getTime()) / 86400000) + 1,
+      );
   const total = expenses.reduce(
     (s, e) => s + Number(e.amount_home ?? (e.currency === homeCcy ? e.amount : 0)),
     0,
@@ -262,8 +283,10 @@ function TripStats({
     <div className="mb-4 grid gap-3 sm:grid-cols-2">
       <div className="rounded-2xl border border-border bg-card p-4 shadow-soft">
         <CalendarDays className="h-5 w-5 text-primary" />
-        <p className="mt-2 text-[10px] uppercase tracking-wider text-muted-foreground">{t("duration")}</p>
-        <p className="mt-0.5 font-serif text-2xl font-semibold tabular-nums">{days} {t("nights")}</p>
+        <p className="mt-2 text-[10px] uppercase tracking-wider text-muted-foreground">{isWishlist ? "Pianificato" : t("duration")}</p>
+        <p className="mt-0.5 font-serif text-2xl font-semibold tabular-nums">
+          {isWishlist ? (days > 0 ? `${days} giorni` : "—") : `${days} ${t("nights")}`}
+        </p>
       </div>
       <div className="rounded-2xl border border-border bg-card p-4 shadow-soft">
         <Wallet className="h-5 w-5 text-primary" />
@@ -875,6 +898,8 @@ function AddItemDialog({
   tripCities = [],
   tripCountries = [],
   existing,
+  isWishlist = false,
+  maxDayIndex = 0,
 }: {
   tripId: string;
   defaultKind?: (typeof ITEM_KINDS)[number];
@@ -882,6 +907,8 @@ function AddItemDialog({
   tripCities?: Array<{ name: string; country: string }>;
   tripCountries?: string[];
   existing?: ItemRow;
+  isWishlist?: boolean;
+  maxDayIndex?: number;
 }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
@@ -896,6 +923,7 @@ function AddItemDialog({
     start_at: existing?.start_at ? existing.start_at.slice(0, 16) : "",
     end_at: existing?.end_at ? existing.end_at.slice(0, 16) : "",
     notes: existing?.notes ?? "",
+    day_index: existing?.day_index ?? null as number | null,
   });
   const [form, setForm] = useState(seedForm);
   function handleOpenChange(v: boolean) {
@@ -948,9 +976,10 @@ function AddItemDialog({
                       kind: form.kind,
                       title: form.title,
                       location: form.location || null,
-                      start_at: form.start_at || null,
-                      end_at: form.end_at || null,
+                      start_at: isWishlist ? null : (form.start_at || null),
+                      end_at: isWishlist ? null : (form.end_at || null),
                       notes: form.notes || null,
+                      ...(isWishlist ? { day_index: form.day_index } : {}),
                     },
                   },
                 });
@@ -961,10 +990,11 @@ function AddItemDialog({
                     kind: form.kind,
                     title: form.title,
                     location: form.location || null,
-                    start_at: form.start_at || null,
-                    end_at: form.end_at || null,
+                    start_at: isWishlist ? null : (form.start_at || null),
+                    end_at: isWishlist ? null : (form.end_at || null),
                     notes: form.notes || null,
                     position: 0,
+                    ...(isWishlist ? { day_index: form.day_index } : {}),
                   },
                 });
               }
@@ -1082,16 +1112,32 @@ function AddItemDialog({
               </PopoverContent>
             </Popover>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
+          {isWishlist ? (
             <div className="space-y-1.5">
-              <Label className="text-muted-foreground">{t("starts_at")} <span className="text-xs opacity-70">(opzionale)</span></Label>
-              <Input type="datetime-local" value={form.start_at} onChange={(e) => setForm({ ...form, start_at: e.target.value })} />
+              <Label>Giorno <span className="text-xs opacity-70">(opzionale)</span></Label>
+              <select
+                value={form.day_index ?? ""}
+                onChange={(e) => setForm({ ...form, day_index: e.target.value ? Number(e.target.value) : null })}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <option value="">Senza giorno assegnato</option>
+                {Array.from({ length: Math.max(1, maxDayIndex + 1) }, (_, i) => (
+                  <option key={i + 1} value={i + 1}>Giorno {i + 1}</option>
+                ))}
+              </select>
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-muted-foreground">{t("ends_at")} <span className="text-xs opacity-70">(opzionale)</span></Label>
-              <Input type="datetime-local" value={form.end_at} onChange={(e) => setForm({ ...form, end_at: e.target.value })} />
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label className="text-muted-foreground">{t("starts_at")} <span className="text-xs opacity-70">(opzionale)</span></Label>
+                <Input type="datetime-local" value={form.start_at} onChange={(e) => setForm({ ...form, start_at: e.target.value })} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-muted-foreground">{t("ends_at")} <span className="text-xs opacity-70">(opzionale)</span></Label>
+                <Input type="datetime-local" value={form.end_at} onChange={(e) => setForm({ ...form, end_at: e.target.value })} />
+              </div>
             </div>
-          </div>
+          )}
           <div className="space-y-1.5">
             <Label>{t("notes")}</Label>
             <Textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
@@ -1368,3 +1414,4 @@ function HubCombobox({
     </div>
   );
 }
+

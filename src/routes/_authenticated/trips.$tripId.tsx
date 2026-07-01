@@ -93,13 +93,14 @@ function TripLayout() {
   const coverType = (tripRow.cover_type ?? "auto") as "auto" | "map" | "photo" | "color";
   const cities = Array.isArray(tripRow.cities) ? tripRow.cities : [];
   const countries = Array.isArray(tripRow.countries) ? tripRow.countries : [];
+  const isWishlist = trip.data.start_date >= "2099-01-01";
+  const todayISO = new Date().toISOString().slice(0, 10);
   const tripCurrencies: string[] = [...new Set(
     countries
-      .map((iso) => currencyForCountryAt(iso, trip.data.start_date))
+      .map((iso) => currencyForCountryAt(iso, isWishlist ? todayISO : trip.data.start_date))
       .filter((c): c is string => !!c)
   )];
   const tripType = (tripRow.trip_type ?? "vacation") as "vacation" | "business" | "daytrip";
-  const isWishlist = trip.data.start_date >= "2099-01-01";
   const typeIcon = tripType === "business" ? Briefcase : tripType === "daytrip" ? Footprints : Palmtree;
   const typeColor =
     tripType === "business"
@@ -454,8 +455,8 @@ function TripLayout() {
                   key={cur}
                   from={profile.data!.home_currency}
                   to={cur}
-                  start={trip.data.start_date}
-                  end={trip.data.end_date}
+                  start={isWishlist ? todayISO : trip.data.start_date}
+                  end={isWishlist ? todayISO : trip.data.end_date}
                   fallback={trip.data.fx_rate_fallback}
                 />
               ))
@@ -463,7 +464,7 @@ function TripLayout() {
             <TimezoneBadge
               home={(profile.data as { home_country?: string | null }).home_country ?? null}
               destinations={countries}
-              startDate={trip.data.start_date}
+              startDate={isWishlist ? undefined : trip.data.start_date}
             />
           </div>
         )}
@@ -1407,3 +1408,4 @@ function FullScreenPhoto({
     </>
   );
 }
+
