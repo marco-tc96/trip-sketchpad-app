@@ -32,7 +32,6 @@ const visitedPinIcon = L.divIcon({
   iconAnchor: [7, 7],
 });
 
-// Planned = gray solid border (changed from blue)
 const plannedPinIcon = L.divIcon({
   className: "voyager-pin-planned",
   html: `<span style="display:block;width:14px;height:14px;border-radius:9999px;background:white;border:2.5px solid oklch(0.55 0 0);box-shadow:0 2px 6px rgba(0,0,0,0.3)"></span>`,
@@ -40,7 +39,6 @@ const plannedPinIcon = L.divIcon({
   iconAnchor: [7, 7],
 });
 
-// Ongoing = yellow fill
 const ongoingPinIcon = L.divIcon({
   className: "voyager-pin-ongoing",
   html: `<span style="display:block;width:14px;height:14px;border-radius:9999px;background:oklch(0.88 0.14 95);border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.35)"></span>`,
@@ -48,7 +46,6 @@ const ongoingPinIcon = L.divIcon({
   iconAnchor: [7, 7],
 });
 
-// Wishlist = white fill + blue border
 const wishlistPinIcon = L.divIcon({
   className: "voyager-pin-wishlist",
   html: `<span style="display:block;width:14px;height:14px;border-radius:9999px;background:white;border:2.5px solid oklch(0.55 0.16 255);box-shadow:0 2px 6px rgba(0,0,0,0.3)"></span>`,
@@ -120,6 +117,7 @@ function simplifyGeoCollection(geo: GeoCollection, eps: number): GeoCollection {
             iso_3166_2: p.iso_3166_2 ?? null,
             adm0_a3: p.adm0_a3 ?? null,
             hasc: p.hasc ?? null,
+            type_en: p.type_en ?? null,
           },
           geometry: geom,
         };
@@ -131,7 +129,7 @@ function simplifyGeoCollection(geo: GeoCollection, eps: number): GeoCollection {
 
 const IDB_DB = "voyager-geo";
 const IDB_STORE = "tiles";
-const ADMIN1_KEY = "ne_admin1_v2";
+const ADMIN1_KEY = "ne_admin1_v3"; // bumped: new simplification + type_en preserved
 
 async function idbGet(key: string): Promise<GeoCollection | null> {
   if (typeof indexedDB === "undefined") return null;
@@ -206,7 +204,7 @@ function _notifyProgress(msg: string) {
 
 const ADMIN1_SRC =
   "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson";
-const SIMPLIFY_EPS = 0.08;
+const SIMPLIFY_EPS = 0.005; // ~550 m precision — much more accurate borders
 
 async function loadAdmin1(): Promise<GeoCollection> {
   if (_admin1Cache) return _admin1Cache;
@@ -309,6 +307,12 @@ function isoOf(feature: GeoFeature): string | null {
       return v.toUpperCase();
     }
   }
+  // Fallback: derive from 3-letter ISO code
+  const a3Keys = ["ISO_A3", "ISO_A3_EH", "adm0_a3"];
+  for (const key of a3Keys) {
+    const v = String(p[key] ?? "").trim();
+    if (v.length === 3 && v !== "-99" && A3_TO_A2[v]) return A3_TO_A2[v];
+  }
   return null;
 }
 
@@ -340,6 +344,45 @@ const A3_TO_A2: Record<string, string> = {
   PYF:"PF",REU:"RE",SGS:"GS",SHN:"SH",SJM:"SJ",SPM:"PM",SXM:"SX",TCA:"TC",TKL:"TK",UMI:"UM",
   VGB:"VG",VIR:"VI",WLF:"WF",XKX:"XK",
 };
+
+// ── Per-country admin-1 type filter ─────────────────────────────────────────
+// Natural Earth ne_10m_admin_1 includes provinces for IT and ES alongside regions.
+// Only features whose type_en matches one of these strings (case-insensitive) are used.
+const ADMIN1_PREFERRED_TYPES: Record<string, string[]> = {
+  IT: ["region", "autonomous region", "autonomous province", "free commune"],
+  ES: ["autonomous community", "autonomous city"],
+};
+
+// Bounding-box area proxy — used to pick the largest matching feature (region > province)
+function featureBBoxArea(feature: GeoFeature): number {
+  const g = feature.geometry;
+  if (!g) return 0;
+  let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
+  const processRing = (ring: number[][]) => {
+    for (const [lng, lat] of ring) {
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+      if (lng < minLng) minLng = lng;
+      if (lng > maxLng) maxLng = lng;
+    }
+  };
+  if (g.type === "Polygon") {
+    for (const ring of g.coordinates as number[][][]) processRing(ring);
+  } else if (g.type === "MultiPolygon") {
+    for (const poly of g.coordinates as number[][][][]) {
+      for (const ring of poly) processRing(ring);
+    }
+  }
+  if (minLat === Infinity) return 0;
+  return (maxLat - minLat) * (maxLng - minLng);
+}
+
+function isPreferredAdmin1(feature: GeoFeature, iso: string): boolean {
+  const preferred = ADMIN1_PREFERRED_TYPES[iso];
+  if (!preferred) return true; // no filter for this country
+  const typeEn = String((feature.properties ?? {}).type_en ?? "").toLowerCase();
+  return preferred.some((t) => typeEn.includes(t));
+}
 
 function countryIsoOfAdmin1(feature: GeoFeature): string | null {
   const props = feature.properties ?? {};
@@ -446,10 +489,13 @@ function computeSubdivData(
   const subdivKeys = new Set<string>();
   const fallbackCountries = new Set<string>();
 
+  // Build per-country feature index, filtering to preferred admin level
   const featuresByCountry = new Map<string, GeoFeature[]>();
   for (const feature of admin1Geo.features) {
     const iso = countryIsoOfAdmin1(feature);
     if (!iso) continue;
+    // Skip features at wrong admin level for this country (e.g. IT provinces)
+    if (!isPreferredAdmin1(feature, iso)) continue;
     const list = featuresByCountry.get(iso) ?? [];
     list.push(feature);
     featuresByCountry.set(iso, list);
@@ -461,30 +507,36 @@ function computeSubdivData(
     const candidates = featuresByCountry.get(iso) ?? [];
     if (candidates.length === 0) { fallbackCountries.add(iso); continue; }
 
-    let found = false;
+    // Pick the LARGEST polygon that contains the pin (prefers region over sub-region)
+    let bestFeature: GeoFeature | null = null;
+    let bestArea = -1;
     for (const feature of candidates) {
       if (pointInGeoFeature(pin.lat, pin.lng, feature)) {
-        const name = (feature.properties?.name as string) ?? "";
-        if (name) { subdivKeys.add(`${iso}|${norm(name)}`); found = true; break; }
+        const area = featureBBoxArea(feature);
+        if (area > bestArea) { bestArea = area; bestFeature = feature; }
       }
     }
 
-    if (!found) {
-      let bestDist = Infinity;
-      let bestFeature: GeoFeature | null = null;
-      for (const feature of candidates) {
-        const c = featureCentroid(feature);
-        if (!c) continue;
-        const dist = Math.hypot(c.lat - pin.lat, c.lng - pin.lng);
-        if (dist < bestDist) { bestDist = dist; bestFeature = feature; }
-      }
-      if (bestFeature && bestDist < 8) {
-        const name = (bestFeature.properties?.name as string) ?? "";
-        if (name) { subdivKeys.add(`${iso}|${norm(name)}`); found = true; }
-      }
+    if (bestFeature) {
+      const name = (bestFeature.properties?.name as string) ?? "";
+      if (name) { subdivKeys.add(`${iso}|${norm(name)}`); continue; }
     }
 
-    if (!found) fallbackCountries.add(iso);
+    // Fallback: nearest centroid
+    let nearDist = Infinity;
+    let nearFeature: GeoFeature | null = null;
+    for (const feature of candidates) {
+      const c = featureCentroid(feature);
+      if (!c) continue;
+      const dist = Math.hypot(c.lat - pin.lat, c.lng - pin.lng);
+      if (dist < nearDist) { nearDist = dist; nearFeature = feature; }
+    }
+    if (nearFeature && nearDist < 8) {
+      const name = (nearFeature.properties?.name as string) ?? "";
+      if (name) { subdivKeys.add(`${iso}|${norm(name)}`); continue; }
+    }
+
+    fallbackCountries.add(iso);
   }
 
   return { subdivKeys, fallbackCountries };
@@ -521,7 +573,6 @@ export function WorldMap({
   const { data: subdivWorld, loading: subdivLoading, progress: subdivProgress } =
     useSubdivisionBorders(showSubdivisions);
 
-  // Priority: Home > Ongoing > Visited/Past > Planned > Wishlist
   const visitedSet = useMemo(
     () => new Set(visitedCountries.map((c) => c.toUpperCase())),
     [visitedCountries],
@@ -721,7 +772,7 @@ export function WorldMap({
   };
 
   const subdivStyle = (feature?: GeoFeature) => {
-    const emptyStyle = { fillColor: "transparent", fillOpacity: 0, color: "oklch(0.88 0.005 90)", weight: 0.3 };
+    const emptyStyle = { fillColor: "transparent", fillOpacity: 0, color: "transparent", weight: 0 };
     if (!feature?.properties) return emptyStyle;
     const props = feature.properties;
     const norm = (s: string) =>
@@ -729,6 +780,9 @@ export function WorldMap({
 
     const countryIso = countryIsoOfAdmin1(feature);
     if (!countryIso) return emptyStyle;
+
+    // Skip features at wrong admin level (e.g. Italian provinces when we want regions)
+    if (!isPreferredAdmin1(feature, countryIso)) return emptyStyle;
 
     const featureName = norm((props.name as string) ?? "");
     const key = `${countryIso}|${featureName}`;
@@ -738,6 +792,7 @@ export function WorldMap({
     const isWishlist = !isVisited && !isOngoing && !isPlanned && wishlistSubdivData.subdivKeys.has(key);
     const isInHome = !!homeIso && countryIso === homeIso;
 
+    // ── Regions WITH a pin: show colored fill + precise border ──
     if (isVisited) {
       return { fillColor: "oklch(0.66 0.14 38)", fillOpacity: 0.65, color: "oklch(0.5 0.13 38)", weight: 0.75 };
     }
@@ -753,27 +808,14 @@ export function WorldMap({
         color: "oklch(0.6 0.13 255)", weight: 0.75, dashArray: "4 3",
       };
     }
+
+    // ── Home country regions WITHOUT a pin: subtle green fill ──
     if (isInHome) {
       return { fillColor: "oklch(0.65 0.15 145)", fillOpacity: 0.22, color: "oklch(0.48 0.13 145)", weight: 0.5 };
     }
 
-    const isInVisited = visitedSet.has(countryIso);
-    const isInOngoing = ongoingSet.has(countryIso);
-    const isInPlanned = plannedSet.has(countryIso);
-    const isInWishlist = wishlistSet.has(countryIso);
-    return {
-      fillColor: "transparent", fillOpacity: 0,
-      color: isInVisited
-        ? "oklch(0.72 0.09 38)"
-        : isInOngoing
-        ? "oklch(0.75 0.12 85)"
-        : isInPlanned
-        ? "oklch(0.78 0 0)"
-        : isInWishlist
-        ? "oklch(0.75 0.08 255)"
-        : "oklch(0.88 0.005 90)",
-      weight: isInVisited || isInOngoing || isInPlanned || isInWishlist ? 0.45 : 0.25,
-    };
+    // ── Everything else: completely invisible (no border clutter) ──
+    return emptyStyle;
   };
 
   if (error) {
@@ -784,7 +826,7 @@ export function WorldMap({
     );
   }
 
-  const geoKey = `country-v${visitedSet.size}-o${ongoingSet.size}-p${plannedSet.size}-w${wishlistSet.size}-h${homeIso}-s${showSubdivisions ? 1 : 0}-vf${visitedSubdivData.fallbackCountries.size}-pf${plannedSubdivData.fallbackCountries.size}`;
+  const geoKey = `country-v${visitedSet.size}-o${ongoingSet.size}-p${plannedSet.size}-w${wishlistSet.size}-h${homeIso}-s${showSubdivisions ? 1 : 0}-vf${visitedSubdivData.fallbackCountries.size}-pf${plannedSubdivData.fallbackCountries.size}-wf${wishlistSubdivData.fallbackCountries.size}`;
   const subdivKey = `subdiv-v${visitedSubdivData.subdivKeys.size}-o${ongoingSubdivData.subdivKeys.size}-p${plannedSubdivData.subdivKeys.size}-w${wishlistSubdivData.subdivKeys.size}-h${homeIso}`;
 
   return (
