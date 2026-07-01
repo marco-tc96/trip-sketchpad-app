@@ -531,15 +531,25 @@ function LodgingCard({
 // there. Falls back to a heuristic for train/bus/ferry legs, which don't
 // carry a code (e.g. "Roma - Termini").
 function codeOf(label: string, airports?: AirportHub[]): string {
+  // Current format: "BLQ - Bologna" or "BLQ - Milano Malpensa"
   const m = label.match(/^([A-Z]{3})\s*-\s*/);
   if (m) return m[1];
-  // Fallback: look up IATA code by city/airport name (for legs saved before the prefix format)
+  // Fallback: look up IATA code by city/airport name (for legs saved before the IATA-prefix format)
   if (airports && airports.length > 0) {
     const q = label.trim().toLowerCase();
+    // Try exact city match or airport name includes
     const hit =
       airports.find((a) => (a.city ?? "").toLowerCase() === q) ??
       airports.find((a) => a.name.toLowerCase().includes(q));
     if (hit) return hit.code;
+    // Old "City - Name" format (e.g. "Bologna - Guglielmo Marconi"):
+    // extract the city part before the first " - " and try again.
+    const dashIdx = q.indexOf(" - ");
+    if (dashIdx > 0) {
+      const cityPart = q.slice(0, dashIdx).trim();
+      const hit2 = airports.find((a) => (a.city ?? "").toLowerCase() === cityPart);
+      if (hit2) return hit2.code;
+    }
   }
   const clean = label.replace(/[^a-zA-Z]/g, "");
   return (clean.slice(0, 3) || "···").toUpperCase();

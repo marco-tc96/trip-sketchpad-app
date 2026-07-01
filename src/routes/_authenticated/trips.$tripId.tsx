@@ -976,6 +976,118 @@ function fmt(d: string, lang?: string) {
   return new Date(d).toLocaleDateString(lang, { day: "2-digit", month: "short", year: "numeric" });
 }
 
+// TZ_ABBR: IANA timezone → [stdAbbr, dstAbbr | null]
+const TZ_ABBR: Record<string, [string, string | null]> = {
+  // Africa
+  "Africa/Abidjan":["GMT",null],"Africa/Accra":["GMT",null],"Africa/Addis_Ababa":["EAT",null],
+  "Africa/Algiers":["CET",null],"Africa/Asmara":["EAT",null],"Africa/Bamako":["GMT",null],
+  "Africa/Bangui":["WAT",null],"Africa/Banjul":["GMT",null],"Africa/Bissau":["GMT",null],
+  "Africa/Blantyre":["CAT",null],"Africa/Brazzaville":["WAT",null],"Africa/Bujumbura":["CAT",null],
+  "Africa/Cairo":["EET",null],"Africa/Casablanca":["WET","+01"],"Africa/Conakry":["GMT",null],
+  "Africa/Dakar":["GMT",null],"Africa/Dar_es_Salaam":["EAT",null],"Africa/Djibouti":["EAT",null],
+  "Africa/Douala":["WAT",null],"Africa/Freetown":["GMT",null],"Africa/Gaborone":["CAT",null],
+  "Africa/Harare":["CAT",null],"Africa/Johannesburg":["SAST",null],"Africa/Juba":["EAT",null],
+  "Africa/Kampala":["EAT",null],"Africa/Khartoum":["EAT",null],"Africa/Kigali":["CAT",null],
+  "Africa/Kinshasa":["WAT",null],"Africa/Lagos":["WAT",null],"Africa/Libreville":["WAT",null],
+  "Africa/Lome":["GMT",null],"Africa/Luanda":["WAT",null],"Africa/Lubumbashi":["CAT",null],
+  "Africa/Lusaka":["CAT",null],"Africa/Malabo":["WAT",null],"Africa/Maputo":["CAT",null],
+  "Africa/Maseru":["SAST",null],"Africa/Mbabane":["SAST",null],"Africa/Mogadishu":["EAT",null],
+  "Africa/Monrovia":["GMT",null],"Africa/Nairobi":["EAT",null],"Africa/Ndjamena":["WAT",null],
+  "Africa/Niamey":["WAT",null],"Africa/Nouakchott":["GMT",null],"Africa/Ouagadougou":["GMT",null],
+  "Africa/Porto-Novo":["WAT",null],"Africa/Sao_Tome":["GMT",null],"Africa/Tripoli":["EET",null],
+  "Africa/Tunis":["CET",null],"Africa/Windhoek":["WAT","CAT"],
+  // America
+  "America/Antigua":["AST",null],"America/Argentina/Buenos_Aires":["ART",null],
+  "America/Asuncion":["PYT","PYST"],"America/Barbados":["AST",null],"America/Belize":["CST",null],
+  "America/Bogota":["COT",null],"America/Caracas":["VET",null],"America/Costa_Rica":["CST",null],
+  "America/Dominica":["AST",null],"America/El_Salvador":["CST",null],
+  "America/Godthab":["WGT","WGST"],"America/Grenada":["AST",null],"America/Guatemala":["CST",null],
+  "America/Guayaquil":["ECT",null],"America/Guyana":["GYT",null],"America/Havana":["CST","CDT"],
+  "America/Jamaica":["EST",null],"America/La_Paz":["BOT",null],"America/Lima":["PET",null],
+  "America/Managua":["CST",null],"America/Martinique":["AST",null],
+  "America/Mexico_City":["CST","CDT"],"America/Montevideo":["UYT",null],
+  "America/Nassau":["EST","EDT"],"America/New_York":["EST","EDT"],"America/Panama":["EST",null],
+  "America/Paramaribo":["SRT",null],"America/Port-au-Prince":["EST","EDT"],
+  "America/Port_of_Spain":["AST",null],"America/Puerto_Rico":["AST",null],
+  "America/Santo_Domingo":["AST",null],"America/Sao_Paulo":["BRT","BRST"],
+  "America/St_Kitts":["AST",null],"America/St_Lucia":["AST",null],"America/St_Vincent":["AST",null],
+  "America/Tegucigalpa":["CST",null],"America/Toronto":["EST","EDT"],
+  // Asia
+  "Asia/Almaty":["ALMT",null],"Asia/Amman":["EET","EEST"],"Asia/Ashgabat":["TMT",null],
+  "Asia/Baghdad":["AST",null],"Asia/Bahrain":["AST",null],"Asia/Baku":["AZT","AZST"],
+  "Asia/Bangkok":["ICT",null],"Asia/Beirut":["EET","EEST"],"Asia/Bishkek":["KGT",null],
+  "Asia/Brunei":["BNT",null],"Asia/Colombo":["IST",null],"Asia/Damascus":["EET","EEST"],
+  "Asia/Dhaka":["BST",null],"Asia/Dili":["TLT",null],"Asia/Dubai":["GST",null],
+  "Asia/Dushanbe":["TJT",null],"Asia/Gaza":["EET","EEST"],"Asia/Ho_Chi_Minh":["ICT",null],
+  "Asia/Hong_Kong":["HKT",null],"Asia/Jakarta":["WIB",null],"Asia/Jerusalem":["IST","IDT"],
+  "Asia/Kabul":["AFT",null],"Asia/Karachi":["PKT",null],"Asia/Kathmandu":["NPT",null],
+  "Asia/Kolkata":["IST",null],"Asia/Kuala_Lumpur":["MYT",null],"Asia/Kuwait":["AST",null],
+  "Asia/Macau":["CST",null],"Asia/Manila":["PHT",null],"Asia/Muscat":["GST",null],
+  "Asia/Nicosia":["EET","EEST"],"Asia/Phnom_Penh":["ICT",null],"Asia/Pyongyang":["KST",null],
+  "Asia/Qatar":["AST",null],"Asia/Rangoon":["MMT",null],"Asia/Riyadh":["AST",null],
+  "Asia/Seoul":["KST",null],"Asia/Shanghai":["CST",null],"Asia/Singapore":["SGT",null],
+  "Asia/Taipei":["CST",null],"Asia/Tashkent":["UZT",null],"Asia/Tbilisi":["GET",null],
+  "Asia/Tehran":["IRST","IRDT"],"Asia/Thimphu":["BTT",null],"Asia/Tokyo":["JST",null],
+  "Asia/Ulaanbaatar":["ULAT",null],"Asia/Vientiane":["ICT",null],"Asia/Yerevan":["AMT","AMST"],
+  // Atlantic
+  "Atlantic/Cape_Verde":["CVT",null],"Atlantic/Reykjavik":["GMT",null],
+  // Australia
+  "Australia/Adelaide":["ACST","ACDT"],"Australia/Brisbane":["AEST",null],
+  "Australia/Darwin":["ACST",null],"Australia/Hobart":["AEST","AEDT"],
+  "Australia/Perth":["AWST",null],"Australia/Sydney":["AEST","AEDT"],
+  // Europe
+  "Europe/Amsterdam":["CET","CEST"],"Europe/Andorra":["CET","CEST"],
+  "Europe/Athens":["EET","EEST"],"Europe/Belgrade":["CET","CEST"],
+  "Europe/Berlin":["CET","CEST"],"Europe/Bratislava":["CET","CEST"],
+  "Europe/Brussels":["CET","CEST"],"Europe/Bucharest":["EET","EEST"],
+  "Europe/Budapest":["CET","CEST"],"Europe/Chisinau":["EET","EEST"],
+  "Europe/Copenhagen":["CET","CEST"],"Europe/Dublin":["GMT","IST"],
+  "Europe/Gibraltar":["CET","CEST"],"Europe/Helsinki":["EET","EEST"],
+  "Europe/Istanbul":["TRT",null],"Europe/Kiev":["EET","EEST"],"Europe/Kyiv":["EET","EEST"],
+  "Europe/Lisbon":["WET","WEST"],"Europe/Ljubljana":["CET","CEST"],
+  "Europe/London":["GMT","BST"],"Europe/Luxembourg":["CET","CEST"],
+  "Europe/Madrid":["CET","CEST"],"Europe/Malta":["CET","CEST"],"Europe/Minsk":["FET",null],
+  "Europe/Monaco":["CET","CEST"],"Europe/Moscow":["MSK",null],"Europe/Oslo":["CET","CEST"],
+  "Europe/Paris":["CET","CEST"],"Europe/Podgorica":["CET","CEST"],
+  "Europe/Prague":["CET","CEST"],"Europe/Riga":["EET","EEST"],"Europe/Rome":["CET","CEST"],
+  "Europe/San_Marino":["CET","CEST"],"Europe/Sarajevo":["CET","CEST"],
+  "Europe/Skopje":["CET","CEST"],"Europe/Sofia":["EET","EEST"],"Europe/Stockholm":["CET","CEST"],
+  "Europe/Tallinn":["EET","EEST"],"Europe/Tirane":["CET","CEST"],"Europe/Vaduz":["CET","CEST"],
+  "Europe/Vatican":["CET","CEST"],"Europe/Vienna":["CET","CEST"],"Europe/Vilnius":["EET","EEST"],
+  "Europe/Warsaw":["CET","CEST"],"Europe/Zagreb":["CET","CEST"],"Europe/Zurich":["CET","CEST"],
+  // Indian
+  "Indian/Antananarivo":["EAT",null],"Indian/Comoro":["EAT",null],"Indian/Mahe":["SCT",null],
+  "Indian/Maldives":["MVT",null],"Indian/Mauritius":["MUT",null],"Indian/Reunion":["RET",null],
+  // Pacific
+  "Pacific/Apia":["WST",null],"Pacific/Auckland":["NZST","NZDT"],"Pacific/Efate":["VUT",null],
+  "Pacific/Fiji":["FJT","FJST"],"Pacific/Funafuti":["TVT",null],
+  "Pacific/Guadalcanal":["SBT",null],"Pacific/Majuro":["MHT",null],
+  "Pacific/Palau":["PWT",null],"Pacific/Pohnpei":["PONT",null],"Pacific/Port_Moresby":["PGT",null],
+  "Pacific/Tongatapu":["TOT",null],
+};
+
+function tzOffset(tz: string, d: Date): number | null {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz, timeZoneName: "shortOffset",
+    }).formatToParts(d);
+    const name = parts.find((p) => p.type === "timeZoneName")?.value ?? "";
+    const m = name.match(/GMT([+-]?)(\d{1,2})(?::?(\d{2}))?/);
+    if (!m) return name === "GMT" ? 0 : null;
+    const sign = m[1] === "-" ? -1 : 1;
+    return sign * (parseInt(m[2], 10) + (m[3] ? parseInt(m[3], 10) / 60 : 0));
+  } catch { return null; }
+}
+
+function tzIsDst(tz: string, d: Date): boolean {
+  const jan = tzOffset(tz, new Date(d.getFullYear(), 0, 15));
+  const jul = tzOffset(tz, new Date(d.getFullYear(), 6, 15));
+  if (jan == null || jul == null || jan === jul) return false;
+  const curr = tzOffset(tz, d);
+  if (curr == null) return false;
+  return curr > Math.min(jan, jul);
+}
+
 function TimezoneBadge({
   home,
   destinations,
@@ -1010,31 +1122,29 @@ function TimezoneBadge({
   };
   const abbrOn = (tz: string, d: Date): string | null => {
     try {
+      // 1. Native short abbreviation (Chrome/Safari).
       const shortParts = new Intl.DateTimeFormat("en-US", {
-        timeZone: tz,
-        timeZoneName: "short",
+        timeZone: tz, timeZoneName: "short",
       }).formatToParts(d);
       const short = shortParts.find((p) => p.type === "timeZoneName")?.value ?? "";
       if (short && !/^(GMT|UTC)/i.test(short)) return short;
+      // 2. Hardcoded table — reliable on Node.js SSR.
+      const entry = TZ_ABBR[tz];
+      if (entry) {
+        const [std, dst] = entry;
+        if (!dst) return std;
+        return tzIsDst(tz, d) ? dst : std;
+      }
+      // 3. Long-name acronym fallback.
       const longParts = new Intl.DateTimeFormat("en-US", {
-        timeZone: tz,
-        timeZoneName: "long",
+        timeZone: tz, timeZoneName: "long",
       }).formatToParts(d);
       const long = longParts.find((p) => p.type === "timeZoneName")?.value ?? "";
       if (!long) return null;
-      // Remove "Standard" so "Central European Standard Time" → "CET"
-      // while "Central European Summer Time" → "CEST" is preserved.
-      // Without this, both map to "CEST" because "Standard" starts with "S".
       const filtered = long.replace(/\bStandard\b\s*/i, "");
-      const acronym = filtered
-        .split(/\s+/)
-        .filter((w) => /^[A-Z]/.test(w))
-        .map((w) => w[0])
-        .join("");
+      const acronym = filtered.split(/\s+/).filter((w) => /^[A-Z]/.test(w)).map((w) => w[0]).join("");
       return acronym.length >= 2 ? acronym : null;
-    } catch {
-      return null;
-    }
+    } catch { return null; }
   };
   const h = offsetOn(homeZone, when);
   const d = offsetOn(destZone, when);
