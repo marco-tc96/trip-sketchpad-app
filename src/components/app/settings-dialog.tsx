@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { LogOut, Moon, Settings as SettingsIcon, Sun } from "lucide-react";
+import { Check, Loader2, LogOut, Moon, Settings as SettingsIcon, Sun, X } from "lucide-react";
+import { useServerFn } from "@tanstack/react-start";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,6 +19,7 @@ import { allCountries, countryNameLocalized } from "@/lib/country-data";
 import { useTheme } from "@/lib/theme";
 import { useAuth } from "@/lib/auth-context";
 import { cn } from "@/lib/utils";
+import { checkUsernameAvailable } from "@/lib/profile.functions";
 
 export type ProfileFormValues = {
   display_name: string;
@@ -25,7 +27,10 @@ export type ProfileFormValues = {
   home_currency: string;
   language: Lang;
   home_country: string;
+  birth_country: string;
 };
+
+type UsernameStatus = "idle" | "checking" | "available" | "taken";
 
 export function SettingsDialog({
   initial,
@@ -42,13 +47,41 @@ export function SettingsDialog({
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<ProfileFormValues>(initial);
+  const [usernameStatus, setUsernameStatus] = useState<UsernameStatus>("idle");
 
-  // Re-sync the local form state whenever the dialog is (re)opened, so it
-  // always reflects the latest saved profile rather than stale edits from a
-  // previous open/close cycle.
+  const checkUsernameFn = useServerFn(checkUsernameAvailable);
+
+  // Re-sync form whenever dialog is reopened
   useEffect(() => {
-    if (open) setForm(initial);
+    if (open) {
+      setForm(initial);
+      setUsernameStatus("idle");
+    }
   }, [open, initial]);
+
+  // Debounced username availability check
+  useEffect(() => {
+    const trimmed = form.username.trim();
+    // No check needed if same as initial or too short
+    if (!trimmed || trimmed === initial.username) {
+      setUsernameStatus("idle");
+      return;
+    }
+    if (trimmed.length < 3) {
+      setUsernameStatus("idle");
+      return;
+    }
+    setUsernameStatus("checking");
+    const timer = setTimeout(async () => {
+      try {
+        const result = await checkUsernameFn({ data: { username: trimmed } });
+        setUsernameStatus(result.available ? "available" : "taken");
+      } catch {
+        setUsernameStatus("idle");
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [form.username, initial.username, checkUsernameFn]);
 
   const lang = i18n.language || "it";
   const countries = allCountries()
@@ -56,13 +89,24 @@ export function SettingsDialog({
     .sort((a, b) => a.label.localeCompare(b.label));
 
   async function handleSave() {
+    if (usernameStatus === "taken") {
+      toast.error(t("username_taken"));
+      return;
+    }
+    if (usernameStatus === "checking") {
+      toast.error(t("error_generic"));
+      return;
+    }
     setSaving(true);
     try {
       await onSave(form);
       setOpen(false);
-    } catch {
-      // onSave is expected to surface its own error toast; keep the dialog
-      // open so the user can retry without losing their edits.
+    } catch (e) {
+      if (e instanceof Error && e.message === "username_taken") {
+        setUsernameStatus("taken");
+        toast.error(t("username_taken"));
+      }
+      // Other errors are handled by onSave
     } finally {
       setSaving(false);
     }
@@ -97,6 +141,7 @@ export function SettingsDialog({
             />
           </div>
 
+          {/* Username with availability indicator */}
           <div className="space-y-1.5">
             <Label>{t("username")}</Label>
             <div className="flex items-center rounded-md border border-input bg-background focus-within:ring-1 focus-within:ring-ring">
@@ -106,10 +151,32 @@ export function SettingsDialog({
                 onChange={(e) =>
                   setForm({ ...form, username: e.target.value.replace(/\s+/g, "").toLowerCase() })
                 }
-                className="border-0 focus-visible:ring-0"
+                className={cn(
+                  "border-0 focus-visible:ring-0",
+                  usernameStatus === "taken" && "text-destructive",
+                )}
                 placeholder="username"
               />
+              <span className="pr-3">
+                {usernameStatus === "checking" && (
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                )}
+                {usernameStatus === "available" && (
+                  <Check className="h-4 w-4 text-emerald-500" />
+                )}
+                {usernameStatus === "taken" && (
+                  <X className="h-4 w-4 text-destructive" />
+                )}
+              </span>
             </div>
+            {usernameStatus === "taken" && (
+              <p className="text-xs text-destructive">{t("username_taken")}</p>
+            )}
+            {usernameStatus === "available" && (
+              <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                {t("username_available")}
+              </p>
+            )}
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
@@ -141,28 +208,45 @@ export function SettingsDialog({
             </div>
           </div>
 
-          <div className="space-y-1.5">
-            <Label>{t("home_country")}</Label>
-            <Select
-              value={form.home_country || "_none"}
-              onValueChange={(v) => setForm({ ...form, home_country: v === "_none" ? "" : v })}
-            >
-              <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
-              <SelectContent className="max-h-72">
-                <SelectItem value="_none">—</SelectItem>
-                {countries.map((c) => (
-                  <SelectItem key={c.iso} value={c.iso}>
-                    {c.flag} {c.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          {/* Country of residence + Country of birth */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>{t("home_country")}</Label>
+              <Select
+                value={form.home_country || "_none"}
+                onValueChange={(v) => setForm({ ...form, home_country: v === "_none" ? "" : v })}
+              >
+                <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+                <SelectContent className="max-h-72">
+                  <SelectItem value="_none">—</SelectItem>
+                  {countries.map((c) => (
+                    <SelectItem key={c.iso} value={c.iso}>
+                      {c.flag} {c.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>{t("birth_country")}</Label>
+              <Select
+                value={form.birth_country || "_none"}
+                onValueChange={(v) => setForm({ ...form, birth_country: v === "_none" ? "" : v })}
+              >
+                <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+                <SelectContent className="max-h-72">
+                  <SelectItem value="_none">—</SelectItem>
+                  {countries.map((c) => (
+                    <SelectItem key={c.iso} value={c.iso}>
+                      {c.flag} {c.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
-          {/* Appearance: persisted via useTheme (localStorage), independent
-              from the rest of the profile form — it applies immediately on
-              click rather than waiting for "Save", matching how it already
-              behaved as a header icon before this change. */}
+          {/* Appearance */}
           <div className="space-y-1.5">
             <Label>{t("appearance")}</Label>
             <div className="inline-flex w-full rounded-full border border-border bg-secondary/40 p-1 text-sm">
@@ -208,7 +292,10 @@ export function SettingsDialog({
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => setOpen(false)}>{t("cancel")}</Button>
-          <Button onClick={handleSave} disabled={saving}>
+          <Button
+            onClick={handleSave}
+            disabled={saving || usernameStatus === "taken" || usernameStatus === "checking"}
+          >
             {t("save")}
           </Button>
         </DialogFooter>

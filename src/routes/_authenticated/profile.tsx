@@ -68,6 +68,12 @@ function getCities(tr: Trip): City[] {
   return raw.filter((c): c is City => !!c && typeof c === "object" && typeof (c as City).name === "string");
 }
 
+type ProfileData = {
+  username?: string | null;
+  home_country?: string | null;
+  birth_country?: string | null;
+};
+
 function ProfilePage() {
   const { t, i18n } = useTranslation();
   const qc = useQueryClient();
@@ -78,22 +84,35 @@ function ProfilePage() {
   const trips = useQuery({ queryKey: ["trips"], queryFn: () => tripsFn() });
   const lang = i18n.language || "it";
 
+  const profData = prof.data as (typeof prof.data & ProfileData) | undefined;
+
   const formInitial: ProfileFormValues = {
     display_name: prof.data?.display_name ?? "",
-    username: (prof.data as { username?: string | null } | undefined)?.username ?? "",
+    username: profData?.username ?? "",
     home_currency: prof.data?.home_currency ?? "EUR",
     language: (prof.data?.language as Lang) ?? "it",
-    home_country: (prof.data as { home_country?: string | null } | undefined)?.home_country ?? "",
+    home_country: profData?.home_country ?? "",
+    birth_country: profData?.birth_country ?? "",
   };
 
   async function handleSaveSettings(values: ProfileFormValues) {
     try {
-      await updFn({ data: { display_name: values.display_name, username: values.username || null, home_currency: values.home_currency, language: values.language, home_country: values.home_country || null } });
+      await updFn({
+        data: {
+          display_name: values.display_name,
+          username: values.username || null,
+          home_currency: values.home_currency,
+          language: values.language,
+          home_country: values.home_country || null,
+          birth_country: values.birth_country || null,
+        },
+      });
       setLanguage(values.language);
       qc.invalidateQueries({ queryKey: ["profile"] });
       toast.success(t("saved"));
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : t("error_generic"));
+      const msg = e instanceof Error ? e.message : t("error_generic");
+      toast.error(msg === "username_taken" ? t("username_taken") : msg);
       throw e;
     }
   }
@@ -101,16 +120,12 @@ function ProfilePage() {
   const stats = useMemo(() => {
     const all = trips.data ?? [];
     const today = new Date().toISOString().slice(0, 10);
-    // Only count completed past trips — exclude:
-    //   • planned trips (end_date >= today, i.e. future)
-    //   • ongoing trips (start_date <= today && end_date >= today)
-    //   • wishlist trips (trip_type === "wishlist", sentinel dates 2099)
     const WISHLIST_SENTINEL = "2099-01-01";
     const past = all.filter((tr) =>
       tr.end_date < today &&
       tr.start_date < WISHLIST_SENTINEL,
     );
-    const homeIso = (prof.data as { home_country?: string | null } | undefined)?.home_country?.toUpperCase() ?? null;
+    const homeIso = profData?.home_country?.toUpperCase() ?? null;
     const countrySet = new Set<string>();
     const cityKey = new Set<string>();
     const countryCounts = new Map<string, number>();
@@ -179,14 +194,14 @@ function ProfilePage() {
     };
   }, [trips.data, prof.data, lang]);
 
-  const homeCountryIso = (prof.data as { home_country?: string | null } | undefined)?.home_country;
-  const username = (prof.data as { username?: string | null } | undefined)?.username;
+  const homeCountryIso = profData?.home_country;
+  const birthCountryIso = profData?.birth_country;
+  const username = profData?.username;
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-6 sm:py-8">
       {/* Profile header */}
       <div className="relative flex items-center gap-4 pb-6">
-        {/* Avatar */}
         <span aria-hidden className="grid h-20 w-20 shrink-0 place-items-center rounded-full bg-secondary text-secondary-foreground/70 ring-1 ring-border">
           <svg viewBox="0 0 24 24" fill="currentColor" className="h-12 w-12">
             <circle cx="12" cy="8" r="4" />
@@ -194,19 +209,29 @@ function ProfilePage() {
           </svg>
         </span>
 
-        {/* Name / username / country */}
         <div className="flex min-w-0 flex-col gap-0.5">
           <p className="font-serif text-2xl font-bold leading-tight">{prof.data?.display_name || t("display_name")}</p>
           {username && <p className="text-sm text-muted-foreground">@{username}</p>}
-          {homeCountryIso && (
+          {/* Show birth country → home country if different, otherwise just home country */}
+          {(homeCountryIso || birthCountryIso) && (
             <p className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
-              <span>{flagOf(homeCountryIso)}</span>
-              <span>{countryNameLocalized(homeCountryIso, lang)}</span>
+              {birthCountryIso && birthCountryIso !== homeCountryIso && (
+                <>
+                  <span>{flagOf(birthCountryIso)}</span>
+                  <span>{countryNameLocalized(birthCountryIso, lang)}</span>
+                  {homeCountryIso && <span className="opacity-50">→</span>}
+                </>
+              )}
+              {homeCountryIso && (
+                <>
+                  <span>{flagOf(homeCountryIso)}</span>
+                  <span>{countryNameLocalized(homeCountryIso, lang)}</span>
+                </>
+              )}
             </p>
           )}
         </div>
 
-        {/* Settings gear — top right */}
         <SettingsDialog initial={formInitial} onSave={handleSaveSettings} trigger={
           <button
             type="button"
