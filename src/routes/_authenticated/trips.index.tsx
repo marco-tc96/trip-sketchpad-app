@@ -31,13 +31,14 @@ function TripsList() {
   const today = new Date().toISOString().slice(0, 10);
   const trips = q.data ?? [];
 
-  // Separate wishlist from real trips first
+  // Wishlist trips are identified by sentinel start_date "2099-01-01"
+  const WISHLIST_SENTINEL = "2099-01-01";
   const wishlistTrips = useMemo(
-    () => trips.filter((tr) => (tr as unknown as { trip_type?: string }).trip_type === "wishlist"),
+    () => trips.filter((tr) => tr.start_date >= WISHLIST_SENTINEL),
     [trips],
   );
   const realTrips = useMemo(
-    () => trips.filter((tr) => (tr as unknown as { trip_type?: string }).trip_type !== "wishlist"),
+    () => trips.filter((tr) => tr.start_date < WISHLIST_SENTINEL),
     [trips],
   );
 
@@ -462,8 +463,8 @@ function TripCard({ trip, carousel = false }: { trip: Trip; carousel?: boolean }
   const countries: string[] = Array.isArray((trip as unknown as { countries?: string[] }).countries)
     ? (trip as unknown as { countries: string[] }).countries : [];
   const storedCover = (trip as unknown as { cover_url?: string | null }).cover_url ?? null;
-  const tripType = ((trip as unknown as { trip_type?: string }).trip_type ?? "vacation") as "vacation" | "business" | "daytrip" | "wishlist";
-  const isWishlist = tripType === "wishlist";
+  const isWishlist = trip.start_date >= "2099-01-01";
+  const tripType = (isWishlist ? "wishlist" : ((trip as unknown as { trip_type?: string }).trip_type ?? "vacation")) as "vacation" | "business" | "daytrip" | "wishlist";
   const [signed, setSigned] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;

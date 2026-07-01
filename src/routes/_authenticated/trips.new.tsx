@@ -145,7 +145,7 @@ function NewTrip() {
           cover_emoji: emoji,
           notes: notes || null,
           timeline_mode: "days",
-          trip_type: wishlist ? "wishlist" : tripType,
+          trip_type: wishlist ? "vacation" : tripType,
         },
       });
       qc.invalidateQueries({ queryKey: ["trips"] });
