@@ -52,9 +52,10 @@ export function BottomDock() {
         type="button"
         onClick={() => nav({ to: "/trips/new" })}
         aria-label="Nuovo viaggio"
-        className="grid h-9 w-9 place-items-center rounded-full bg-primary text-primary-foreground shadow-soft transition hover:scale-105 hover:opacity-90"
+        className="flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
       >
         <Plus className="h-4 w-4" />
+        <span>Nuovo</span>
       </button>
 
       {/* Wishlist action button */}
@@ -62,9 +63,10 @@ export function BottomDock() {
         type="button"
         onClick={() => nav({ to: "/trips/new", search: { wishlist: true } })}
         aria-label="Viaggio dei sogni"
-        className="grid h-9 w-9 place-items-center rounded-full border border-[oklch(0.6_0.13_255)] text-[oklch(0.5_0.15_255)] transition hover:scale-105 hover:bg-[oklch(0.97_0.02_255)]"
+        className="flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
       >
         <Cloud className="h-4 w-4" />
+        <span>Wishlist</span>
       </button>
 
       {/* Profile nav */}
