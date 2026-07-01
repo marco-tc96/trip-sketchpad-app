@@ -39,6 +39,127 @@ const plannedPinIcon = L.divIcon({
   iconAnchor: [7, 7],
 });
 
+// ── Ramer–Douglas–Peucker (iterative, no stack overflow risk) ────────────────
+
+function perpDist(p: number[], a: number[], b: number[]): number {
+  const dx = b[0] - a[0], dy = b[1] - a[1];
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (len === 0) return Math.sqrt((p[0] - a[0]) ** 2 + (p[1] - a[1]) ** 2);
+  return Math.abs((p[0] - a[0]) * dy - (p[1] - a[1]) * dx) / len;
+}
+
+function rdpIterative(pts: number[][], eps: number): number[][] {
+  if (pts.length <= 2) return pts;
+  const keep = new Uint8Array(pts.length);
+  keep[0] = 1; keep[pts.length - 1] = 1;
+  const stack: [number, number][] = [[0, pts.length - 1]];
+  while (stack.length) {
+    const [s, e] = stack.pop()!;
+    let maxD = 0, maxI = s;
+    for (let i = s + 1; i < e; i++) {
+      const d = perpDist(pts[i], pts[s], pts[e]);
+      if (d > maxD) { maxD = d; maxI = i; }
+    }
+    if (maxD > eps) { keep[maxI] = 1; stack.push([s, maxI], [maxI, e]); }
+  }
+  return pts.filter((_, i) => keep[i]);
+}
+
+function simplifyRing(ring: number[][], eps: number): number[][] {
+  const s = rdpIterative(ring, eps);
+  if (s.length < 4) return ring;
+  if (s[0][0] !== s[s.length - 1][0] || s[0][1] !== s[s.length - 1][1]) {
+    s.push([s[0][0], s[0][1]]);
+  }
+  return s;
+}
+
+function simplifyGeoCollection(geo: GeoCollection, eps: number): GeoCollection {
+  return {
+    type: "FeatureCollection",
+    features: geo.features
+      .filter((f) => f.geometry != null)
+      .map((f) => {
+        const p = f.properties ?? {};
+        const g = f.geometry!;
+        let geom = g;
+        if (g.type === "Polygon") {
+          geom = {
+            type: "Polygon",
+            coordinates: (g.coordinates as number[][][]).map((r) => simplifyRing(r, eps)),
+          };
+        } else if (g.type === "MultiPolygon") {
+          geom = {
+            type: "MultiPolygon",
+            coordinates: (g.coordinates as number[][][][]).map((poly) =>
+              poly.map((r) => simplifyRing(r, eps)),
+            ),
+          };
+        }
+        return {
+          type: "Feature" as const,
+          properties: {
+            name: p.name ?? null,
+            iso_3166_2: p.iso_3166_2 ?? null,
+            adm0_a3: p.adm0_a3 ?? null,
+            hasc: p.hasc ?? null,
+          },
+          geometry: geom,
+        };
+      }),
+  };
+}
+
+// ── IndexedDB cache ──────────────────────────────────────────────────────────
+
+const IDB_DB = "voyager-geo";
+const IDB_STORE = "tiles";
+const ADMIN1_KEY = "ne_admin1_v2";
+
+async function idbGet(key: string): Promise<GeoCollection | null> {
+  if (typeof indexedDB === "undefined") return null;
+  return new Promise((resolve) => {
+    try {
+      const req = indexedDB.open(IDB_DB, 1);
+      req.onupgradeneeded = (e) => {
+        (e.target as IDBOpenDBRequest).result.createObjectStore(IDB_STORE);
+      };
+      req.onsuccess = (e) => {
+        const db = (e.target as IDBOpenDBRequest).result;
+        const tx = db.transaction(IDB_STORE, "readonly");
+        const get = tx.objectStore(IDB_STORE).get(key);
+        get.onsuccess = () => resolve(get.result ?? null);
+        get.onerror = () => resolve(null);
+      };
+      req.onerror = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+async function idbSet(key: string, value: GeoCollection): Promise<void> {
+  if (typeof indexedDB === "undefined") return;
+  return new Promise((resolve) => {
+    try {
+      const req = indexedDB.open(IDB_DB, 1);
+      req.onupgradeneeded = (e) => {
+        (e.target as IDBOpenDBRequest).result.createObjectStore(IDB_STORE);
+      };
+      req.onsuccess = (e) => {
+        const db = (e.target as IDBOpenDBRequest).result;
+        const tx = db.transaction(IDB_STORE, "readwrite");
+        tx.objectStore(IDB_STORE).put(value, key);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve();
+      };
+      req.onerror = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+}
+
 // ---- Country-level GeoJSON ----
 let _worldCache: GeoCollection | null = null;
 let _worldLoading: Promise<GeoCollection> | null = null;
@@ -60,18 +181,61 @@ async function loadWorldBorders(): Promise<GeoCollection> {
 // ---- Admin-1 subdivision GeoJSON ----
 let _admin1Cache: GeoCollection | null = null;
 let _admin1Loading: Promise<GeoCollection> | null = null;
+let _admin1ProgressCbs: ((msg: string) => void)[] = [];
+
+function _notifyProgress(msg: string) {
+  for (const cb of _admin1ProgressCbs) cb(msg);
+}
+
+const ADMIN1_SRC =
+  "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson";
+const SIMPLIFY_EPS = 0.08;
 
 async function loadAdmin1(): Promise<GeoCollection> {
   if (_admin1Cache) return _admin1Cache;
   if (_admin1Loading) return _admin1Loading;
-  _admin1Loading = fetch(
-    "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_admin_1_states_provinces.geojson",
-  )
-    .then((r) => r.json())
-    .then((geo: GeoCollection) => {
-      _admin1Cache = geo;
-      return geo;
-    });
+
+  _admin1Loading = (async () => {
+    // 1. Static pre-generated file (present if Lovable build ran the Vite plugin,
+    //    or if the user uploaded ne_admin1.geojson to Lovable → Files → public/).
+    try {
+      const r = await fetch("/ne_admin1.geojson");
+      if (r.ok) {
+        const geo = (await r.json()) as GeoCollection;
+        _admin1Cache = geo;
+        return geo;
+      }
+    } catch {
+      // not available — fall through
+    }
+
+    // 2. IndexedDB cache (populated after the first successful download).
+    const cached = await idbGet(ADMIN1_KEY);
+    if (cached) {
+      _admin1Cache = cached;
+      return cached;
+    }
+
+    // 3. First-time download: fetch 10m Natural Earth data (~63 MB),
+    //    simplify with RDP (ε = 0.08°), then persist in IndexedDB (~1–2 MB).
+    _notifyProgress("Download regioni in corso… (~60 s al primo avvio)");
+    const r = await fetch(ADMIN1_SRC);
+    if (!r.ok) throw new Error(`Admin-1 download failed: HTTP ${r.status}`);
+
+    _notifyProgress("Semplificazione poligoni…");
+    const raw = (await r.json()) as GeoCollection;
+    const simplified = simplifyGeoCollection(raw, SIMPLIFY_EPS);
+
+    _notifyProgress("Salvataggio in cache…");
+    await idbSet(ADMIN1_KEY, simplified);
+
+    _admin1Cache = simplified;
+    return simplified;
+  })().catch((err) => {
+    _admin1Loading = null; // allow retry on next call
+    throw err;
+  });
+
   return _admin1Loading;
 }
 
@@ -91,17 +255,37 @@ function useWorldBorders() {
 
 function useSubdivisionBorders(enabled: boolean) {
   const [data, setData] = useState<GeoCollection | null>(_admin1Cache);
+  const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState<string | null>(null);
   const [error, setError] = useState(false);
+
   useEffect(() => {
     if (!enabled) return;
     if (data) return;
     let alive = true;
+    setLoading(true);
+
+    const cb = (msg: string) => { if (alive) setProgress(msg); };
+    _admin1ProgressCbs.push(cb);
+
     loadAdmin1()
-      .then((d) => { if (alive) setData(d); })
-      .catch(() => { if (alive) setError(true); });
-    return () => { alive = false; };
+      .then((d) => {
+        if (alive) { setData(d); setLoading(false); setProgress(null); }
+      })
+      .catch(() => {
+        if (alive) { setError(true); setLoading(false); }
+      })
+      .finally(() => {
+        _admin1ProgressCbs = _admin1ProgressCbs.filter((f) => f !== cb);
+      });
+
+    return () => {
+      alive = false;
+      _admin1ProgressCbs = _admin1ProgressCbs.filter((f) => f !== cb);
+    };
   }, [data, enabled]);
-  return { data, error };
+
+  return { data, loading, progress, error };
 }
 
 function isoOf(feature: GeoFeature): string | null {
@@ -229,8 +413,6 @@ function pointInGeoFeature(lat: number, lng: number, feature: GeoFeature): boole
   return false;
 }
 
-// Compute approximate centroid (arithmetic mean of outer ring vertices).
-// Used as proximity fallback when point-in-polygon fails.
 function featureCentroid(feature: GeoFeature): { lat: number; lng: number } | null {
   const g = feature.geometry;
   if (!g) return null;
@@ -246,8 +428,6 @@ function featureCentroid(feature: GeoFeature): { lat: number; lng: number } | nu
   return count > 0 ? { lat: sumLat / count, lng: sumLng / count } : null;
 }
 
-// For each pin, find its admin-1 subdivision via point-in-polygon.
-// Fallback: nearest centroid within 8 degrees (handles simplified polygons).
 function computeSubdivData(
   pins: Array<{ lat: number; lng: number; country: string }>,
   admin1Geo: GeoCollection,
@@ -258,7 +438,6 @@ function computeSubdivData(
   const subdivKeys = new Set<string>();
   const fallbackCountries = new Set<string>();
 
-  // Group admin-1 features by country ISO for fast per-country lookup.
   const featuresByCountry = new Map<string, GeoFeature[]>();
   for (const feature of admin1Geo.features) {
     const iso = countryIsoOfAdmin1(feature);
@@ -270,32 +449,18 @@ function computeSubdivData(
 
   for (const pin of pins) {
     const iso = pin.country.toUpperCase();
-    // City-states: no meaningful subdivisions.
-    if (FIXED_COORDS[iso]) {
-      fallbackCountries.add(iso);
-      continue;
-    }
+    if (FIXED_COORDS[iso]) { fallbackCountries.add(iso); continue; }
     const candidates = featuresByCountry.get(iso) ?? [];
-    if (candidates.length === 0) {
-      fallbackCountries.add(iso);
-      continue;
-    }
+    if (candidates.length === 0) { fallbackCountries.add(iso); continue; }
 
-    // 1. Try exact point-in-polygon.
     let found = false;
     for (const feature of candidates) {
       if (pointInGeoFeature(pin.lat, pin.lng, feature)) {
         const name = (feature.properties?.name as string) ?? "";
-        if (name) {
-          subdivKeys.add(`${iso}|${norm(name)}`);
-          found = true;
-          break;
-        }
+        if (name) { subdivKeys.add(`${iso}|${norm(name)}`); found = true; break; }
       }
     }
 
-    // 2. Proximity fallback — nearest centroid within 8°.
-    //    Handles simplified polygons that don't precisely contain city points.
     if (!found) {
       let bestDist = Infinity;
       let bestFeature: GeoFeature | null = null;
@@ -307,10 +472,7 @@ function computeSubdivData(
       }
       if (bestFeature && bestDist < 8) {
         const name = (bestFeature.properties?.name as string) ?? "";
-        if (name) {
-          subdivKeys.add(`${iso}|${norm(name)}`);
-          found = true;
-        }
+        if (name) { subdivKeys.add(`${iso}|${norm(name)}`); found = true; }
       }
     }
 
@@ -340,7 +502,8 @@ export function WorldMap({
   className?: string;
 }) {
   const { data: world, error } = useWorldBorders();
-  const { data: subdivWorld } = useSubdivisionBorders(showSubdivisions);
+  const { data: subdivWorld, loading: subdivLoading, progress: subdivProgress } =
+    useSubdivisionBorders(showSubdivisions);
 
   const visitedSet = useMemo(
     () => new Set(visitedCountries.map((c) => c.toUpperCase())),
@@ -350,7 +513,6 @@ export function WorldMap({
     () => new Set(plannedCountries.map((c) => c.toUpperCase()).filter((c) => !visitedSet.has(c))),
     [plannedCountries, visitedSet],
   );
-  // FIX: homeIso is green regardless of whether the country is also visited.
   const homeIso = homeCountry ? homeCountry.toUpperCase() : null;
 
   const pins = useMemo(() => dedupePins(enrichCoords(cities)), [cities]);
@@ -403,22 +565,16 @@ export function WorldMap({
     return pts.length > 0 ? L.latLngBounds(pts) : null;
   }, [world, visitedSet, plannedSet, pins, plannedPins]);
 
-  // Country-level style.
-  // Home country is always green — takes priority over visited (orange).
   const countryStyle = (feature?: GeoFeature) => {
     const iso = feature ? isoOf(feature) : null;
     const visited = !!iso && visitedSet.has(iso);
     const planned = !!iso && !visited && plannedSet.has(iso);
-    // FIX: removed `&& !visited` — home country is always green.
     const isHome = !!iso && !!homeIso && iso === homeIso;
 
     if (isHome) {
       if (showSubdivisions) {
-        // In subdivisions mode: transparent fill so visited subdivisions show on top,
-        // but keep the green border.
         const isFallback = visited && visitedSubdivData.fallbackCountries.has(iso);
         if (isFallback) {
-          // No subdivisions found — fill the whole country green.
           return { fillColor: "oklch(0.65 0.15 145)", fillOpacity: 0.55, color: "oklch(0.48 0.13 145)", weight: 1 };
         }
         return { fillColor: "oklch(0.65 0.15 145)", fillOpacity: 0.18, color: "oklch(0.48 0.13 145)", weight: 1 };
@@ -429,7 +585,7 @@ export function WorldMap({
     if (showSubdivisions) {
       if (planned) {
         const hasResolvedSubdivs =
-          plannedSubdivCountries.has(iso) && !plannedSubdivData.fallbackCountries.has(iso);
+          plannedSubdivCountries.has(iso!) && !plannedSubdivData.fallbackCountries.has(iso!);
         if (hasResolvedSubdivs) {
           return { fillColor: "transparent", fillOpacity: 0, color: "oklch(0.6 0.13 255)", weight: 0.75 };
         }
@@ -461,7 +617,6 @@ export function WorldMap({
     };
   };
 
-  // Subdivision-level style.
   const subdivStyle = (feature?: GeoFeature) => {
     const emptyStyle = { fillColor: "transparent", fillOpacity: 0, color: "oklch(0.88 0.005 90)", weight: 0.3 };
     if (!feature?.properties) return emptyStyle;
@@ -487,8 +642,6 @@ export function WorldMap({
         color: "oklch(0.6 0.13 255)", weight: 0.75, dashArray: "4 3",
       };
     }
-
-    // Unvisited subdivision in home country: subtle green fill.
     if (isInHome) {
       return { fillColor: "oklch(0.65 0.15 145)", fillOpacity: 0.22, color: "oklch(0.48 0.13 145)", weight: 0.5 };
     }
@@ -511,48 +664,61 @@ export function WorldMap({
   }
 
   return (
-    <MapContainer
-      center={[20, 10]}
-      zoom={2}
-      minZoom={2}
-      maxZoom={9}
-      worldCopyJump
-      attributionControl={false}
-      zoomControl={false}
-      className={className}
-      style={{ background: "transparent" }}
-    >
-      <TileLayer url="https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png" />
+    <div className={`relative ${className ?? ""}`}>
+      <MapContainer
+        center={[20, 10]}
+        zoom={2}
+        minZoom={2}
+        maxZoom={9}
+        worldCopyJump
+        attributionControl={false}
+        zoomControl={false}
+        className="h-full w-full"
+        style={{ background: "transparent" }}
+      >
+        <TileLayer url="https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png" />
 
-      {world && (
-        <GeoJSON
-          key={`country-${visitedSet.size}-${plannedSet.size}-${homeIso}-${showSubdivisions}-${visitedSubdivData.fallbackCountries.size}-${plannedSubdivData.fallbackCountries.size}`}
-          data={world as never}
-          style={countryStyle as never}
-        />
+        {world && (
+          <GeoJSON
+            key={`country-${visitedSet.size}-${plannedSet.size}-${homeIso}-${showSubdivisions}-${visitedSubdivData.fallbackCountries.size}-${plannedSubdivData.fallbackCountries.size}`}
+            data={world as never}
+            style={countryStyle as never}
+          />
+        )}
+
+        {showSubdivisions && subdivWorld && (
+          <GeoJSON
+            key={`subdiv-${visitedSubdivData.subdivKeys.size}-${visitedSubdivData.fallbackCountries.size}-${plannedSubdivData.subdivKeys.size}-${homeIso}`}
+            data={subdivWorld as never}
+            style={subdivStyle as never}
+          />
+        )}
+
+        {showPins &&
+          pins.map((c, i) => (
+            <Marker key={`v-${c.country}-${c.name}-${i}`} position={[c.lat, c.lng]} icon={visitedPinIcon}>
+              <Tooltip direction="top" offset={[0, -6]}>{c.name}</Tooltip>
+            </Marker>
+          ))}
+        {showPins &&
+          plannedPins.map((c, i) => (
+            <Marker key={`p-${c.country}-${c.name}-${i}`} position={[c.lat, c.lng]} icon={plannedPinIcon}>
+              <Tooltip direction="top" offset={[0, -6]}>{c.name}</Tooltip>
+            </Marker>
+          ))}
+        {world && <FitToVisited bounds={visitedBounds} />}
+      </MapContainer>
+
+      {showSubdivisions && subdivLoading && (
+        <div className="pointer-events-none absolute inset-0 z-[1000] flex items-center justify-center rounded-3xl bg-background/60 backdrop-blur-sm">
+          <div className="space-y-2 text-center text-sm text-muted-foreground">
+            <div className="mx-auto h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            <p className="max-w-[200px] leading-tight">
+              {subdivProgress ?? "Caricamento regioni…"}
+            </p>
+          </div>
+        </div>
       )}
-
-      {showSubdivisions && subdivWorld && (
-        <GeoJSON
-          key={`subdiv-${visitedSubdivData.subdivKeys.size}-${visitedSubdivData.fallbackCountries.size}-${plannedSubdivData.subdivKeys.size}-${homeIso}`}
-          data={subdivWorld as never}
-          style={subdivStyle as never}
-        />
-      )}
-
-      {showPins &&
-        pins.map((c, i) => (
-          <Marker key={`v-${c.country}-${c.name}-${i}`} position={[c.lat, c.lng]} icon={visitedPinIcon}>
-            <Tooltip direction="top" offset={[0, -6]}>{c.name}</Tooltip>
-          </Marker>
-        ))}
-      {showPins &&
-        plannedPins.map((c, i) => (
-          <Marker key={`p-${c.country}-${c.name}-${i}`} position={[c.lat, c.lng]} icon={plannedPinIcon}>
-            <Tooltip direction="top" offset={[0, -6]}>{c.name}</Tooltip>
-          </Marker>
-        ))}
-      {world && <FitToVisited bounds={visitedBounds} />}
-    </MapContainer>
+    </div>
   );
 }
