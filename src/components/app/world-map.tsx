@@ -16,6 +16,16 @@ type GeoCollection = {
   features: GeoFeature[];
 };
 
+type PinDebugInfo = {
+  cityName: string;
+  countryIso: string;
+  regionName: string | null;
+  iso3166_2: string | null;
+  subdivKey: string | null;
+  pinType: "visited" | "ongoing" | "planned" | "wishlist";
+  resolvedVia: "point-in-polygon" | "centroid-fallback" | "country-fallback" | "fixed-coord";
+};
+
 // Fixed coordinates for city-states/territories.
 const FIXED_COORDS: Record<string, { lat: number; lng: number }> = {
   HK: { lat: 22.3193, lng: 114.1694 },
@@ -490,6 +500,161 @@ function countryFromSubdivKey(key: string): string {
   return key.split("-")[0].toUpperCase(); // ISO 3166-2 e.g. "IT-52" → "IT"
 }
 
+// ── Debug: per-pin subdivision resolution info ────────────────────────────────
+function computePinDebugInfo(
+  allPins: Array<{ pin: WorldMapCity & { lat: number; lng: number }; type: "visited" | "ongoing" | "planned" | "wishlist" }>,
+  admin1Geo: GeoCollection,
+): PinDebugInfo[] {
+  // Same pre-processing as computeSubdivData
+  const allByCountry = new Map<string, GeoFeature[]>();
+  for (const feature of admin1Geo.features) {
+    const iso = countryIsoOfAdmin1(feature);
+    if (!iso) continue;
+    const list = allByCountry.get(iso) ?? [];
+    list.push(feature);
+    allByCountry.set(iso, list);
+  }
+
+  const featuresByCountry = new Map<string, GeoFeature[]>();
+  const ADMIN1_FALLBACK_COUNT: Record<string, number> = { IT: 22, ES: 19 };
+  for (const [iso, features] of allByCountry) {
+    const preferred = ADMIN1_PREFERRED_TYPES[iso];
+    if (!preferred) { featuresByCountry.set(iso, features); continue; }
+    const filtered = features.filter((f) => isPreferredAdmin1(f, iso));
+    if (filtered.length >= 5) {
+      featuresByCountry.set(iso, filtered);
+    } else {
+      const n = ADMIN1_FALLBACK_COUNT[iso] ?? 20;
+      const byArea = [...features].sort((a, b) => featureBBoxArea(b) - featureBBoxArea(a));
+      featuresByCountry.set(iso, byArea.slice(0, n));
+    }
+  }
+
+  return allPins.map(({ pin, type }) => {
+    const iso = normIso(pin.country);
+
+    if (FIXED_COORDS[iso]) {
+      return { cityName: pin.name, countryIso: iso, regionName: null, iso3166_2: null, subdivKey: null, pinType: type, resolvedVia: "fixed-coord" as const };
+    }
+
+    const candidates = featuresByCountry.get(iso) ?? [];
+    if (candidates.length === 0) {
+      return { cityName: pin.name, countryIso: iso, regionName: null, iso3166_2: null, subdivKey: null, pinType: type, resolvedVia: "country-fallback" as const };
+    }
+
+    // Point-in-polygon: pick largest containing feature
+    let bestFeature: GeoFeature | null = null;
+    let bestArea = -1;
+    for (const feature of candidates) {
+      if (pointInGeoFeature(pin.lat, pin.lng, feature)) {
+        const area = featureBBoxArea(feature);
+        if (area > bestArea) { bestArea = area; bestFeature = feature; }
+      }
+    }
+    if (bestFeature) {
+      return {
+        cityName: pin.name,
+        countryIso: iso,
+        regionName: (bestFeature.properties?.name as string) ?? null,
+        iso3166_2: String(bestFeature.properties?.iso_3166_2 ?? "").trim() || null,
+        subdivKey: subdivKeyOf(bestFeature, iso),
+        pinType: type,
+        resolvedVia: "point-in-polygon" as const,
+      };
+    }
+
+    // Centroid fallback
+    let nearDist = Infinity;
+    let nearFeature: GeoFeature | null = null;
+    for (const feature of candidates) {
+      const c = featureCentroid(feature);
+      if (!c) continue;
+      const dist = Math.hypot(c.lat - pin.lat, c.lng - pin.lng);
+      if (dist < nearDist) { nearDist = dist; nearFeature = feature; }
+    }
+    if (nearFeature && nearDist < 8) {
+      return {
+        cityName: pin.name,
+        countryIso: iso,
+        regionName: (nearFeature.properties?.name as string) ?? null,
+        iso3166_2: String(nearFeature.properties?.iso_3166_2 ?? "").trim() || null,
+        subdivKey: subdivKeyOf(nearFeature, iso),
+        pinType: type,
+        resolvedVia: "centroid-fallback" as const,
+      };
+    }
+
+    return { cityName: pin.name, countryIso: iso, regionName: null, iso3166_2: null, subdivKey: null, pinType: type, resolvedVia: "country-fallback" as const };
+  });
+}
+
+// ── Debug table component ─────────────────────────────────────────────────────
+const PIN_TYPE_META = {
+  visited:  { dot: "oklch(0.66 0.14 38)",   rowBg: "oklch(0.66 0.14 38 / 0.10)",  label: "Visitata" },
+  ongoing:  { dot: "oklch(0.78 0.16 85)",    rowBg: "oklch(0.88 0.14 95 / 0.18)", label: "In corso" },
+  planned:  { dot: "oklch(0.55 0 0)",        rowBg: "oklch(0.88 0 0 / 0.12)",     label: "Pianificata" },
+  wishlist: { dot: "oklch(0.55 0.16 255)",   rowBg: "oklch(0.93 0.03 255 / 0.15)", label: "Wishlist" },
+};
+
+function SubdivisionDebugTable({ rows }: { rows: PinDebugInfo[] }) {
+  if (rows.length === 0) return null;
+  return (
+    <div className="mt-3 overflow-auto rounded-2xl border border-border bg-card p-4">
+      <p className="mb-3 text-xs font-semibold text-muted-foreground">
+        🔍 Debug regioni — {rows.length} pin attivi
+      </p>
+      <table className="w-full border-collapse text-xs">
+        <thead>
+          <tr className="border-b border-border text-left text-muted-foreground">
+            <th className="pb-2 pr-4 font-medium">Città</th>
+            <th className="pb-2 pr-4 font-medium">Regione trovata</th>
+            <th className="pb-2 pr-4 font-medium">Stato</th>
+            <th className="pb-2 pr-4 font-medium">ISO 3166-2</th>
+            <th className="pb-2 font-medium">Metodo</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => {
+            const meta = PIN_TYPE_META[row.pinType];
+            return (
+              <tr
+                key={`${row.cityName}-${i}`}
+                style={{ background: meta.rowBg }}
+                className="border-b border-border/20 last:border-0"
+              >
+                <td className="py-1.5 pr-4">
+                  <span className="flex items-center gap-1.5">
+                    <span
+                      className="inline-block h-2.5 w-2.5 shrink-0 rounded-full border-2 border-white/60"
+                      style={{ background: meta.dot, boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }}
+                    />
+                    <span className="font-medium">{row.cityName}</span>
+                  </span>
+                </td>
+                <td className="py-1.5 pr-4">
+                  {row.regionName ?? <span className="text-muted-foreground/40">—</span>}
+                </td>
+                <td className="py-1.5 pr-4 font-mono text-[11px]">{row.countryIso}</td>
+                <td className="py-1.5 pr-4">
+                  {row.iso3166_2
+                    ? <code className="rounded bg-muted px-1.5 py-0.5 text-[11px]">{row.iso3166_2}</code>
+                    : <span className="text-muted-foreground/40">—</span>}
+                </td>
+                <td className="py-1.5">
+                  {row.resolvedVia === "point-in-polygon" && <span className="text-green-600 dark:text-green-400">✓ poly</span>}
+                  {row.resolvedVia === "centroid-fallback" && <span className="text-yellow-600 dark:text-yellow-400">⚠ centroide</span>}
+                  {row.resolvedVia === "fixed-coord" && <span className="text-blue-500">↗ fixed</span>}
+                  {row.resolvedVia === "country-fallback" && <span className="text-red-500">✗ paese</span>}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function FitToVisited({ bounds }: { bounds: L.LatLngBoundsExpression | null }) {
   const map = useMap();
   useEffect(() => {
@@ -790,6 +955,18 @@ export function WorldMap({
     return set;
   }, [wishlistSubdivData.subdivKeys]);
 
+  // Debug: per-pin subdivision resolution (only computed when subdivisions active + data loaded)
+  const debugRows = useMemo(() => {
+    if (!showSubdivisions || !subdivWorld) return [];
+    const allPins = [
+      ...pins.map((p) => ({ pin: p, type: "visited" as const })),
+      ...ongoingPins.map((p) => ({ pin: p, type: "ongoing" as const })),
+      ...plannedPins.map((p) => ({ pin: p, type: "planned" as const })),
+      ...wishlistPins.map((p) => ({ pin: p, type: "wishlist" as const })),
+    ];
+    return computePinDebugInfo(allPins, subdivWorld);
+  }, [showSubdivisions, subdivWorld, pins, ongoingPins, plannedPins, wishlistPins]);
+
   const visitedBounds = useMemo<L.LatLngBoundsExpression | null>(() => {
     if (!world) return null;
     const pts: [number, number][] = [];
@@ -1032,6 +1209,10 @@ export function WorldMap({
             </p>
           </div>
         </div>
+      )}
+
+      {showSubdivisions && !subdivLoading && debugRows.length > 0 && (
+        <SubdivisionDebugTable rows={debugRows} />
       )}
     </div>
   );
