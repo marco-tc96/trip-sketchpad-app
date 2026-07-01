@@ -11,7 +11,8 @@ type NavItem = {
 };
 
 const NAV_ITEMS: NavItem[] = [
-  { to: "/trips", icon: Compass, labelKey: "trips", match: (p) => p.startsWith("/trips") },
+  // Trips nav: active only when NOT on the new-trip/wishlist creation page
+  { to: "/trips", icon: Compass, labelKey: "trips", match: (p) => p.startsWith("/trips") && !p.startsWith("/trips/new") },
   { to: "/profile", icon: User, labelKey: "profile", match: (p) => p.startsWith("/profile") },
 ];
 
@@ -19,6 +20,11 @@ export function BottomDock() {
   const { t } = useTranslation();
   const loc = useLocation();
   const nav = useNavigate();
+
+  const isNewTripPage = loc.pathname === "/trips/new";
+  // loc.search is the parsed search object in TanStack Router
+  const searchParams = loc.search as Record<string, unknown>;
+  const isWishlistMode = isNewTripPage && Boolean(searchParams?.wishlist);
 
   return (
     <nav
@@ -52,7 +58,12 @@ export function BottomDock() {
         type="button"
         onClick={() => nav({ to: "/trips/new" })}
         aria-label="Nuovo viaggio"
-        className="flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
+        className={cn(
+          "flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-medium transition",
+          isNewTripPage && !isWishlistMode
+            ? "bg-primary text-primary-foreground shadow-soft"
+            : "text-muted-foreground hover:bg-muted hover:text-foreground",
+        )}
       >
         <Plus className="h-4 w-4" />
         <span className="hidden sm:inline">Nuovo</span>
@@ -63,7 +74,12 @@ export function BottomDock() {
         type="button"
         onClick={() => nav({ to: "/trips/new", search: { wishlist: true } })}
         aria-label="Viaggio dei sogni"
-        className="flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
+        className={cn(
+          "flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-medium transition",
+          isWishlistMode
+            ? "bg-[oklch(0.55_0.13_255)] text-white shadow-soft"
+            : "text-muted-foreground hover:bg-muted hover:text-foreground",
+        )}
       >
         <Cloud className="h-4 w-4" />
         <span className="hidden sm:inline">Wishlist</span>

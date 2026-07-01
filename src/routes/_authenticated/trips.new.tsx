@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Check, ChevronsUpDown, X, Plus, Cloud } from "lucide-react";
+import { Check, ChevronsUpDown, X, Plus, Cloud, MapPin } from "lucide-react";
 import { createTrip } from "@/lib/trips.functions";
 import { getProfile } from "@/lib/profile.functions";
 import {
@@ -72,7 +72,6 @@ function NewTrip() {
   const [busy, setBusy] = useState(false);
   const [tripType, setTripType] = useState<"vacation" | "business" | "daytrip">("vacation");
 
-  // For wishlist mode, use today's date for currency lookup
   const dateForCurrency = wishlist ? new Date().toISOString().slice(0, 10) : startDate;
   useEffect(() => {
     const iso = pickedCountries[0];
@@ -170,7 +169,10 @@ function NewTrip() {
           </p>
         </div>
       ) : (
-        <h1 className="font-serif text-3xl font-bold">{t("new_trip")}</h1>
+        <div className="flex items-center gap-2">
+          <MapPin className="h-6 w-6 text-primary" />
+          <h1 className="font-serif text-3xl font-bold">{t("new_trip")}</h1>
+        </div>
       )}
 
       <form

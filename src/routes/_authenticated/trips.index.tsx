@@ -155,8 +155,19 @@ function TripsList() {
     return out;
   }, [wishlistTrips]);
 
-  const [showPins, setShowPins] = useState(true);
-  const [showSubdivisions, setShowSubdivisions] = useState(false);
+  const [showPins, setShowPins] = useState(() => {
+    try { return localStorage.getItem("map_showPins") !== "false"; } catch { return true; }
+  });
+  const [showSubdivisions, setShowSubdivisions] = useState(() => {
+    try { return localStorage.getItem("map_showSubdivisions") === "true"; } catch { return false; }
+  });
+
+  useEffect(() => {
+    try { localStorage.setItem("map_showPins", String(showPins)); } catch { /* ignore */ }
+  }, [showPins]);
+  useEffect(() => {
+    try { localStorage.setItem("map_showSubdivisions", String(showSubdivisions)); } catch { /* ignore */ }
+  }, [showSubdivisions]);
 
   const allTripsCount = trips.length;
 
@@ -513,9 +524,9 @@ function TripCard({ trip, carousel = false }: { trip: Trip; carousel?: boolean }
           {trip.title}
         </h3>
         {(cities.length > 0 || trip.destination) && (
-          <p className="flex items-center gap-1 text-[13px] text-white/90 line-clamp-1">
-            <MapPin className="h-3.5 w-3.5 shrink-0" />
-            {cities.length > 0 ? cities.slice(0, 3).map((c) => cityNameLocalized(c.name, lang)).join(" · ") : trip.destination}
+          <p className="flex items-start gap-1 text-[13px] text-white/90">
+            <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>{cities.length > 0 ? cities.map((c) => cityNameLocalized(c.name, lang)).join(" · ") : trip.destination}</span>
           </p>
         )}
         {!isWishlist && (
