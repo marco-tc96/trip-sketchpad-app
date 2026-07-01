@@ -24,7 +24,7 @@ type PinDebugInfo = {
   iso3166_2: string | null;
   subdivKey: string | null;
   pinType: "visited" | "ongoing" | "planned" | "wishlist";
-  resolvedVia: "point-in-polygon" | "centroid-fallback" | "country-fallback" | "fixed-coord" | "override";
+  resolvedVia: "point-in-polygon" | "country-fallback" | "fixed-coord" | "override";
 };
 
 // Fixed coordinates for city-states/territories.
@@ -826,27 +826,7 @@ function computePinDebugInfo(
       };
     }
 
-    // Centroid fallback
-    let nearDist = Infinity;
-    let nearFeature: GeoFeature | null = null;
-    for (const feature of candidates) {
-      const c = featureCentroid(feature);
-      if (!c) continue;
-      const dist = Math.hypot(c.lat - pin.lat, c.lng - pin.lng);
-      if (dist < nearDist) { nearDist = dist; nearFeature = feature; }
-    }
-    if (nearFeature && nearDist < 8) {
-      return {
-        cityName: pin.name,
-        countryIso: iso,
-        regionName: (nearFeature.properties?.name as string) ?? null,
-        iso3166_2: String(nearFeature.properties?.iso_3166_2 ?? "").trim() || null,
-        subdivKey: subdivKeyOf(nearFeature, iso),
-        pinType: type,
-        resolvedVia: "centroid-fallback" as const,
-      };
-    }
-
+    // No polygon match and no override → honest country-level fallback, no wrong guess
     return { cityName: pin.name, countryIso: iso, regionName: null, iso3166_2: null, subdivKey: null, pinType: type, resolvedVia: "country-fallback" as const };
   });
 }
@@ -906,9 +886,8 @@ function SubdivisionDebugTable({ rows }: { rows: PinDebugInfo[] }) {
                 <td className="py-1.5">
                   {row.resolvedVia === "point-in-polygon" && <span className="text-green-600 dark:text-green-400">✓ poly</span>}
                   {row.resolvedVia === "override" && <span className="text-purple-600 dark:text-purple-400">📌 override</span>}
-                  {row.resolvedVia === "centroid-fallback" && <span className="text-yellow-600 dark:text-yellow-400">⚠ centroide</span>}
                   {row.resolvedVia === "fixed-coord" && <span className="text-blue-500">↗ fixed</span>}
-                  {row.resolvedVia === "country-fallback" && <span className="text-red-500">✗ paese</span>}
+                  {row.resolvedVia === "country-fallback" && <span className="text-muted-foreground">— paese</span>}
                 </td>
               </tr>
             );
@@ -980,20 +959,6 @@ function pointInGeoFeature(lat: number, lng: number, feature: GeoFeature): boole
   return false;
 }
 
-function featureCentroid(feature: GeoFeature): { lat: number; lng: number } | null {
-  const g = feature.geometry;
-  if (!g) return null;
-  let sumLat = 0, sumLng = 0, count = 0;
-  const addRing = (ring: number[][]) => {
-    for (const [lng, lat] of ring) { sumLng += lng; sumLat += lat; count++; }
-  };
-  if (g.type === "Polygon") {
-    addRing((g.coordinates as number[][][])[0]);
-  } else if (g.type === "MultiPolygon") {
-    for (const poly of g.coordinates as number[][][][]) addRing(poly[0]);
-  }
-  return count > 0 ? { lat: sumLat / count, lng: sumLng / count } : null;
-}
 
 function computeSubdivData(
   pins: Array<{ lat: number; lng: number; country: string; name: string }>,
@@ -1057,20 +1022,7 @@ function computeSubdivData(
       if (key) { subdivKeys.add(key); continue; }
     }
 
-    // Fallback: nearest centroid
-    let nearDist = Infinity;
-    let nearFeature: GeoFeature | null = null;
-    for (const feature of candidates) {
-      const c = featureCentroid(feature);
-      if (!c) continue;
-      const dist = Math.hypot(c.lat - pin.lat, c.lng - pin.lng);
-      if (dist < nearDist) { nearDist = dist; nearFeature = feature; }
-    }
-    if (nearFeature && nearDist < 8) {
-      const key = subdivKeyOf(nearFeature, iso);
-      if (key) { subdivKeys.add(key); continue; }
-    }
-
+    // No polygon match and no override → honest country-level fallback, no wrong guess
     fallbackCountries.add(iso);
   }
 

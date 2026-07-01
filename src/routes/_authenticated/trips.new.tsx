@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Check, ChevronsUpDown, X, Plus, Cloud, MapPin } from "lucide-react";
+import { Check, ChevronsUpDown, X, Plus, Cloud, MapPin, Plane } from "lucide-react";
 import { createTrip } from "@/lib/trips.functions";
 import { getProfile } from "@/lib/profile.functions";
 import {
@@ -156,20 +156,61 @@ function NewTrip() {
     }
   }
 
+  // ── Colore accento in base alla modalità ──────────────────────────────────
+  const accentColor = wishlist ? "oklch(0.55 0.13 255)" : "oklch(0.66 0.14 38)";
+
+  function switchMode(toWishlist: boolean) {
+    nav({ to: "/trips/new", search: { wishlist: toWishlist }, replace: true });
+  }
+
   return (
     <main className="mx-auto max-w-2xl px-4 py-6 sm:py-8">
-      {/* ── Page title ── */}
-      {wishlist ? (
+      {/* ── Header: titolo + toggle modalità ── */}
+      <div className="flex items-start justify-between gap-3">
+        {/* Titolo */}
         <div className="flex items-center gap-2">
-          <Cloud className="h-5 w-5 text-[oklch(0.55_0.13_255)]" />
-          <h1 className="font-serif text-2xl font-bold">Viaggio dei sogni</h1>
+          {wishlist ? (
+            <Cloud className="h-5 w-5 shrink-0" style={{ color: accentColor }} />
+          ) : (
+            <Plane className="h-5 w-5 shrink-0" style={{ color: accentColor }} />
+          )}
+          <h1 className="font-serif text-2xl font-bold">
+            {wishlist ? "Viaggio dei sogni" : t("new_trip")}
+          </h1>
         </div>
-      ) : (
-        <div className="flex items-center gap-2">
-          <MapPin className="h-5 w-5 text-primary" />
-          <h1 className="font-serif text-2xl font-bold">{t("new_trip")}</h1>
+
+        {/* Toggle viaggio / wishlist */}
+        <div className="inline-flex shrink-0 rounded-full border border-border bg-secondary/40 p-1 text-xs">
+          <button
+            type="button"
+            onClick={() => switchMode(false)}
+            className={cn(
+              "flex items-center gap-1.5 rounded-full px-3 py-1.5 font-medium transition",
+              !wishlist
+                ? "text-white shadow-soft"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+            style={!wishlist ? { background: accentColor } : undefined}
+          >
+            <Plane className="h-3 w-3" />
+            <span>Viaggio</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => switchMode(true)}
+            className={cn(
+              "flex items-center gap-1.5 rounded-full px-3 py-1.5 font-medium transition",
+              wishlist
+                ? "text-white shadow-soft"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+            style={wishlist ? { background: accentColor } : undefined}
+          >
+            <Cloud className="h-3 w-3" />
+            <span>Wishlist</span>
+          </button>
         </div>
-      )}
+      </div>
 
       <form
         onSubmit={submit}
@@ -356,10 +397,7 @@ function NewTrip() {
             type="submit"
             disabled={busy}
             className="ml-auto"
-            style={wishlist ? {
-              background: "oklch(0.55 0.13 255)",
-              color: "white",
-            } : undefined}
+            style={wishlist ? { background: accentColor, color: "white" } : undefined}
           >
             {wishlist ? "Salva nella Wishlist" : t("save")}
           </Button>
