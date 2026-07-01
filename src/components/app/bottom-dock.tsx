@@ -1,16 +1,16 @@
-import { Link, useLocation } from "@tanstack/react-router";
-import { Compass, User } from "lucide-react";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
+import { Compass, User, Plus, Cloud } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 
-type Item = {
+type NavItem = {
   to: "/trips" | "/profile";
   icon: React.ComponentType<{ className?: string }>;
   labelKey: string;
   match: (path: string) => boolean;
 };
 
-const ITEMS: Item[] = [
+const NAV_ITEMS: NavItem[] = [
   { to: "/trips", icon: Compass, labelKey: "trips", match: (p) => p.startsWith("/trips") },
   { to: "/profile", icon: User, labelKey: "profile", match: (p) => p.startsWith("/profile") },
 ];
@@ -18,13 +18,17 @@ const ITEMS: Item[] = [
 export function BottomDock() {
   const { t } = useTranslation();
   const loc = useLocation();
+  const nav = useNavigate();
+
   return (
     <nav
       aria-label="Primary"
       className="fixed inset-x-0 z-40 mx-auto flex w-fit max-w-[calc(100vw-1.5rem)] items-center gap-1 rounded-full border border-border/60 bg-card/85 px-2 py-1.5 shadow-soft backdrop-blur-xl"
       style={{ bottom: "calc(0.75rem + env(safe-area-inset-bottom, 0px))" }}
     >
-      {ITEMS.map(({ to, icon: Icon, labelKey, match }) => {
+      {/* Compass nav */}
+      {(() => {
+        const { to, icon: Icon, labelKey, match } = NAV_ITEMS[0];
         const active = match(loc.pathname);
         return (
           <Link
@@ -41,7 +45,48 @@ export function BottomDock() {
             <span>{t(labelKey)}</span>
           </Link>
         );
-      })}
+      })()}
+
+      {/* New trip action button */}
+      <button
+        type="button"
+        onClick={() => nav({ to: "/trips/new" })}
+        aria-label="Nuovo viaggio"
+        className="grid h-9 w-9 place-items-center rounded-full bg-primary text-primary-foreground shadow-soft transition hover:scale-105 hover:opacity-90"
+      >
+        <Plus className="h-4 w-4" />
+      </button>
+
+      {/* Wishlist action button */}
+      <button
+        type="button"
+        onClick={() => nav({ to: "/trips/new", search: { wishlist: true } })}
+        aria-label="Viaggio dei sogni"
+        className="grid h-9 w-9 place-items-center rounded-full border border-[oklch(0.6_0.13_255)] text-[oklch(0.5_0.15_255)] transition hover:scale-105 hover:bg-[oklch(0.97_0.02_255)]"
+      >
+        <Cloud className="h-4 w-4" />
+      </button>
+
+      {/* Profile nav */}
+      {(() => {
+        const { to, icon: Icon, labelKey, match } = NAV_ITEMS[1];
+        const active = match(loc.pathname);
+        return (
+          <Link
+            key={to}
+            to={to}
+            className={cn(
+              "group flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-medium transition",
+              active
+                ? "bg-primary text-primary-foreground shadow-soft"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground",
+            )}
+          >
+            <Icon className="h-4 w-4" />
+            <span>{t(labelKey)}</span>
+          </Link>
+        );
+      })()}
     </nav>
   );
 }

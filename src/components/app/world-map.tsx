@@ -32,9 +32,26 @@ const visitedPinIcon = L.divIcon({
   iconAnchor: [7, 7],
 });
 
+// Planned = gray solid border (changed from blue)
 const plannedPinIcon = L.divIcon({
   className: "voyager-pin-planned",
-  html: `<span style="display:block;width:14px;height:14px;border-radius:9999px;background:oklch(0.97 0.02 250);border:2.5px solid oklch(0.55 0.16 255);box-shadow:0 2px 6px rgba(0,0,0,0.3)"></span>`,
+  html: `<span style="display:block;width:14px;height:14px;border-radius:9999px;background:white;border:2.5px solid oklch(0.55 0 0);box-shadow:0 2px 6px rgba(0,0,0,0.3)"></span>`,
+  iconSize: [14, 14],
+  iconAnchor: [7, 7],
+});
+
+// Ongoing = yellow fill
+const ongoingPinIcon = L.divIcon({
+  className: "voyager-pin-ongoing",
+  html: `<span style="display:block;width:14px;height:14px;border-radius:9999px;background:oklch(0.88 0.14 95);border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.35)"></span>`,
+  iconSize: [14, 14],
+  iconAnchor: [7, 7],
+});
+
+// Wishlist = white fill + blue border
+const wishlistPinIcon = L.divIcon({
+  className: "voyager-pin-wishlist",
+  html: `<span style="display:block;width:14px;height:14px;border-radius:9999px;background:white;border:2.5px solid oklch(0.55 0.16 255);box-shadow:0 2px 6px rgba(0,0,0,0.3)"></span>`,
   iconSize: [14, 14],
   iconAnchor: [7, 7],
 });
@@ -196,8 +213,6 @@ async function loadAdmin1(): Promise<GeoCollection> {
   if (_admin1Loading) return _admin1Loading;
 
   _admin1Loading = (async () => {
-    // 1. Static pre-generated file (present if Lovable build ran the Vite plugin,
-    //    or if the user uploaded ne_admin1.geojson to Lovable → Files → public/).
     try {
       const r = await fetch("/ne_admin1.geojson");
       if (r.ok) {
@@ -209,15 +224,12 @@ async function loadAdmin1(): Promise<GeoCollection> {
       // not available — fall through
     }
 
-    // 2. IndexedDB cache (populated after the first successful download).
     const cached = await idbGet(ADMIN1_KEY);
     if (cached) {
       _admin1Cache = cached;
       return cached;
     }
 
-    // 3. First-time download: fetch 10m Natural Earth data (~63 MB),
-    //    simplify with RDP (ε = 0.08°), then persist in IndexedDB (~1–2 MB).
     _notifyProgress("Download regioni in corso… (~60 s al primo avvio)");
     const r = await fetch(ADMIN1_SRC);
     if (!r.ok) throw new Error(`Admin-1 download failed: HTTP ${r.status}`);
@@ -232,7 +244,7 @@ async function loadAdmin1(): Promise<GeoCollection> {
     _admin1Cache = simplified;
     return simplified;
   })().catch((err) => {
-    _admin1Loading = null; // allow retry on next call
+    _admin1Loading = null;
     throw err;
   });
 
@@ -331,19 +343,16 @@ const A3_TO_A2: Record<string, string> = {
 
 function countryIsoOfAdmin1(feature: GeoFeature): string | null {
   const props = feature.properties ?? {};
-  // 1. iso_3166_2: "IT-52" → "IT"
   const raw3166 = String(props.iso_3166_2 ?? "");
   const parts = raw3166.split("-");
   if (parts.length >= 2 && parts[0].length === 2 && raw3166 !== "-99") {
     return parts[0].toUpperCase();
   }
-  // 2. hasc: "IT.TOS" → "IT"
   const hasc = String(props.hasc ?? "");
   const hp = hasc.split(".");
   if (hp.length >= 2 && hp[0].length === 2 && hp[0] !== "-9") {
     return hp[0].toUpperCase();
   }
-  // 3. adm0_a3: "ITA" → "IT"
   const a3 = String(props.adm0_a3 ?? "").trim();
   if (a3 && a3 !== "-99" && a3.length === 3) {
     return A3_TO_A2[a3] ?? null;
@@ -386,11 +395,10 @@ function dedupePins(cities: (WorldMapCity & { lat?: number; lng?: number })[]) {
   return list;
 }
 
-// ---- Point-in-polygon (ray casting) for GeoJSON Polygon/MultiPolygon ----
 function pointInRing(lat: number, lng: number, ring: number[][]): boolean {
   let inside = false;
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const [xi, yi] = ring[i]; // xi=lng, yi=lat in GeoJSON
+    const [xi, yi] = ring[i];
     const [xj, yj] = ring[j];
     if ((yi > lat) !== (yj > lat) && lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) {
       inside = !inside;
@@ -487,6 +495,10 @@ export function WorldMap({
   cities,
   plannedCountries = [],
   plannedCities = [],
+  ongoingCountries = [],
+  ongoingCities = [],
+  wishlistCountries = [],
+  wishlistCities = [],
   homeCountry = null,
   showPins = true,
   showSubdivisions = false,
@@ -496,6 +508,10 @@ export function WorldMap({
   cities: WorldMapCity[];
   plannedCountries?: string[];
   plannedCities?: WorldMapCity[];
+  ongoingCountries?: string[];
+  ongoingCities?: WorldMapCity[];
+  wishlistCountries?: string[];
+  wishlistCities?: WorldMapCity[];
   homeCountry?: string | null;
   showPins?: boolean;
   showSubdivisions?: boolean;
@@ -505,23 +521,65 @@ export function WorldMap({
   const { data: subdivWorld, loading: subdivLoading, progress: subdivProgress } =
     useSubdivisionBorders(showSubdivisions);
 
+  // Priority: Home > Ongoing > Visited/Past > Planned > Wishlist
   const visitedSet = useMemo(
     () => new Set(visitedCountries.map((c) => c.toUpperCase())),
     [visitedCountries],
   );
+  const ongoingSet = useMemo(
+    () => new Set(
+      ongoingCountries.map((c) => c.toUpperCase()).filter((c) => !visitedSet.has(c)),
+    ),
+    [ongoingCountries, visitedSet],
+  );
   const plannedSet = useMemo(
-    () => new Set(plannedCountries.map((c) => c.toUpperCase()).filter((c) => !visitedSet.has(c))),
-    [plannedCountries, visitedSet],
+    () => new Set(
+      plannedCountries
+        .map((c) => c.toUpperCase())
+        .filter((c) => !visitedSet.has(c) && !ongoingSet.has(c)),
+    ),
+    [plannedCountries, visitedSet, ongoingSet],
+  );
+  const wishlistSet = useMemo(
+    () => new Set(
+      wishlistCountries
+        .map((c) => c.toUpperCase())
+        .filter((c) => !visitedSet.has(c) && !ongoingSet.has(c) && !plannedSet.has(c)),
+    ),
+    [wishlistCountries, visitedSet, ongoingSet, plannedSet],
   );
   const homeIso = homeCountry ? homeCountry.toUpperCase() : null;
 
   const pins = useMemo(() => dedupePins(enrichCoords(cities)), [cities]);
-  const plannedPins = useMemo(() => {
+
+  const ongoingPins = useMemo(() => {
     const visitedKeys = new Set(pins.map((p) => `${p.country}|${p.name.toLowerCase()}`));
-    return dedupePins(enrichCoords(plannedCities)).filter(
+    return dedupePins(enrichCoords(ongoingCities)).filter(
       (p) => !visitedKeys.has(`${p.country}|${p.name.toLowerCase()}`),
     );
-  }, [plannedCities, pins]);
+  }, [ongoingCities, pins]);
+
+  const plannedPins = useMemo(() => {
+    const visitedKeys = new Set(pins.map((p) => `${p.country}|${p.name.toLowerCase()}`));
+    const ongoingKeys = new Set(ongoingPins.map((p) => `${p.country}|${p.name.toLowerCase()}`));
+    return dedupePins(enrichCoords(plannedCities)).filter(
+      (p) =>
+        !visitedKeys.has(`${p.country}|${p.name.toLowerCase()}`) &&
+        !ongoingKeys.has(`${p.country}|${p.name.toLowerCase()}`),
+    );
+  }, [plannedCities, pins, ongoingPins]);
+
+  const wishlistPins = useMemo(() => {
+    const visitedKeys = new Set(pins.map((p) => `${p.country}|${p.name.toLowerCase()}`));
+    const ongoingKeys = new Set(ongoingPins.map((p) => `${p.country}|${p.name.toLowerCase()}`));
+    const plannedKeys = new Set(plannedPins.map((p) => `${p.country}|${p.name.toLowerCase()}`));
+    return dedupePins(enrichCoords(wishlistCities)).filter(
+      (p) =>
+        !visitedKeys.has(`${p.country}|${p.name.toLowerCase()}`) &&
+        !ongoingKeys.has(`${p.country}|${p.name.toLowerCase()}`) &&
+        !plannedKeys.has(`${p.country}|${p.name.toLowerCase()}`),
+    );
+  }, [wishlistCities, pins, ongoingPins, plannedPins]);
 
   const visitedSubdivData = useMemo(() => {
     if (!showSubdivisions || !subdivWorld) {
@@ -530,12 +588,32 @@ export function WorldMap({
     return computeSubdivData(pins, subdivWorld);
   }, [pins, showSubdivisions, subdivWorld]);
 
+  const ongoingSubdivData = useMemo(() => {
+    if (!showSubdivisions || !subdivWorld) {
+      return { subdivKeys: new Set<string>(), fallbackCountries: new Set<string>() };
+    }
+    return computeSubdivData(ongoingPins, subdivWorld);
+  }, [ongoingPins, showSubdivisions, subdivWorld]);
+
   const plannedSubdivData = useMemo(() => {
     if (!showSubdivisions || !subdivWorld) {
       return { subdivKeys: new Set<string>(), fallbackCountries: new Set<string>() };
     }
     return computeSubdivData(plannedPins, subdivWorld);
   }, [plannedPins, showSubdivisions, subdivWorld]);
+
+  const wishlistSubdivData = useMemo(() => {
+    if (!showSubdivisions || !subdivWorld) {
+      return { subdivKeys: new Set<string>(), fallbackCountries: new Set<string>() };
+    }
+    return computeSubdivData(wishlistPins, subdivWorld);
+  }, [wishlistPins, showSubdivisions, subdivWorld]);
+
+  const ongoingSubdivCountries = useMemo(() => {
+    const set = new Set<string>();
+    for (const key of ongoingSubdivData.subdivKeys) set.add(key.split("|")[0]);
+    return set;
+  }, [ongoingSubdivData.subdivKeys]);
 
   const plannedSubdivCountries = useMemo(() => {
     const set = new Set<string>();
@@ -556,19 +634,26 @@ export function WorldMap({
     };
     for (const f of world.features) {
       const iso = isoOf(f as GeoFeature);
-      if (!iso || (!visitedSet.has(iso) && !plannedSet.has(iso))) continue;
+      if (
+        !iso ||
+        (!visitedSet.has(iso) && !ongoingSet.has(iso) && !plannedSet.has(iso) && !wishlistSet.has(iso))
+      ) continue;
       const g = f.geometry as { coordinates?: unknown } | undefined;
       if (g?.coordinates) collect(g.coordinates);
     }
     for (const p of pins) pts.push([p.lat, p.lng]);
+    for (const p of ongoingPins) pts.push([p.lat, p.lng]);
     for (const p of plannedPins) pts.push([p.lat, p.lng]);
+    for (const p of wishlistPins) pts.push([p.lat, p.lng]);
     return pts.length > 0 ? L.latLngBounds(pts) : null;
-  }, [world, visitedSet, plannedSet, pins, plannedPins]);
+  }, [world, visitedSet, ongoingSet, plannedSet, wishlistSet, pins, ongoingPins, plannedPins, wishlistPins]);
 
   const countryStyle = (feature?: GeoFeature) => {
     const iso = feature ? isoOf(feature) : null;
     const visited = !!iso && visitedSet.has(iso);
-    const planned = !!iso && !visited && plannedSet.has(iso);
+    const ongoing = !!iso && !visited && ongoingSet.has(iso);
+    const planned = !!iso && !visited && !ongoing && plannedSet.has(iso);
+    const wishlist = !!iso && !visited && !ongoing && !planned && wishlistSet.has(iso);
     const isHome = !!iso && !!homeIso && iso === homeIso;
 
     if (isHome) {
@@ -583,12 +668,23 @@ export function WorldMap({
     }
 
     if (showSubdivisions) {
+      if (ongoing) {
+        const hasResolvedSubdivs =
+          ongoingSubdivCountries.has(iso!) && !ongoingSubdivData.fallbackCountries.has(iso!);
+        if (hasResolvedSubdivs) {
+          return { fillColor: "transparent", fillOpacity: 0, color: "oklch(0.68 0.16 85)", weight: 0.75 };
+        }
+        return { fillColor: "oklch(0.88 0.14 95)", fillOpacity: 0.55, color: "oklch(0.68 0.16 85)", weight: 1 };
+      }
       if (planned) {
         const hasResolvedSubdivs =
           plannedSubdivCountries.has(iso!) && !plannedSubdivData.fallbackCountries.has(iso!);
         if (hasResolvedSubdivs) {
-          return { fillColor: "transparent", fillOpacity: 0, color: "oklch(0.6 0.13 255)", weight: 0.75 };
+          return { fillColor: "transparent", fillOpacity: 0, color: "oklch(0.65 0 0)", weight: 0.75 };
         }
+        return { fillColor: "oklch(0.88 0 0)", fillOpacity: 0.55, color: "oklch(0.65 0 0)", weight: 1 };
+      }
+      if (wishlist) {
         return {
           fillColor: "oklch(0.93 0.03 255)", fillOpacity: 0.55,
           color: "oklch(0.6 0.13 255)", weight: 1, dashArray: "4 3",
@@ -603,7 +699,14 @@ export function WorldMap({
       };
     }
 
+    // No subdivisions
+    if (ongoing) {
+      return { fillColor: "oklch(0.88 0.14 95)", fillOpacity: 0.55, color: "oklch(0.68 0.16 85)", weight: 1 };
+    }
     if (planned) {
+      return { fillColor: "oklch(0.88 0 0)", fillOpacity: 0.55, color: "oklch(0.65 0 0)", weight: 1 };
+    }
+    if (wishlist) {
       return {
         fillColor: "oklch(0.93 0.03 255)", fillOpacity: 0.55,
         color: "oklch(0.6 0.13 255)", weight: 1, dashArray: "4 3",
@@ -630,13 +733,21 @@ export function WorldMap({
     const featureName = norm((props.name as string) ?? "");
     const key = `${countryIso}|${featureName}`;
     const isVisited = visitedSubdivData.subdivKeys.has(key);
-    const isPlanned = !isVisited && plannedSubdivData.subdivKeys.has(key);
+    const isOngoing = !isVisited && ongoingSubdivData.subdivKeys.has(key);
+    const isPlanned = !isVisited && !isOngoing && plannedSubdivData.subdivKeys.has(key);
+    const isWishlist = !isVisited && !isOngoing && !isPlanned && wishlistSubdivData.subdivKeys.has(key);
     const isInHome = !!homeIso && countryIso === homeIso;
 
     if (isVisited) {
       return { fillColor: "oklch(0.66 0.14 38)", fillOpacity: 0.65, color: "oklch(0.5 0.13 38)", weight: 0.75 };
     }
+    if (isOngoing) {
+      return { fillColor: "oklch(0.88 0.14 95)", fillOpacity: 0.65, color: "oklch(0.68 0.16 85)", weight: 0.75 };
+    }
     if (isPlanned) {
+      return { fillColor: "oklch(0.88 0 0)", fillOpacity: 0.55, color: "oklch(0.65 0 0)", weight: 0.75 };
+    }
+    if (isWishlist) {
       return {
         fillColor: "oklch(0.93 0.03 255)", fillOpacity: 0.55,
         color: "oklch(0.6 0.13 255)", weight: 0.75, dashArray: "4 3",
@@ -647,11 +758,21 @@ export function WorldMap({
     }
 
     const isInVisited = visitedSet.has(countryIso);
+    const isInOngoing = ongoingSet.has(countryIso);
     const isInPlanned = plannedSet.has(countryIso);
+    const isInWishlist = wishlistSet.has(countryIso);
     return {
       fillColor: "transparent", fillOpacity: 0,
-      color: isInVisited ? "oklch(0.72 0.09 38)" : isInPlanned ? "oklch(0.75 0.08 255)" : "oklch(0.88 0.005 90)",
-      weight: isInVisited || isInPlanned ? 0.45 : 0.25,
+      color: isInVisited
+        ? "oklch(0.72 0.09 38)"
+        : isInOngoing
+        ? "oklch(0.75 0.12 85)"
+        : isInPlanned
+        ? "oklch(0.78 0 0)"
+        : isInWishlist
+        ? "oklch(0.75 0.08 255)"
+        : "oklch(0.88 0.005 90)",
+      weight: isInVisited || isInOngoing || isInPlanned || isInWishlist ? 0.45 : 0.25,
     };
   };
 
@@ -662,6 +783,9 @@ export function WorldMap({
       </div>
     );
   }
+
+  const geoKey = `country-v${visitedSet.size}-o${ongoingSet.size}-p${plannedSet.size}-w${wishlistSet.size}-h${homeIso}-s${showSubdivisions ? 1 : 0}-vf${visitedSubdivData.fallbackCountries.size}-pf${plannedSubdivData.fallbackCountries.size}`;
+  const subdivKey = `subdiv-v${visitedSubdivData.subdivKeys.size}-o${ongoingSubdivData.subdivKeys.size}-p${plannedSubdivData.subdivKeys.size}-w${wishlistSubdivData.subdivKeys.size}-h${homeIso}`;
 
   return (
     <div className={`relative ${className ?? ""}`}>
@@ -680,7 +804,7 @@ export function WorldMap({
 
         {world && (
           <GeoJSON
-            key={`country-${visitedSet.size}-${plannedSet.size}-${homeIso}-${showSubdivisions}-${visitedSubdivData.fallbackCountries.size}-${plannedSubdivData.fallbackCountries.size}`}
+            key={geoKey}
             data={world as never}
             style={countryStyle as never}
           />
@@ -688,7 +812,7 @@ export function WorldMap({
 
         {showSubdivisions && subdivWorld && (
           <GeoJSON
-            key={`subdiv-${visitedSubdivData.subdivKeys.size}-${visitedSubdivData.fallbackCountries.size}-${plannedSubdivData.subdivKeys.size}-${homeIso}`}
+            key={subdivKey}
             data={subdivWorld as never}
             style={subdivStyle as never}
           />
@@ -701,11 +825,24 @@ export function WorldMap({
             </Marker>
           ))}
         {showPins &&
+          ongoingPins.map((c, i) => (
+            <Marker key={`o-${c.country}-${c.name}-${i}`} position={[c.lat, c.lng]} icon={ongoingPinIcon}>
+              <Tooltip direction="top" offset={[0, -6]}>{c.name}</Tooltip>
+            </Marker>
+          ))}
+        {showPins &&
           plannedPins.map((c, i) => (
             <Marker key={`p-${c.country}-${c.name}-${i}`} position={[c.lat, c.lng]} icon={plannedPinIcon}>
               <Tooltip direction="top" offset={[0, -6]}>{c.name}</Tooltip>
             </Marker>
           ))}
+        {showPins &&
+          wishlistPins.map((c, i) => (
+            <Marker key={`w-${c.country}-${c.name}-${i}`} position={[c.lat, c.lng]} icon={wishlistPinIcon}>
+              <Tooltip direction="top" offset={[0, -6]}>{c.name}</Tooltip>
+            </Marker>
+          ))}
+
         {world && <FitToVisited bounds={visitedBounds} />}
       </MapContainer>
 

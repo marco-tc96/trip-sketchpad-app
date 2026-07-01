@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Check, ChevronsUpDown, X, Plus } from "lucide-react";
+import { Check, ChevronsUpDown, X, Plus, Cloud } from "lucide-react";
 import { createTrip } from "@/lib/trips.functions";
 import { getProfile } from "@/lib/profile.functions";
 import {
@@ -31,6 +31,9 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/trips/new")({
+  validateSearch: (s: Record<string, unknown>) => ({
+    wishlist: Boolean(s.wishlist),
+  }),
   component: NewTrip,
 });
 
@@ -42,6 +45,7 @@ function NewTrip() {
   const qc = useQueryClient();
   const profileFn = useServerFn(getProfile);
   const profile = useQuery({ queryKey: ["profile"], queryFn: () => profileFn() });
+  const { wishlist } = Route.useSearch();
 
   const createFn = useServerFn(createTrip);
 
@@ -52,7 +56,6 @@ function NewTrip() {
   const [coverEmoji, setCoverEmoji] = useState("");
   const [emojiTouched, setEmojiTouched] = useState(false);
   const [pickedCountries, setPickedCountries] = useState<string[]>([]);
-  // Auto-set cover emoji to the first country flag unless the user typed one.
   useEffect(() => {
     if (emojiTouched) return;
     const iso = pickedCountries[0];
@@ -69,19 +72,19 @@ function NewTrip() {
   const [busy, setBusy] = useState(false);
   const [tripType, setTripType] = useState<"vacation" | "business" | "daytrip">("vacation");
 
-  // Auto-select currency based on first country and start date (historical aware).
+  // For wishlist mode, use today's date for currency lookup
+  const dateForCurrency = wishlist ? new Date().toISOString().slice(0, 10) : startDate;
   useEffect(() => {
     const iso = pickedCountries[0];
     if (!iso) return;
-    const ccy = currencyForCountryAt(iso, startDate);
+    const ccy = currencyForCountryAt(iso, dateForCurrency);
     if (ccy) setCurrency(ccy);
-  }, [pickedCountries, startDate]);
+  }, [pickedCountries, dateForCurrency]);
 
   function toggleCountry(iso: string) {
     setPickedCountries((cs) =>
       cs.includes(iso) ? cs.filter((c) => c !== iso) : [...cs, iso],
     );
-    // Drop cities whose country no longer selected.
     setPickedCities((cities) =>
       cities.filter(
         (c) => c.country !== iso || pickedCountries.includes(iso),
@@ -99,9 +102,8 @@ function NewTrip() {
     setPickedCities((cs) => {
       const exists = cs.some((x) => `${x.country}|${x.name}` === key);
       if (exists) return cs.filter((x) => `${x.country}|${x.name}` !== key);
-      return [...cs, c]; // add immediately (coordinates filled in below)
+      return [...cs, c];
     });
-    // Geocode in the background to attach lat/lng for world map pins.
     if (typeof c.lat !== "number" || typeof c.lng !== "number") {
       geocodeCity(c.name, c.country).then((coords) => {
         if (!coords) return;
@@ -125,7 +127,6 @@ function NewTrip() {
         ? countryByIso(primaryCountryIso)?.name ?? null
         : null;
       const primaryCity = pickedCities[0]?.name ?? null;
-      // Fall back to country flag if user didn't pick an emoji.
       const emoji =
         coverEmoji.trim() ||
         (primaryCountryIso ? flagOf(primaryCountryIso) : "✈️");
@@ -138,13 +139,13 @@ function NewTrip() {
           countries: pickedCountries,
           cities: pickedCities,
           cover_url: null,
-          start_date: startDate,
-          end_date: endDate,
+          start_date: wishlist ? "2099-01-01" : startDate,
+          end_date: wishlist ? "2099-12-31" : endDate,
           local_currency: currency,
           cover_emoji: emoji,
           notes: notes || null,
           timeline_mode: "days",
-          trip_type: tripType,
+          trip_type: wishlist ? "wishlist" : tripType,
         },
       });
       qc.invalidateQueries({ queryKey: ["trips"] });
@@ -158,7 +159,20 @@ function NewTrip() {
 
   return (
     <main className="mx-auto max-w-2xl px-4 py-8">
-      <h1 className="font-serif text-3xl font-bold">{t("new_trip")}</h1>
+      {wishlist ? (
+        <div>
+          <div className="flex items-center gap-2">
+            <Cloud className="h-6 w-6 text-[oklch(0.55_0.13_255)]" />
+            <h1 className="font-serif text-3xl font-bold">Viaggio dei sogni</h1>
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Salva i luoghi che vorresti visitare, senza data — potrai pianificare l'itinerario in seguito.
+          </p>
+        </div>
+      ) : (
+        <h1 className="font-serif text-3xl font-bold">{t("new_trip")}</h1>
+      )}
+
       <form
         onSubmit={submit}
         className="mt-8 space-y-5 rounded-2xl border border-border bg-card p-6 shadow-soft"
@@ -183,7 +197,7 @@ function NewTrip() {
               required
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="Croazia 2017, Tokyo capodanno…"
+              placeholder={wishlist ? "Bali, Patagonia, Kyoto…" : "Croazia 2017, Tokyo capodanno…"}
             />
           </div>
         </div>
@@ -263,29 +277,31 @@ function NewTrip() {
           )}
         </div>
 
-        {/* Dates */}
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label>{t("start_date")}</Label>
-            <Input
-              type="date"
-              required
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-            />
+        {/* Dates — hidden in wishlist mode */}
+        {!wishlist && (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>{t("start_date")}</Label>
+              <Input
+                type="date"
+                required
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>{t("end_date")}</Label>
+              <Input
+                type="date"
+                required
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+              />
+            </div>
           </div>
-          <div className="space-y-1.5">
-            <Label>{t("end_date")}</Label>
-            <Input
-              type="date"
-              required
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-            />
-          </div>
-        </div>
+        )}
 
-        {/* Currency (auto, derived from country + start date) */}
+        {/* Currency */}
         {pickedCountries[0] && (
           <div className="rounded-xl border border-border bg-secondary/40 px-3 py-2 text-xs text-muted-foreground">
             {profile.data && (
@@ -295,7 +311,7 @@ function NewTrip() {
             )}
             {t("local_currency")}: <strong className="text-foreground">{currency}</strong>{" "}
             <span className="opacity-70">
-              · auto ({countryNameLocalized(pickedCountries[0], lang)}, {startDate.slice(0, 4)})
+              · auto ({countryNameLocalized(pickedCountries[0], lang)})
             </span>
           </div>
         )}
@@ -310,34 +326,44 @@ function NewTrip() {
           />
         </div>
 
-        {/* Trip type */}
-        <div className="space-y-1.5">
-          <Label>{t("trip_type")}</Label>
-          <div className="inline-flex rounded-full border border-border bg-secondary/40 p-1 text-sm">
-            {(["vacation", "business", "daytrip"] as const).map((v) => (
-              <button
-                key={v}
-                type="button"
-                onClick={() => setTripType(v)}
-                className={cn(
-                  "rounded-full px-3 py-1.5 transition",
-                  tripType === v
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {t(v)}
-              </button>
-            ))}
+        {/* Trip type — hidden in wishlist mode */}
+        {!wishlist && (
+          <div className="space-y-1.5">
+            <Label>{t("trip_type")}</Label>
+            <div className="inline-flex rounded-full border border-border bg-secondary/40 p-1 text-sm">
+              {(["vacation", "business", "daytrip"] as const).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setTripType(v)}
+                  className={cn(
+                    "rounded-full px-3 py-1.5 transition",
+                    tripType === v
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {t(v)}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="flex gap-3">
           <Button type="button" variant="ghost" onClick={() => nav({ to: "/trips" })}>
             {t("cancel")}
           </Button>
-          <Button type="submit" disabled={busy} className="ml-auto">
-            {t("save")}
+          <Button
+            type="submit"
+            disabled={busy}
+            className="ml-auto"
+            style={wishlist ? {
+              background: "oklch(0.55 0.13 255)",
+              color: "white",
+            } : undefined}
+          >
+            {wishlist ? "Salva nella Wishlist" : t("save")}
           </Button>
         </div>
       </form>
@@ -421,7 +447,6 @@ function CityPicker({
   const [query, setQuery] = useState("");
   const multi = countries.length > 1;
 
-  // Reactive: re-renders automatically as cities load from the API
   const cities = useCitiesOfCountry(countries);
 
   const filtered = useMemo(() => {
