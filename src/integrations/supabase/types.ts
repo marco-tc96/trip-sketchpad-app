@@ -148,8 +148,10 @@ export type Database = {
           created_at: string
           id: string
           link: string | null
+          notif_key: string | null
           read: boolean
           title: string
+          trip_id: string | null
           type: string
           user_id: string
         }
@@ -158,8 +160,10 @@ export type Database = {
           created_at?: string
           id?: string
           link?: string | null
+          notif_key?: string | null
           read?: boolean
           title: string
+          trip_id?: string | null
           type?: string
           user_id: string
         }
@@ -168,12 +172,22 @@ export type Database = {
           created_at?: string
           id?: string
           link?: string | null
+          notif_key?: string | null
           read?: boolean
           title?: string
+          trip_id?: string | null
           type?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "notifications_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       profiles: {
         Row: {
@@ -208,6 +222,33 @@ export type Database = {
           language?: string
           updated_at?: string
           username?: string | null
+        }
+        Relationships: []
+      }
+      push_subscriptions: {
+        Row: {
+          auth: string
+          created_at: string
+          endpoint: string
+          id: string
+          p256dh: string
+          user_id: string
+        }
+        Insert: {
+          auth: string
+          created_at?: string
+          endpoint: string
+          id?: string
+          p256dh: string
+          user_id: string
+        }
+        Update: {
+          auth?: string
+          created_at?: string
+          endpoint?: string
+          id?: string
+          p256dh?: string
+          user_id?: string
         }
         Relationships: []
       }
@@ -285,7 +326,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      check_trip_notifications: { Args: never; Returns: undefined }
     }
     Enums: {
       [_ in never]: never
