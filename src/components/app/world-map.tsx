@@ -130,7 +130,7 @@ function simplifyGeoCollection(geo: GeoCollection, eps: number): GeoCollection {
 
 const IDB_DB = "voyager-geo";
 const IDB_STORE = "tiles";
-const ADMIN1_KEY = "ne_admin1_v4"; // bumped: Spain whitelist + subdivStyle membership-only logic
+const ADMIN1_KEY = "ne_admin1_v5"; // bumped: iso_3166_2 whitelist for IT/ES + isoOf fix
 
 async function idbGet(key: string): Promise<GeoCollection | null> {
   if (typeof indexedDB === "undefined") return null;
@@ -355,22 +355,39 @@ function normIso(c: string): string {
   return u;
 }
 
-// ── Per-country admin-1 type filter ─────────────────────────────────────────
-// Natural Earth ne_10m_admin_1 includes provinces for IT and ES alongside regions.
-// Only features whose type_en matches one of these strings (case-insensitive) are used.
+// ── Per-country admin-1 type filter (type_en fallback for unlisted countries) ────
 const ADMIN1_PREFERRED_TYPES: Record<string, string[]> = {
-  IT: ["region", "autonomous region", "autonomous province", "free commune"],
+  // Only used as last-resort fallback when iso_3166_2 is absent/mismatched.
+  IT: ["region", "autonomous region"],
   ES: ["autonomous community", "autonomous city"],
 };
 
-// Exhaustive whitelist of Spanish autonomous community + autonomous city HASC codes.
-// Provinces have 3-part codes (ES.AN.AL, etc.) — this set only contains 2-part ones.
+// ── ISO 3166-2 whitelists (primary filter — most reliable key in the dataset) ──
+// For Italy: regions have NUMERIC codes (IT-21 … IT-88); provinces have ALPHA codes (IT-BO, …).
+const IT_REGION_ISO3166_2 = new Set([
+  "IT-21","IT-23","IT-25","IT-32","IT-34","IT-36",
+  "IT-42","IT-45","IT-52","IT-55","IT-57","IT-62",
+  "IT-65","IT-67","IT-72","IT-75","IT-77","IT-78",
+  "IT-82","IT-88",
+  // Autonomous provinces of Trentino-Alto Adige (present separately in some dataset editions)
+  "IT-BZ","IT-TN",
+]);
+
+// For Spain: autonomous community codes vs province codes are distinct in ISO 3166-2.
+const ES_COMMUNITY_ISO3166_2 = new Set([
+  "ES-AN","ES-AR","ES-AS","ES-CB","ES-CE",
+  "ES-CL","ES-CM","ES-CN","ES-CT","ES-EX",
+  "ES-GA","ES-IB","ES-MC","ES-MD","ES-ML",
+  "ES-NC","ES-PV","ES-RI","ES-VC",
+]);
+
+// HASC whitelist kept as secondary fallback for datasets that lack iso_3166_2.
 const ES_COMMUNITY_HASC = new Set([
-  "ES.AN", "ES.AR", "ES.AS", "ES.IB", "ES.PM", // Andalucía, Aragón, Asturias, Baleares (alt)
-  "ES.CN", "ES.CB", "ES.CM", "ES.CL", "ES.CT", "ES.CA", // Canarias, Cantabria, C-La Mancha, C y León, Cataluña
-  "ES.EX", "ES.GA", "ES.MD", "ES.MU", "ES.NA", "ES.NC",  // Extremadura, Galicia, Madrid, Murcia, Navarra
-  "ES.PV", "ES.LO", "ES.LR", "ES.VC", "ES.VL",           // País Vasco, La Rioja, Valenciana
-  "ES.CE", "ES.ML",                                        // Ceuta, Melilla
+  "ES.AN","ES.AR","ES.AS","ES.IB","ES.PM",
+  "ES.CN","ES.CB","ES.CM","ES.CL","ES.CT","ES.CA",
+  "ES.EX","ES.GA","ES.MD","ES.MU","ES.NA","ES.NC",
+  "ES.PV","ES.LO","ES.LR","ES.VC","ES.VL",
+  "ES.CE","ES.ML",
 ]);
 
 // Bounding-box area proxy — used to pick the largest matching feature (region > province)
@@ -398,18 +415,32 @@ function featureBBoxArea(feature: GeoFeature): number {
 }
 
 function isPreferredAdmin1(feature: GeoFeature, iso: string): boolean {
-  // Spain: use explicit whitelist of community HASC codes instead of 2-part count,
-  // because some provinces may also have 2-part HASC in certain dataset versions.
+  const props = feature.properties ?? {};
+
   if (iso === "ES") {
-    const hasc = String((feature.properties ?? {}).hasc ?? "");
-    if (hasc && hasc.startsWith("ES.") && hasc !== "-9.-9") {
-      return ES_COMMUNITY_HASC.has(hasc);
-    }
-    // No HASC — fall through to type_en check
+    // 1st: ISO 3166-2 whitelist — most reliable
+    const code = String(props.iso_3166_2 ?? "").toUpperCase().trim();
+    if (code.startsWith("ES-") && code !== "ES--99") return ES_COMMUNITY_ISO3166_2.has(code);
+    // 2nd: HASC whitelist
+    const hasc = String(props.hasc ?? "").trim();
+    if (hasc.startsWith("ES.") && hasc !== "-9.-9") return ES_COMMUNITY_HASC.has(hasc);
+    // 3rd: type_en
+    const typeEn = String(props.type_en ?? "").toLowerCase();
+    return ["autonomous community", "autonomous city"].some((t) => typeEn.includes(t));
   }
+
+  if (iso === "IT") {
+    // 1st: ISO 3166-2 whitelist (numeric suffix = region, alpha suffix = province)
+    const code = String(props.iso_3166_2 ?? "").toUpperCase().trim();
+    if (code.startsWith("IT-") && code !== "IT--99") return IT_REGION_ISO3166_2.has(code);
+    // 2nd: type_en — match only pure "region" or "autonomous region", NOT "province"
+    const typeEn = String(props.type_en ?? "").toLowerCase();
+    return (typeEn === "region" || typeEn === "autonomous region");
+  }
+
   const preferred = ADMIN1_PREFERRED_TYPES[iso];
-  if (!preferred) return true; // no filter for this country
-  const typeEn = String((feature.properties ?? {}).type_en ?? "").toLowerCase();
+  if (!preferred) return true;
+  const typeEn = String(props.type_en ?? "").toLowerCase();
   return preferred.some((t) => typeEn.includes(t));
 }
 
@@ -530,7 +561,7 @@ function computeSubdivData(
 
   // Second pass: apply type_en filter or size-based fallback
   const featuresByCountry = new Map<string, GeoFeature[]>();
-  const ADMIN1_FALLBACK_COUNT: Record<string, number> = { IT: 22, ES: 19 };
+  const ADMIN1_FALLBACK_COUNT: Record<string, number> = { IT: 22, ES: 19 }; // 20 IT regions (+2 TN/BZ alt) + 19 ES communities
   for (const [iso, features] of allByCountry) {
     const preferred = ADMIN1_PREFERRED_TYPES[iso];
     if (!preferred) {
