@@ -214,7 +214,8 @@ async function loadAdmin1(): Promise<GeoCollection> {
     try {
       const r = await fetch("/ne_admin1.geojson");
       if (r.ok) {
-        const geo = (await r.json()) as GeoCollection;
+        const raw = (await r.json()) as GeoCollection;
+        const geo = simplifyGeoCollection(raw, SIMPLIFY_EPS);
         _admin1Cache = geo;
         return geo;
       }
@@ -344,6 +345,13 @@ const A3_TO_A2: Record<string, string> = {
   PYF:"PF",REU:"RE",SGS:"GS",SHN:"SH",SJM:"SJ",SPM:"PM",SXM:"SX",TCA:"TC",TKL:"TK",UMI:"UM",
   VGB:"VG",VIR:"VI",WLF:"WF",XKX:"XK",
 };
+
+// Normalize ISO codes: accept both 2-letter (NO) and 3-letter (NOR) formats
+function normIso(c: string): string {
+  const u = c.toUpperCase().trim();
+  if (u.length === 3 && A3_TO_A2[u]) return A3_TO_A2[u];
+  return u;
+}
 
 // ── Per-country admin-1 type filter ─────────────────────────────────────────
 // Natural Earth ne_10m_admin_1 includes provinces for IT and ES alongside regions.
@@ -489,20 +497,38 @@ function computeSubdivData(
   const subdivKeys = new Set<string>();
   const fallbackCountries = new Set<string>();
 
-  // Build per-country feature index, filtering to preferred admin level
-  const featuresByCountry = new Map<string, GeoFeature[]>();
+  // First pass: collect all features by country
+  const allByCountry = new Map<string, GeoFeature[]>();
   for (const feature of admin1Geo.features) {
     const iso = countryIsoOfAdmin1(feature);
     if (!iso) continue;
-    // Skip features at wrong admin level for this country (e.g. IT provinces)
-    if (!isPreferredAdmin1(feature, iso)) continue;
-    const list = featuresByCountry.get(iso) ?? [];
+    const list = allByCountry.get(iso) ?? [];
     list.push(feature);
-    featuresByCountry.set(iso, list);
+    allByCountry.set(iso, list);
+  }
+
+  // Second pass: apply type_en filter or size-based fallback
+  const featuresByCountry = new Map<string, GeoFeature[]>();
+  const ADMIN1_FALLBACK_COUNT: Record<string, number> = { IT: 22, ES: 19 };
+  for (const [iso, features] of allByCountry) {
+    const preferred = ADMIN1_PREFERRED_TYPES[iso];
+    if (!preferred) {
+      featuresByCountry.set(iso, features);
+      continue;
+    }
+    const filtered = features.filter((f) => isPreferredAdmin1(f, iso));
+    if (filtered.length >= 5) {
+      featuresByCountry.set(iso, filtered);
+    } else {
+      // type_en filter returned too few results — fall back to N largest features
+      const n = ADMIN1_FALLBACK_COUNT[iso] ?? 20;
+      const byArea = [...features].sort((a, b) => featureBBoxArea(b) - featureBBoxArea(a));
+      featuresByCountry.set(iso, byArea.slice(0, n));
+    }
   }
 
   for (const pin of pins) {
-    const iso = pin.country.toUpperCase();
+    const iso = normIso(pin.country);
     if (FIXED_COORDS[iso]) { fallbackCountries.add(iso); continue; }
     const candidates = featuresByCountry.get(iso) ?? [];
     if (candidates.length === 0) { fallbackCountries.add(iso); continue; }
@@ -574,19 +600,17 @@ export function WorldMap({
     useSubdivisionBorders(showSubdivisions);
 
   const visitedSet = useMemo(
-    () => new Set(visitedCountries.map((c) => c.toUpperCase())),
+    () => new Set(visitedCountries.map(normIso)),
     [visitedCountries],
   );
   const ongoingSet = useMemo(
-    () => new Set(
-      ongoingCountries.map((c) => c.toUpperCase()).filter((c) => !visitedSet.has(c)),
-    ),
+    () => new Set(ongoingCountries.map(normIso).filter((c) => !visitedSet.has(c))),
     [ongoingCountries, visitedSet],
   );
   const plannedSet = useMemo(
     () => new Set(
       plannedCountries
-        .map((c) => c.toUpperCase())
+        .map(normIso)
         .filter((c) => !visitedSet.has(c) && !ongoingSet.has(c)),
     ),
     [plannedCountries, visitedSet, ongoingSet],
@@ -594,12 +618,12 @@ export function WorldMap({
   const wishlistSet = useMemo(
     () => new Set(
       wishlistCountries
-        .map((c) => c.toUpperCase())
+        .map(normIso)
         .filter((c) => !visitedSet.has(c) && !ongoingSet.has(c) && !plannedSet.has(c)),
     ),
     [wishlistCountries, visitedSet, ongoingSet, plannedSet],
   );
-  const homeIso = homeCountry ? homeCountry.toUpperCase() : null;
+  const homeIso = homeCountry ? normIso(homeCountry) : null;
 
   const pins = useMemo(() => dedupePins(enrichCoords(cities)), [cities]);
 
@@ -713,7 +737,8 @@ export function WorldMap({
         if (isFallback) {
           return { fillColor: "oklch(0.65 0.15 145)", fillOpacity: 0.55, color: "oklch(0.48 0.13 145)", weight: 1 };
         }
-        return { fillColor: "oklch(0.65 0.15 145)", fillOpacity: 0.18, color: "oklch(0.48 0.13 145)", weight: 1 };
+        // Transparent fill — subdivisions handle all coloring; just show the country border
+        return { fillColor: "transparent", fillOpacity: 0, color: "oklch(0.48 0.13 145)", weight: 1 };
       }
       return { fillColor: "oklch(0.65 0.15 145)", fillOpacity: 0.55, color: "oklch(0.48 0.13 145)", weight: 1 };
     }
@@ -792,7 +817,20 @@ export function WorldMap({
     const isWishlist = !isVisited && !isOngoing && !isPlanned && wishlistSubdivData.subdivKeys.has(key);
     const isInHome = !!homeIso && countryIso === homeIso;
 
-    // ── Regions WITH a pin: show colored fill + precise border ──
+    // ── Home country: always use green tones, never orange ──
+    if (isInHome) {
+      if (isVisited) {
+        // Darker green for visited home regions
+        return { fillColor: "oklch(0.55 0.17 145)", fillOpacity: 0.70, color: "oklch(0.40 0.14 145)", weight: 0.75 };
+      }
+      if (isOngoing) {
+        return { fillColor: "oklch(0.58 0.15 145)", fillOpacity: 0.65, color: "oklch(0.42 0.13 145)", weight: 0.75 };
+      }
+      // Unvisited home region: lighter green
+      return { fillColor: "oklch(0.78 0.08 145)", fillOpacity: 0.22, color: "oklch(0.55 0.10 145)", weight: 0.4 };
+    }
+
+    // ── Non-home regions WITH a pin: show colored fill + precise border ──
     if (isVisited) {
       return { fillColor: "oklch(0.66 0.14 38)", fillOpacity: 0.65, color: "oklch(0.5 0.13 38)", weight: 0.75 };
     }
@@ -807,11 +845,6 @@ export function WorldMap({
         fillColor: "oklch(0.93 0.03 255)", fillOpacity: 0.55,
         color: "oklch(0.6 0.13 255)", weight: 0.75, dashArray: "4 3",
       };
-    }
-
-    // ── Home country regions WITHOUT a pin: subtle green fill ──
-    if (isInHome) {
-      return { fillColor: "oklch(0.65 0.15 145)", fillOpacity: 0.22, color: "oklch(0.48 0.13 145)", weight: 0.5 };
     }
 
     // ── Everything else: completely invisible (no border clutter) ──
