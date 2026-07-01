@@ -3,12 +3,6 @@ import { MapContainer, TileLayer, GeoJSON, Marker, Tooltip, useMap } from "react
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
-// NOTE: country-state-city is intentionally NOT imported here — it causes
-// Vite pre-bundling failures in this environment. Coordinates are supplied
-// directly from the stored city data (lat/lng saved at trip-creation time).
-// Subdivision detection uses point-in-polygon on the admin-1 GeoJSON instead
-// of name matching, which is more accurate and requires no extra package.
-
 export type WorldMapCity = { name: string; country: string; lat?: number; lng?: number };
 
 type GeoFeature = {
@@ -122,8 +116,6 @@ function isoOf(feature: GeoFeature): string | null {
   return null;
 }
 
-// Comprehensive ISO 3166-1 alpha-3 → alpha-2 mapping (Natural Earth adm0_a3 field).
-// This is the reliable fallback when iso_3166_2 and hasc are empty/"-99".
 const A3_TO_A2: Record<string, string> = {
   AFG:"AF",AGO:"AO",ALB:"AL",AND:"AD",ARE:"AE",ARG:"AR",ARM:"AM",ATG:"AG",AUS:"AU",AUT:"AT",
   AZE:"AZ",BDI:"BI",BEL:"BE",BEN:"BJ",BFA:"BF",BGD:"BD",BGR:"BG",BHR:"BH",BHS:"BS",BIH:"BA",
@@ -145,34 +137,30 @@ const A3_TO_A2: Record<string, string> = {
   TCD:"TD",TGO:"TG",THA:"TH",TJK:"TJ",TKM:"TM",TLS:"TL",TON:"TO",TTO:"TT",TUN:"TN",TUR:"TR",
   TUV:"TV",TZA:"TZ",UGA:"UG",UKR:"UA",URY:"UY",USA:"US",UZB:"UZ",VAT:"VA",VCT:"VC",VEN:"VE",
   VNM:"VN",VUT:"VU",WSM:"WS",YEM:"YE",ZAF:"ZA",ZMB:"ZM",ZWE:"ZW",
-  // territories / special cases
   ABW:"AW",AIA:"AI",ALA:"AX",ANT:"AN",ASM:"AS",ATA:"AQ",ATF:"TF",BES:"BQ",BLM:"BL",BMU:"BM",
   BVT:"BV",CCK:"CC",COK:"CK",CUW:"CW",CXR:"CX",CYM:"KY",ESH:"EH",FLK:"FK",FRO:"FO",GGY:"GG",
   GIB:"GI",GLP:"GP",GRL:"GL",GUF:"GF",GUM:"GU",HKG:"HK",HMD:"HM",IMN:"IM",IOT:"IO",JEY:"JE",
   MAC:"MO",MAF:"MF",MNP:"MP",MSR:"MS",MTQ:"MQ",MYT:"YT",NCL:"NC",NFK:"NF",NIU:"NU",PCN:"PN",
   PYF:"PF",REU:"RE",SGS:"GS",SHN:"SH",SJM:"SJ",SPM:"PM",SXM:"SX",TCA:"TC",TKL:"TK",UMI:"UM",
-  VGB:"VG",VIR:"VI",WLF:"WF",
-  // Kosovo
-  XKX:"XK",
+  VGB:"VG",VIR:"VI",WLF:"WF",XKX:"XK",
 };
 
-// Extract 2-letter country ISO from an admin-1 feature (iso_3166_2 "IT-52" → "IT").
 function countryIsoOfAdmin1(feature: GeoFeature): string | null {
   const props = feature.properties ?? {};
-  // 1. iso_3166_2 field: "IT-52" → "IT"
-  const raw3166 = (props.iso_3166_2 as string) ?? "";
+  // 1. iso_3166_2: "IT-52" → "IT"
+  const raw3166 = String(props.iso_3166_2 ?? "");
   const parts = raw3166.split("-");
   if (parts.length >= 2 && parts[0].length === 2 && raw3166 !== "-99") {
     return parts[0].toUpperCase();
   }
-  // 2. hasc field: "IT.TOS" → "IT"
-  const hasc = (props.hasc as string) ?? "";
+  // 2. hasc: "IT.TOS" → "IT"
+  const hasc = String(props.hasc ?? "");
   const hp = hasc.split(".");
   if (hp.length >= 2 && hp[0].length === 2 && hp[0] !== "-9") {
     return hp[0].toUpperCase();
   }
-  // 3. adm0_a3 field (always present in Natural Earth): "ITA" → "IT"
-  const a3 = ((props.adm0_a3 as string) ?? "").trim();
+  // 3. adm0_a3: "ITA" → "IT"
+  const a3 = String(props.adm0_a3 ?? "").trim();
   if (a3 && a3 !== "-99" && a3.length === 3) {
     return A3_TO_A2[a3] ?? null;
   }
@@ -192,8 +180,6 @@ function FitToVisited({ bounds }: { bounds: L.LatLngBoundsExpression | null }) {
   return null;
 }
 
-// Returns only cities that already have coordinates (stored from the picker
-// at trip-creation time, or from FIXED_COORDS for city-states).
 function enrichCoords(cities: WorldMapCity[]): (WorldMapCity & { lat?: number; lng?: number })[] {
   return cities.map((c) => {
     if (typeof c.lat === "number" && typeof c.lng === "number") return c;
@@ -217,11 +203,10 @@ function dedupePins(cities: (WorldMapCity & { lat?: number; lng?: number })[]) {
 }
 
 // ---- Point-in-polygon (ray casting) for GeoJSON Polygon/MultiPolygon ----
-// GeoJSON coordinates are [longitude, latitude].
 function pointInRing(lat: number, lng: number, ring: number[][]): boolean {
   let inside = false;
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const [xi, yi] = ring[i]; // xi = lng, yi = lat
+    const [xi, yi] = ring[i]; // xi=lng, yi=lat in GeoJSON
     const [xj, yj] = ring[j];
     if ((yi > lat) !== (yj > lat) && lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) {
       inside = !inside;
@@ -244,17 +229,31 @@ function pointInGeoFeature(lat: number, lng: number, feature: GeoFeature): boole
   return false;
 }
 
-// ---- Subdivision detection via point-in-polygon ----
-// For each pin, finds which admin-1 feature it falls into.
-// Returns:
-//   subdivKeys        – Set of "ISO|featureName" for matched subdivisions
-//   fallbackCountries – ISO codes where no subdivision was matched (whole country colored)
+// Compute approximate centroid (arithmetic mean of outer ring vertices).
+// Used as proximity fallback when point-in-polygon fails.
+function featureCentroid(feature: GeoFeature): { lat: number; lng: number } | null {
+  const g = feature.geometry;
+  if (!g) return null;
+  let sumLat = 0, sumLng = 0, count = 0;
+  const addRing = (ring: number[][]) => {
+    for (const [lng, lat] of ring) { sumLng += lng; sumLat += lat; count++; }
+  };
+  if (g.type === "Polygon") {
+    addRing((g.coordinates as number[][][])[0]);
+  } else if (g.type === "MultiPolygon") {
+    for (const poly of g.coordinates as number[][][][]) addRing(poly[0]);
+  }
+  return count > 0 ? { lat: sumLat / count, lng: sumLng / count } : null;
+}
+
+// For each pin, find its admin-1 subdivision via point-in-polygon.
+// Fallback: nearest centroid within 8 degrees (handles simplified polygons).
 function computeSubdivData(
   pins: Array<{ lat: number; lng: number; country: string }>,
   admin1Geo: GeoCollection,
 ): { subdivKeys: Set<string>; fallbackCountries: Set<string> } {
   const norm = (s: string) =>
-    s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+    s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
 
   const subdivKeys = new Set<string>();
   const fallbackCountries = new Set<string>();
@@ -277,6 +276,12 @@ function computeSubdivData(
       continue;
     }
     const candidates = featuresByCountry.get(iso) ?? [];
+    if (candidates.length === 0) {
+      fallbackCountries.add(iso);
+      continue;
+    }
+
+    // 1. Try exact point-in-polygon.
     let found = false;
     for (const feature of candidates) {
       if (pointInGeoFeature(pin.lat, pin.lng, feature)) {
@@ -288,9 +293,28 @@ function computeSubdivData(
         }
       }
     }
+
+    // 2. Proximity fallback — nearest centroid within 8°.
+    //    Handles simplified polygons that don't precisely contain city points.
     if (!found) {
-      fallbackCountries.add(iso);
+      let bestDist = Infinity;
+      let bestFeature: GeoFeature | null = null;
+      for (const feature of candidates) {
+        const c = featureCentroid(feature);
+        if (!c) continue;
+        const dist = Math.hypot(c.lat - pin.lat, c.lng - pin.lng);
+        if (dist < bestDist) { bestDist = dist; bestFeature = feature; }
+      }
+      if (bestFeature && bestDist < 8) {
+        const name = (bestFeature.properties?.name as string) ?? "";
+        if (name) {
+          subdivKeys.add(`${iso}|${norm(name)}`);
+          found = true;
+        }
+      }
     }
+
+    if (!found) fallbackCountries.add(iso);
   }
 
   return { subdivKeys, fallbackCountries };
@@ -310,7 +334,6 @@ export function WorldMap({
   cities: WorldMapCity[];
   plannedCountries?: string[];
   plannedCities?: WorldMapCity[];
-  /** ISO-2 of the user\'s home country — shown in green on the map. */
   homeCountry?: string | null;
   showPins?: boolean;
   showSubdivisions?: boolean;
@@ -324,12 +347,10 @@ export function WorldMap({
     [visitedCountries],
   );
   const plannedSet = useMemo(
-    () =>
-      new Set(
-        plannedCountries.map((c) => c.toUpperCase()).filter((c) => !visitedSet.has(c)),
-      ),
+    () => new Set(plannedCountries.map((c) => c.toUpperCase()).filter((c) => !visitedSet.has(c))),
     [plannedCountries, visitedSet],
   );
+  // FIX: homeIso is green regardless of whether the country is also visited.
   const homeIso = homeCountry ? homeCountry.toUpperCase() : null;
 
   const pins = useMemo(() => dedupePins(enrichCoords(cities)), [cities]);
@@ -340,8 +361,6 @@ export function WorldMap({
     );
   }, [plannedCities, pins]);
 
-  // Subdivision detection via point-in-polygon — runs only when the admin-1
-  // GeoJSON is loaded (lazy). Returns empty sets until then.
   const visitedSubdivData = useMemo(() => {
     if (!showSubdivisions || !subdivWorld) {
       return { subdivKeys: new Set<string>(), fallbackCountries: new Set<string>() };
@@ -356,12 +375,9 @@ export function WorldMap({
     return computeSubdivData(plannedPins, subdivWorld);
   }, [plannedPins, showSubdivisions, subdivWorld]);
 
-  // Set of country ISOs that have at least one resolved planned subdivision
   const plannedSubdivCountries = useMemo(() => {
     const set = new Set<string>();
-    for (const key of plannedSubdivData.subdivKeys) {
-      set.add(key.split("|")[0]);
-    }
+    for (const key of plannedSubdivData.subdivKeys) set.add(key.split("|")[0]);
     return set;
   }, [plannedSubdivData.subdivKeys]);
 
@@ -388,19 +404,26 @@ export function WorldMap({
   }, [world, visitedSet, plannedSet, pins, plannedPins]);
 
   // Country-level style.
+  // Home country is always green — takes priority over visited (orange).
   const countryStyle = (feature?: GeoFeature) => {
     const iso = feature ? isoOf(feature) : null;
     const visited = !!iso && visitedSet.has(iso);
     const planned = !!iso && !visited && plannedSet.has(iso);
-    const isHome = !!iso && !!homeIso && iso === homeIso && !visited;
+    // FIX: removed `&& !visited` — home country is always green.
+    const isHome = !!iso && !!homeIso && iso === homeIso;
 
     if (isHome) {
-      return {
-        fillColor: "oklch(0.65 0.15 145)",
-        fillOpacity: 0.55,
-        color: "oklch(0.48 0.13 145)",
-        weight: 1,
-      };
+      if (showSubdivisions) {
+        // In subdivisions mode: transparent fill so visited subdivisions show on top,
+        // but keep the green border.
+        const isFallback = visited && visitedSubdivData.fallbackCountries.has(iso);
+        if (isFallback) {
+          // No subdivisions found — fill the whole country green.
+          return { fillColor: "oklch(0.65 0.15 145)", fillOpacity: 0.55, color: "oklch(0.48 0.13 145)", weight: 1 };
+        }
+        return { fillColor: "oklch(0.65 0.15 145)", fillOpacity: 0.18, color: "oklch(0.48 0.13 145)", weight: 1 };
+      }
+      return { fillColor: "oklch(0.65 0.15 145)", fillOpacity: 0.55, color: "oklch(0.48 0.13 145)", weight: 1 };
     }
 
     if (showSubdivisions) {
@@ -439,13 +462,12 @@ export function WorldMap({
   };
 
   // Subdivision-level style.
-  // Uses the same key format as computeSubdivData: "ISO|normalizedFeatureName".
   const subdivStyle = (feature?: GeoFeature) => {
     const emptyStyle = { fillColor: "transparent", fillOpacity: 0, color: "oklch(0.88 0.005 90)", weight: 0.3 };
     if (!feature?.properties) return emptyStyle;
     const props = feature.properties;
     const norm = (s: string) =>
-      s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+      s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
 
     const countryIso = countryIsoOfAdmin1(feature);
     if (!countryIso) return emptyStyle;
@@ -454,6 +476,7 @@ export function WorldMap({
     const key = `${countryIso}|${featureName}`;
     const isVisited = visitedSubdivData.subdivKeys.has(key);
     const isPlanned = !isVisited && plannedSubdivData.subdivKeys.has(key);
+    const isInHome = !!homeIso && countryIso === homeIso;
 
     if (isVisited) {
       return { fillColor: "oklch(0.66 0.14 38)", fillOpacity: 0.65, color: "oklch(0.5 0.13 38)", weight: 0.75 };
@@ -464,13 +487,18 @@ export function WorldMap({
         color: "oklch(0.6 0.13 255)", weight: 0.75, dashArray: "4 3",
       };
     }
+
+    // Unvisited subdivision in home country: subtle green fill.
+    if (isInHome) {
+      return { fillColor: "oklch(0.65 0.15 145)", fillOpacity: 0.22, color: "oklch(0.48 0.13 145)", weight: 0.5 };
+    }
+
     const isInVisited = visitedSet.has(countryIso);
     const isInPlanned = plannedSet.has(countryIso);
-    const isInHome = !!homeIso && countryIso === homeIso;
     return {
       fillColor: "transparent", fillOpacity: 0,
-      color: isInVisited ? "oklch(0.72 0.09 38)" : isInPlanned ? "oklch(0.75 0.08 255)" : isInHome ? "oklch(0.55 0.12 145)" : "oklch(0.88 0.005 90)",
-      weight: isInVisited || isInPlanned || isInHome ? 0.45 : 0.25,
+      color: isInVisited ? "oklch(0.72 0.09 38)" : isInPlanned ? "oklch(0.75 0.08 255)" : "oklch(0.88 0.005 90)",
+      weight: isInVisited || isInPlanned ? 0.45 : 0.25,
     };
   };
 

@@ -233,9 +233,6 @@ function Section({
     touchStartX.current = null;
   }
 
-  // Peek card separation in vw (full-bleed container = 100vw wide)
-  // Main card is 72vw wide; side cards are offset by PEEK_VW so they
-  // peek ~20px from each edge after scaling to 0.80.
   const PEEK_VW = 22;
 
   return (
@@ -265,7 +262,6 @@ function Section({
           </div>
         ) : (
           <>
-            {/* Full-bleed stage: cards stack here */}
             <div
               className="-mx-4 relative overflow-hidden"
               style={{ height: "clamp(280px, calc(72vw * 16 / 9), 480px)" }}
@@ -275,10 +271,9 @@ function Section({
             >
               {filtered.map((tr, i) => {
                 const offset = i - idx;
-                if (Math.abs(offset) > 1) return null; // only render prev / current / next
+                if (Math.abs(offset) > 1) return null;
 
                 const isCurrent = offset === 0;
-                // prev (-1) tilts left (−8°), next (+1) tilts right (+8°)
                 const rotate = offset * 8;
                 const scale = isCurrent ? 1 : 0.8;
                 const brightness = isCurrent ? 1 : 0.48;
@@ -291,7 +286,6 @@ function Section({
                       position: "absolute",
                       top: "50%",
                       left: "50%",
-                      // -50% centres the card; translateVw shifts prev/next to sides
                       transform: `translate(calc(-50% + ${translateVw}vw + ${dragging ? dragX : 0}px), -50%) rotate(${rotate}deg) scale(${scale})`,
                       zIndex: isCurrent ? 10 : 5,
                       filter: brightness < 1 ? `brightness(${brightness})` : undefined,
@@ -342,7 +336,7 @@ function Section({
         )}
       </div>
 
-      {/* ─── Desktop grid (unchanged) ─── */}
+      {/* ─── Desktop grid ─── */}
       <div className="hidden sm:grid sm:grid-cols-3 sm:gap-3 lg:grid-cols-4">
         {filtered.map((tr) => (
           <TripCard key={tr.id} trip={tr} />
@@ -352,12 +346,21 @@ function Section({
   );
 }
 
-type CityObj = { name: string; country: string };
+// FIX: include lat/lng so WorldMap can do point-in-polygon subdivision detection.
+type CityObj = { name: string; country: string; lat?: number; lng?: number };
 
 function getCities(trip: Trip): CityObj[] {
   const raw = (trip as unknown as { cities?: unknown }).cities;
   if (!Array.isArray(raw)) return [];
-  return raw.filter((c): c is CityObj => !!c && typeof c === "object" && typeof (c as CityObj).name === "string");
+  return (raw as unknown[])
+    .filter((c): c is Record<string, unknown> => !!c && typeof c === "object")
+    .map((c): CityObj => ({
+      name: String(c.name ?? ""),
+      country: String(c.country ?? ""),
+      lat: typeof c.lat === "number" ? c.lat : undefined,
+      lng: typeof c.lng === "number" ? c.lng : undefined,
+    }))
+    .filter((c) => c.name.length > 0);
 }
 
 function TripCard({ trip, carousel = false }: { trip: Trip; carousel?: boolean }) {
