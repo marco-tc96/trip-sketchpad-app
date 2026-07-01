@@ -379,7 +379,7 @@ function JourneyLeg({
                         {codeOf(fromCity, airports)}
                       </div>
                     )}
-                    <p className="mt-0.5 truncate text-[11px] opacity-80" title={fromCity || undefined}>
+                    <p className="mt-0.5 text-[11px] opacity-80 leading-tight" title={fromCity || undefined}>
                       {nameOf(fromCity, lang) || "—"}
                     </p>
                   </div>
@@ -418,7 +418,7 @@ function JourneyLeg({
                         {codeOf(toCity, airports)}
                       </div>
                     )}
-                    <p className="mt-0.5 truncate text-[11px] opacity-80" title={toCity || undefined}>
+                    <p className="mt-0.5 text-[11px] opacity-80 leading-tight" title={toCity || undefined}>
                       {nameOf(toCity, lang) || "—"}
                     </p>
                   </div>
