@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { listTrips } from "@/lib/trips.functions";
 import { getProfile } from "@/lib/profile.functions";
-import { flagOf } from "@/lib/country-data";
+import { flagOf, cityNameLocalized } from "@/lib/country-data";
 import { CityCover } from "@/components/app/city-cover";
 import { flagGradient } from "@/lib/flag-gradient";
 import { supabase } from "@/integrations/supabase/client";
@@ -21,7 +21,8 @@ type Trip = Awaited<ReturnType<typeof listTrips>>[number];
 type TripAccent = "ongoing" | "planned" | "past" | "wishlist";
 
 function TripsList() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language ?? "en";
   const fn = useServerFn(listTrips);
   const profileFn = useServerFn(getProfile);
   const q = useQuery({ queryKey: ["trips"], queryFn: () => fn() });
@@ -197,6 +198,7 @@ function TripsList() {
             homeCountry={homeCountry}
             showPins={showPins}
             showSubdivisions={showSubdivisions}
+            lang={lang}
             className="h-[280px] w-full sm:h-[360px]"
           />
         </section>
@@ -464,6 +466,8 @@ function getCities(trip: Trip): CityObj[] {
 }
 
 function TripCard({ trip, carousel = false }: { trip: Trip; carousel?: boolean }) {
+  const { i18n } = useTranslation();
+  const lang = i18n.language ?? "en";
   const cities = getCities(trip);
   const countries: string[] = Array.isArray((trip as unknown as { countries?: string[] }).countries)
     ? (trip as unknown as { countries: string[] }).countries : [];
@@ -511,7 +515,7 @@ function TripCard({ trip, carousel = false }: { trip: Trip; carousel?: boolean }
         {(cities.length > 0 || trip.destination) && (
           <p className="flex items-center gap-1 text-[13px] text-white/90 line-clamp-1">
             <MapPin className="h-3.5 w-3.5 shrink-0" />
-            {cities.length > 0 ? cities.slice(0, 3).map((c) => c.name).join(" · ") : trip.destination}
+            {cities.length > 0 ? cities.slice(0, 3).map((c) => cityNameLocalized(c.name, lang)).join(" · ") : trip.destination}
           </p>
         )}
         {!isWishlist && (

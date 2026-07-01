@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { MapContainer, TileLayer, GeoJSON, Marker, Tooltip, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { cityNameLocalized } from "@/lib/country-data";
 
 export type WorldMapCity = { name: string; country: string; lat?: number; lng?: number };
 
@@ -580,6 +581,7 @@ export function WorldMap({
   homeCountry = null,
   showPins = true,
   showSubdivisions = false,
+  lang = "en",
   className,
 }: {
   visitedCountries: string[];
@@ -593,6 +595,7 @@ export function WorldMap({
   homeCountry?: string | null;
   showPins?: boolean;
   showSubdivisions?: boolean;
+  lang?: string;
   className?: string;
 }) {
   const { data: world, error } = useWorldBorders();
@@ -896,25 +899,25 @@ export function WorldMap({
         {showPins &&
           pins.map((c, i) => (
             <Marker key={`v-${c.country}-${c.name}-${i}`} position={[c.lat, c.lng]} icon={visitedPinIcon}>
-              <Tooltip direction="top" offset={[0, -6]}>{c.name}</Tooltip>
+              <Tooltip direction="top" offset={[0, -6]}>{cityNameLocalized(c.name, lang)}</Tooltip>
             </Marker>
           ))}
         {showPins &&
           ongoingPins.map((c, i) => (
             <Marker key={`o-${c.country}-${c.name}-${i}`} position={[c.lat, c.lng]} icon={ongoingPinIcon}>
-              <Tooltip direction="top" offset={[0, -6]}>{c.name}</Tooltip>
+              <Tooltip direction="top" offset={[0, -6]}>{cityNameLocalized(c.name, lang)}</Tooltip>
             </Marker>
           ))}
         {showPins &&
           plannedPins.map((c, i) => (
             <Marker key={`p-${c.country}-${c.name}-${i}`} position={[c.lat, c.lng]} icon={plannedPinIcon}>
-              <Tooltip direction="top" offset={[0, -6]}>{c.name}</Tooltip>
+              <Tooltip direction="top" offset={[0, -6]}>{cityNameLocalized(c.name, lang)}</Tooltip>
             </Marker>
           ))}
         {showPins &&
           wishlistPins.map((c, i) => (
             <Marker key={`w-${c.country}-${c.name}-${i}`} position={[c.lat, c.lng]} icon={wishlistPinIcon}>
-              <Tooltip direction="top" offset={[0, -6]}>{c.name}</Tooltip>
+              <Tooltip direction="top" offset={[0, -6]}>{cityNameLocalized(c.name, lang)}</Tooltip>
             </Marker>
           ))}
 
