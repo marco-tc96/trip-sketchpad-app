@@ -99,6 +99,7 @@ function TripLayout() {
       .filter((c): c is string => !!c)
   )];
   const tripType = (tripRow.trip_type ?? "vacation") as "vacation" | "business" | "daytrip";
+  const isWishlist = trip.data.start_date >= "2099-01-01";
   const typeIcon = tripType === "business" ? Briefcase : tripType === "daytrip" ? Footprints : Palmtree;
   const typeColor =
     tripType === "business"
@@ -332,7 +333,8 @@ function TripLayout() {
           <div className="min-w-0">
             <p className="truncate font-serif text-sm font-semibold leading-tight">{trip.data.title}</p>
             <p className="truncate text-[10px] text-muted-foreground leading-tight">
-              {citiesLabel ? `${citiesLabel} · ` : ""}{fmt(trip.data.start_date, lang)} → {fmt(trip.data.end_date, lang)}
+              {citiesLabel || ""}
+              {!isWishlist && `${citiesLabel ? " · " : ""}${fmt(trip.data.start_date, lang)} → ${fmt(trip.data.end_date, lang)}`}
             </p>
           </div>
         </div>
@@ -433,9 +435,11 @@ function TripLayout() {
             <p className="text-sm text-muted-foreground">
               {[citiesLabel, countriesLabel].filter(Boolean).join(", ")}
             </p>
-            <p className="text-xs text-muted-foreground/80">
-              {fmt(trip.data.start_date, lang)} → {fmt(trip.data.end_date, lang)}
-            </p>
+            {!isWishlist && (
+              <p className="text-xs text-muted-foreground/80">
+                {fmt(trip.data.start_date, lang)} → {fmt(trip.data.end_date, lang)}
+              </p>
+            )}
           </div>
         </div>
         {profile.data && (

@@ -534,6 +534,9 @@ function codeOf(label: string, airports?: AirportHub[]): string {
   // Current format: "BLQ - Bologna" or "BLQ - Milano Malpensa"
   const m = label.match(/^([A-Z]{3})\s*-\s*/);
   if (m) return m[1];
+  // Format with trailing IATA in parens: "Bologna Guglielmo Marconi Airport (BLQ)"
+  const m2 = label.match(/\(([A-Z]{3})\)\s*$/);
+  if (m2) return m2[1];
   // Fallback: look up IATA code by city/airport name (for legs saved before the IATA-prefix format)
   if (airports && airports.length > 0) {
     const q = label.trim().toLowerCase();
@@ -562,8 +565,11 @@ function codeOf(label: string, airports?: AirportHub[]): string {
 // and visually collides with the arrival column. The full text is still
 // available via the `title` attribute on hover/long-press.
 function nameOf(label: string, lang?: string): string {
+  // Strip leading IATA prefix: "BLQ - Bologna..."
   const m = label.match(/^[A-Z]{3}\s*-\s*(.+)$/);
-  const rest = m ? m[1].trim() : label;
+  const rest1 = m ? m[1].trim() : label;
+  // Strip trailing IATA in parens: "Bologna Airport (BLQ)" → "Bologna Airport"
+  const rest = rest1.replace(/\s*\([A-Z]{3}\)\s*$/, "").trim();
   // Localize the city component (first word) while preserving the airport
   // qualifier (e.g. "Malpensa", "Incheon") so multi-airport cities are clear.
   const parts = rest.split(/\s+/);

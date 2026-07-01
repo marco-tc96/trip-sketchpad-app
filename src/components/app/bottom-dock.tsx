@@ -42,7 +42,7 @@ export function BottomDock() {
             )}
           >
             <Icon className="h-4 w-4" />
-            <span>{t(labelKey)}</span>
+            <span className="hidden sm:inline">{t(labelKey)}</span>
           </Link>
         );
       })()}
@@ -55,7 +55,7 @@ export function BottomDock() {
         className="flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
       >
         <Plus className="h-4 w-4" />
-        <span>Nuovo</span>
+        <span className="hidden sm:inline">Nuovo</span>
       </button>
 
       {/* Wishlist action button */}
@@ -66,7 +66,7 @@ export function BottomDock() {
         className="flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
       >
         <Cloud className="h-4 w-4" />
-        <span>Wishlist</span>
+        <span className="hidden sm:inline">Wishlist</span>
       </button>
 
       {/* Profile nav */}
@@ -85,7 +85,7 @@ export function BottomDock() {
             )}
           >
             <Icon className="h-4 w-4" />
-            <span>{t(labelKey)}</span>
+            <span className="hidden sm:inline">{t(labelKey)}</span>
           </Link>
         );
       })()}

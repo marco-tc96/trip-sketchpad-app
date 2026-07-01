@@ -105,9 +105,10 @@ function ProfilePage() {
     //   • planned trips (end_date >= today, i.e. future)
     //   • ongoing trips (start_date <= today && end_date >= today)
     //   • wishlist trips (trip_type === "wishlist", sentinel dates 2099)
+    const WISHLIST_SENTINEL = "2099-01-01";
     const past = all.filter((tr) =>
       tr.end_date < today &&
-      (tr as unknown as { trip_type?: string }).trip_type !== "wishlist",
+      tr.start_date < WISHLIST_SENTINEL,
     );
     const homeIso = (prof.data as { home_country?: string | null } | undefined)?.home_country?.toUpperCase() ?? null;
     const countrySet = new Set<string>();
