@@ -121,10 +121,13 @@ function ProfilePage() {
     const all = trips.data ?? [];
     const today = new Date().toISOString().slice(0, 10);
     const WISHLIST_SENTINEL = "2099-01-01";
-    const past = all.filter((tr) =>
-      tr.end_date < today &&
-      tr.start_date < WISHLIST_SENTINEL,
-    );
+    // Exclude wishlist trips; split into past and ongoing
+    const realTrips = all.filter((tr) => tr.start_date < WISHLIST_SENTINEL);
+    const past = realTrips.filter((tr) => tr.end_date < today);
+    const ongoing = realTrips.filter((tr) => tr.start_date <= today && tr.end_date >= today);
+    // Both past and ongoing contribute to all statistics
+    const forStats = [...past, ...ongoing];
+
     const homeIso = profData?.home_country?.toUpperCase() ?? null;
     const countrySet = new Set<string>();
     const cityKey = new Set<string>();
@@ -137,9 +140,9 @@ function ProfilePage() {
     let nights = 0, business = 0, vacation = 0, daytrip = 0;
     const byYear: Record<string, { business: number; vacation: number; daytrip: number }> = {};
 
-    const sortedPast = [...past].sort((a, b) => a.start_date.localeCompare(b.start_date));
+    const sortedForStats = [...forStats].sort((a, b) => a.start_date.localeCompare(b.start_date));
 
-    for (const tr of sortedPast) {
+    for (const tr of sortedForStats) {
       const cs = (tr as unknown as { countries?: string[] }).countries ?? [];
       const continentsThisTrip = new Set<string>();
       cs.forEach((c) => {
@@ -161,7 +164,12 @@ function ProfilePage() {
         else cityCounts.set(k, { name: c.name, country: c.country, count: 1 });
         if (!cityFirstVisit.has(k)) cityFirstVisit.set(k, tr.start_date);
       });
-      nights += Math.max(1, Math.round((new Date(tr.end_date).getTime() - new Date(tr.start_date).getTime()) / 86400000));
+      // For ongoing trips, use today as effective end date so nights increments daily
+      const isOngoing = tr.start_date <= today && tr.end_date >= today;
+      const effectiveEnd = isOngoing ? today : tr.end_date;
+      nights += Math.max(1, Math.round(
+        (new Date(effectiveEnd).getTime() - new Date(tr.start_date).getTime()) / 86400000,
+      ));
       const rawType = (tr as unknown as { trip_type?: string }).trip_type;
       const ttype: "business"|"daytrip"|"vacation" = rawType === "business" ? "business" : rawType === "daytrip" ? "daytrip" : "vacation";
       if (ttype === "business") business += 1; else if (ttype === "daytrip") daytrip += 1; else vacation += 1;
@@ -184,7 +192,7 @@ function ProfilePage() {
       .sort((a, b) => b.count - a.count || a.firstVisit.localeCompare(b.firstVisit));
 
     return {
-      past,
+      tripCount: forStats.length,
       countries: [...countrySet].sort((a, b) =>
         countryNameLocalized(a, lang).localeCompare(countryNameLocalized(b, lang), lang),
       ),
@@ -252,7 +260,7 @@ function ProfilePage() {
           <Stat icon={Globe2} label={t("countries")} value={stats.countries.length} />
           <Stat icon={MapPin} label={t("cities")} value={stats.cityCount} />
           <Stat icon={CalendarDays} label={t("nights")} value={stats.nights} />
-          <Stat icon={BarChart3} label={t("trips")} value={stats.past.length} />
+          <Stat icon={BarChart3} label={t("trips")} value={stats.tripCount} />
         </div>
 
         <div className="mt-6 rounded-3xl border border-border bg-card p-5 shadow-soft">
