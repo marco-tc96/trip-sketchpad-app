@@ -7,7 +7,8 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { Compass } from "lucide-react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
@@ -19,7 +20,7 @@ import "@fontsource/space-grotesk/500.css";
 import "@fontsource/space-grotesk/600.css";
 import "@fontsource/space-grotesk/700.css";
 import "@/i18n";
-import { AuthProvider } from "@/lib/auth-context";
+import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { ThemeProvider } from "@/lib/theme";
 import { Toaster } from "@/components/ui/sonner";
 
@@ -83,6 +84,54 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   );
 }
 
+// ── Splash screen ─────────────────────────────────────────────────────────────
+
+function SplashScreen({ fading }: { fading: boolean }) {
+  return (
+    <div
+      className={[
+        "fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-background",
+        "transition-opacity duration-500",
+        fading ? "pointer-events-none opacity-0" : "opacity-100",
+      ].join(" ")}
+    >
+      <div className="flex flex-col items-center gap-5">
+        <div className="grid h-20 w-20 place-items-center rounded-3xl bg-warm-gradient shadow-soft">
+          <Compass className="h-10 w-10 text-white" strokeWidth={1.75} />
+        </div>
+        <span className="font-serif text-3xl font-bold tracking-tight text-foreground">
+          Voyager
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/** Renders children immediately (so they can start loading in background),
+ *  then overlays the splash until auth resolves and fades it out. */
+function SplashWrapper({ children }: { children: ReactNode }) {
+  const { loading } = useAuth();
+  const [visible, setVisible] = useState(true);
+  const [fading, setFading] = useState(false);
+
+  useEffect(() => {
+    if (!loading && visible) {
+      setFading(true);
+      const timer = setTimeout(() => setVisible(false), 500);
+      return () => clearTimeout(timer);
+    }
+  }, [loading, visible]);
+
+  return (
+    <>
+      {children}
+      {visible && <SplashScreen fading={fading} />}
+    </>
+  );
+}
+
+// ── Root route ────────────────────────────────────────────────────────────────
+
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   head: () => ({
     meta: [
@@ -133,8 +182,9 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <AuthProvider>
-          {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-          <Outlet />
+          <SplashWrapper>
+            <Outlet />
+          </SplashWrapper>
           <Toaster richColors position="top-center" />
         </AuthProvider>
       </ThemeProvider>
