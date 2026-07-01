@@ -112,6 +112,7 @@ export function TripMap({
   compact?: boolean;
 }) {
   // Async geocoding cache for cities without stored coordinates.
+  // Value is null when geocoding failed (explicit failure, not "pending").
   const [geoCache, setGeoCache] = useState<Record<string, { lat: number; lng: number } | null>>({});
 
   useEffect(() => {
@@ -126,7 +127,7 @@ export function TripMap({
         const key = `${city.country}|${city.name}`;
         if (key in geoCache) continue;
         const result = await geocodeCity(city.name, city.country);
-        updates[key] = result;
+        updates[key] = result; // null on failure — stored explicitly
       }
       if (!cancelled && Object.keys(updates).length > 0) {
         setGeoCache((prev) => ({ ...prev, ...updates }));
@@ -139,12 +140,19 @@ export function TripMap({
   }, [cities]);
 
   // Enrich cities with geocoded coordinates when stored coords are missing.
+  // If geocoding returned null (failed), fall back to the country centroid.
   const enrichedCities = useMemo<MapCity[]>(() => {
     return cities.map((c) => {
       if (typeof c.lat === "number" && typeof c.lng === "number") return c;
       const key = `${c.country}|${c.name}`;
       const cached = geoCache[key];
+      // Geocoding succeeded
       if (cached) return { ...c, lat: cached.lat, lng: cached.lng };
+      // Geocoding explicitly failed (null stored) → use country centroid
+      if (key in geoCache && geoCache[key] === null) {
+        const centroid = COUNTRY_CENTROIDS[c.country?.toUpperCase()];
+        if (centroid) return { ...c, lat: centroid[0], lng: centroid[1] };
+      }
       return c;
     });
   }, [cities, geoCache]);
@@ -160,7 +168,7 @@ export function TripMap({
     [enrichedCities],
   );
 
-  // Country centroid fallback when cities have no coordinates.
+  // Country centroid fallback when ALL cities have no coordinates.
   const fallbackPoints = useMemo<[number, number][]>(() => {
     if (points.length > 0) return [];
     const isos =
