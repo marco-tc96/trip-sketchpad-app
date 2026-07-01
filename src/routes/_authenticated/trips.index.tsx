@@ -397,7 +397,7 @@ function Section({
             {/* Emoji / flag dots */}
             <div
               ref={dotsRef}
-              className="mt-4 flex items-center gap-2 overflow-x-auto px-4"
+              className="mt-4 flex items-center gap-2 overflow-x-auto px-4 py-2"
               style={{ scrollbarWidth: "none" }}
             >
               <div className="flex items-center gap-2 mx-auto">
@@ -413,8 +413,7 @@ function Section({
                       onClick={() => setIdx(i)}
                       style={isActive ? {
                         backgroundColor: dotLightColor,
-                        outline: `2px solid ${dotColor}`,
-                        outlineOffset: "2px",
+                        boxShadow: `0 0 0 2px ${dotLightColor}, 0 0 0 4px ${dotColor}`,
                       } : {}}
                       className={`flex shrink-0 items-center justify-center rounded-full text-base transition-all duration-300 ${
                         isActive
