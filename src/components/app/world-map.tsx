@@ -130,7 +130,7 @@ function simplifyGeoCollection(geo: GeoCollection, eps: number): GeoCollection {
 
 const IDB_DB = "voyager-geo";
 const IDB_STORE = "tiles";
-const ADMIN1_KEY = "ne_admin1_v5"; // bumped: iso_3166_2 whitelist for IT/ES + isoOf fix
+const ADMIN1_KEY = "ne_admin1_v6"; // bumped: iso_3166_2 as primary subdivision key
 
 async function idbGet(key: string): Promise<GeoCollection | null> {
   if (typeof indexedDB === "undefined") return null;
@@ -463,6 +463,33 @@ function countryIsoOfAdmin1(feature: GeoFeature): string | null {
   return null;
 }
 
+// ── Stable subdivision key (ISO 3166-2 primary, hasc secondary, name fallback) ──
+// Used in both computeSubdivData (add) and subdivStyle (lookup) so keys always match.
+function subdivKeyOf(feature: GeoFeature, countryIso: string): string | null {
+  const props = feature.properties ?? {};
+  const normStr = (s: string) =>
+    s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+  // 1st: iso_3166_2 — most stable identifier
+  const iso3166 = String(props.iso_3166_2 ?? "").trim().toUpperCase();
+  if (iso3166 && iso3166 !== "-99" && iso3166.includes("-") && !iso3166.startsWith("--")) {
+    return iso3166;
+  }
+  // 2nd: hasc code (e.g. "IT.TN")
+  const hasc = String(props.hasc ?? "").trim();
+  if (hasc && hasc !== "-9.-9" && hasc.includes(".")) return `hasc:${hasc}`;
+  // 3rd: normalised name (last resort)
+  const name = (props.name as string) ?? "";
+  if (name) return `name:${countryIso}|${normStr(name)}`;
+  return null;
+}
+
+// Extract country ISO-2 from a subdivKey
+function countryFromSubdivKey(key: string): string {
+  if (key.startsWith("hasc:")) return key.slice(5).split(".")[0].toUpperCase();
+  if (key.startsWith("name:")) return key.slice(5).split("|")[0].toUpperCase();
+  return key.split("-")[0].toUpperCase(); // ISO 3166-2 e.g. "IT-52" → "IT"
+}
+
 function FitToVisited({ bounds }: { bounds: L.LatLngBoundsExpression | null }) {
   const map = useMap();
   useEffect(() => {
@@ -543,9 +570,6 @@ function computeSubdivData(
   pins: Array<{ lat: number; lng: number; country: string }>,
   admin1Geo: GeoCollection,
 ): { subdivKeys: Set<string>; fallbackCountries: Set<string> } {
-  const norm = (s: string) =>
-    s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
-
   const subdivKeys = new Set<string>();
   const fallbackCountries = new Set<string>();
 
@@ -596,8 +620,8 @@ function computeSubdivData(
     }
 
     if (bestFeature) {
-      const name = (bestFeature.properties?.name as string) ?? "";
-      if (name) { subdivKeys.add(`${iso}|${norm(name)}`); continue; }
+      const key = subdivKeyOf(bestFeature, iso);
+      if (key) { subdivKeys.add(key); continue; }
     }
 
     // Fallback: nearest centroid
@@ -610,8 +634,8 @@ function computeSubdivData(
       if (dist < nearDist) { nearDist = dist; nearFeature = feature; }
     }
     if (nearFeature && nearDist < 8) {
-      const name = (nearFeature.properties?.name as string) ?? "";
-      if (name) { subdivKeys.add(`${iso}|${norm(name)}`); continue; }
+      const key = subdivKeyOf(nearFeature, iso);
+      if (key) { subdivKeys.add(key); continue; }
     }
 
     fallbackCountries.add(iso);
@@ -750,19 +774,19 @@ export function WorldMap({
 
   const ongoingSubdivCountries = useMemo(() => {
     const set = new Set<string>();
-    for (const key of ongoingSubdivData.subdivKeys) set.add(key.split("|")[0]);
+    for (const key of ongoingSubdivData.subdivKeys) set.add(countryFromSubdivKey(key));
     return set;
   }, [ongoingSubdivData.subdivKeys]);
 
   const plannedSubdivCountries = useMemo(() => {
     const set = new Set<string>();
-    for (const key of plannedSubdivData.subdivKeys) set.add(key.split("|")[0]);
+    for (const key of plannedSubdivData.subdivKeys) set.add(countryFromSubdivKey(key));
     return set;
   }, [plannedSubdivData.subdivKeys]);
 
   const wishlistSubdivCountries = useMemo(() => {
     const set = new Set<string>();
-    for (const key of wishlistSubdivData.subdivKeys) set.add(key.split("|")[0]);
+    for (const key of wishlistSubdivData.subdivKeys) set.add(countryFromSubdivKey(key));
     return set;
   }, [wishlistSubdivData.subdivKeys]);
 
@@ -880,21 +904,14 @@ export function WorldMap({
   const subdivStyle = (feature?: GeoFeature) => {
     const emptyStyle = { fillColor: "transparent", fillOpacity: 0, color: "transparent", weight: 0 };
     if (!feature?.properties) return emptyStyle;
-    const props = feature.properties;
-    const norm = (s: string) =>
-      s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
 
     const countryIso = countryIsoOfAdmin1(feature);
     if (!countryIso) return emptyStyle;
 
-    // NOTE: We do NOT call isPreferredAdmin1 here.
-    // computeSubdivData already filtered to the correct admin level (regions for IT/ES)
-    // and may have used a size-based fallback when type_en data is inconsistent.
-    // We rely entirely on subdivKeys membership to decide visibility — features not in
-    // any subdivKeys set are rendered invisible, so wrong-level features never show color.
-    const featureName = norm((props.name as string) ?? "");
-    if (!featureName) return emptyStyle;
-    const key = `${countryIso}|${featureName}`;
+    // Key is iso_3166_2 when available (primary), hasc (secondary), or normalised name (fallback).
+    // computeSubdivData uses the same subdivKeyOf() so keys always match.
+    const key = subdivKeyOf(feature, countryIso);
+    if (!key) return emptyStyle;
     const isVisited = visitedSubdivData.subdivKeys.has(key);
     const isOngoing = !isVisited && ongoingSubdivData.subdivKeys.has(key);
     const isPlanned = !isVisited && !isOngoing && plannedSubdivData.subdivKeys.has(key);
