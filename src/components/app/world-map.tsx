@@ -24,7 +24,7 @@ type PinDebugInfo = {
   iso3166_2: string | null;
   subdivKey: string | null;
   pinType: "visited" | "ongoing" | "planned" | "wishlist";
-  resolvedVia: "point-in-polygon" | "centroid-fallback" | "country-fallback" | "fixed-coord";
+  resolvedVia: "point-in-polygon" | "centroid-fallback" | "country-fallback" | "fixed-coord" | "override";
 };
 
 // Fixed coordinates for city-states/territories.
@@ -366,6 +366,251 @@ function normIso(c: string): string {
   return u;
 }
 
+// Normalize city name for override lookup (lowercase + strip diacritics)
+function normCity(s: string): string {
+  return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+}
+
+// ── City → ISO 3166-2 override table ────────────────────────────────────────
+// Key: "cityname_normalized|COUNTRY_ISO2"  →  correct ISO 3166-2 subdivision code.
+// Applied BEFORE point-in-polygon and centroid fallback in both computeSubdivData
+// and computePinDebugInfo to fix cities whose coordinates fall outside the simplified polygon.
+const CITY_SUBDIVISION_OVERRIDE: Record<string, string> = {
+  // ── Italy ─────────────────────────────────────────────────────────────────
+  // Piemonte (IT-21)
+  "torino|IT": "IT-21",        "turin|IT": "IT-21",
+  "asti|IT": "IT-21",          "novara|IT": "IT-21",
+  "alessandria|IT": "IT-21",   "cuneo|IT": "IT-21",
+  "biella|IT": "IT-21",        "vercelli|IT": "IT-21",
+
+  // Valle d'Aosta (IT-23)
+  "aosta|IT": "IT-23",
+
+  // Lombardia (IT-25)
+  "milano|IT": "IT-25",        "milan|IT": "IT-25",
+  "monza|IT": "IT-25",         "bergamo|IT": "IT-25",
+  "brescia|IT": "IT-25",       "como|IT": "IT-25",
+  "lecco|IT": "IT-25",         "pavia|IT": "IT-25",
+  "cremona|IT": "IT-25",       "mantova|IT": "IT-25",
+  "mantua|IT": "IT-25",        "varese|IT": "IT-25",
+  "sondrio|IT": "IT-25",       "lodi|IT": "IT-25",
+
+  // Trentino-Alto Adige (IT-32)
+  "trento|IT": "IT-32",        "bolzano|IT": "IT-32",
+  "merano|IT": "IT-32",        "rovereto|IT": "IT-32",
+
+  // Veneto (IT-34)
+  "venezia|IT": "IT-34",       "venice|IT": "IT-34",
+  "verona|IT": "IT-34",        "padova|IT": "IT-34",
+  "padua|IT": "IT-34",         "vicenza|IT": "IT-34",
+  "treviso|IT": "IT-34",       "belluno|IT": "IT-34",
+  "rovigo|IT": "IT-34",
+
+  // Friuli-Venezia Giulia (IT-36)
+  "trieste|IT": "IT-36",       "udine|IT": "IT-36",
+  "pordenone|IT": "IT-36",     "gorizia|IT": "IT-36",
+
+  // Liguria (IT-42)
+  "genova|IT": "IT-42",        "genoa|IT": "IT-42",
+  "sanremo|IT": "IT-42",       "san remo|IT": "IT-42",
+  "la spezia|IT": "IT-42",     "lerici|IT": "IT-42",
+  "portovenere|IT": "IT-42",   "savona|IT": "IT-42",
+  "imperia|IT": "IT-42",       "rapallo|IT": "IT-42",
+  "portofino|IT": "IT-42",     "sestri levante|IT": "IT-42",
+  "cinque terre|IT": "IT-42",  "riomaggiore|IT": "IT-42",
+  "vernazza|IT": "IT-42",      "manarola|IT": "IT-42",
+  "corniglia|IT": "IT-42",     "monterosso al mare|IT": "IT-42",
+
+  // Emilia-Romagna (IT-45)
+  "bologna|IT": "IT-45",       "modena|IT": "IT-45",
+  "parma|IT": "IT-45",         "ferrara|IT": "IT-45",
+  "ravenna|IT": "IT-45",       "rimini|IT": "IT-45",
+  "forli|IT": "IT-45",         "reggio emilia|IT": "IT-45",
+  "piacenza|IT": "IT-45",      "imola|IT": "IT-45",
+  "misano adriatico|IT": "IT-45", "cesenatico|IT": "IT-45",
+  "riccione|IT": "IT-45",      "cattolica|IT": "IT-45",
+  "comacchio|IT": "IT-45",     "cervia|IT": "IT-45",
+  "cesena|IT": "IT-45",        "fidenza|IT": "IT-45",
+
+  // Toscana (IT-52)
+  "firenze|IT": "IT-52",       "florence|IT": "IT-52",
+  "siena|IT": "IT-52",         "pisa|IT": "IT-52",
+  "livorno|IT": "IT-52",       "arezzo|IT": "IT-52",
+  "grosseto|IT": "IT-52",      "lucca|IT": "IT-52",
+  "prato|IT": "IT-52",         "viareggio|IT": "IT-52",
+  "mugello|IT": "IT-52",       "scarperia|IT": "IT-52",
+  "massa|IT": "IT-52",         "carrara|IT": "IT-52",
+  "piombino|IT": "IT-52",      "forte dei marmi|IT": "IT-52",
+  "volterra|IT": "IT-52",      "san gimignano|IT": "IT-52",
+  "montalcino|IT": "IT-52",    "montepulciano|IT": "IT-52",
+  "cortona|IT": "IT-52",       "elba|IT": "IT-52",
+  "pistoia|IT": "IT-52",
+
+  // Umbria (IT-55)
+  "perugia|IT": "IT-55",       "assisi|IT": "IT-55",
+  "orvieto|IT": "IT-55",       "spoleto|IT": "IT-55",
+  "terni|IT": "IT-55",
+
+  // Marche (IT-57)
+  "ancona|IT": "IT-57",        "pesaro|IT": "IT-57",
+  "urbino|IT": "IT-57",        "ascoli piceno|IT": "IT-57",
+  "macerata|IT": "IT-57",      "fermo|IT": "IT-57",
+
+  // Lazio (IT-62)
+  "roma|IT": "IT-62",          "rome|IT": "IT-62",
+  "viterbo|IT": "IT-62",       "frosinone|IT": "IT-62",
+  "latina|IT": "IT-62",        "rieti|IT": "IT-62",
+  "tivoli|IT": "IT-62",        "ostia|IT": "IT-62",
+
+  // Abruzzo (IT-65)
+  "l'aquila|IT": "IT-65",      "pescara|IT": "IT-65",
+  "chieti|IT": "IT-65",        "teramo|IT": "IT-65",
+
+  // Molise (IT-67)
+  "campobasso|IT": "IT-67",    "isernia|IT": "IT-67",
+
+  // Campania (IT-72)
+  "napoli|IT": "IT-72",        "naples|IT": "IT-72",
+  "amalfi|IT": "IT-72",        "positano|IT": "IT-72",
+  "ravello|IT": "IT-72",       "pompeii|IT": "IT-72",
+  "pompei|IT": "IT-72",        "capri|IT": "IT-72",
+  "ischia|IT": "IT-72",        "salerno|IT": "IT-72",
+  "caserta|IT": "IT-72",       "sorrento|IT": "IT-72",
+  "ercolano|IT": "IT-72",      "pozzuoli|IT": "IT-72",
+
+  // Puglia (IT-75)
+  "bari|IT": "IT-75",          "lecce|IT": "IT-75",
+  "brindisi|IT": "IT-75",      "taranto|IT": "IT-75",
+  "alberobello|IT": "IT-75",   "trani|IT": "IT-75",
+  "monopoli|IT": "IT-75",      "polignano a mare|IT": "IT-75",
+  "foggia|IT": "IT-75",        "vieste|IT": "IT-75",
+  "otranto|IT": "IT-75",       "gallipoli|IT": "IT-75",
+
+  // Basilicata (IT-77)
+  "matera|IT": "IT-77",        "potenza|IT": "IT-77",
+
+  // Calabria (IT-78)
+  "reggio calabria|IT": "IT-78", "catanzaro|IT": "IT-78",
+  "cosenza|IT": "IT-78",         "tropea|IT": "IT-78",
+  "scilla|IT": "IT-78",
+
+  // Sicilia (IT-82)
+  "palermo|IT": "IT-82",       "catania|IT": "IT-82",
+  "agrigento|IT": "IT-82",     "siracusa|IT": "IT-82",
+  "syracuse|IT": "IT-82",      "taormina|IT": "IT-82",
+  "messina|IT": "IT-82",       "ragusa|IT": "IT-82",
+  "cefalu|IT": "IT-82",        "marsala|IT": "IT-82",
+  "trapani|IT": "IT-82",       "enna|IT": "IT-82",
+
+  // Sardegna (IT-88)
+  "cagliari|IT": "IT-88",      "sassari|IT": "IT-88",
+  "olbia|IT": "IT-88",         "alghero|IT": "IT-88",
+  "nuoro|IT": "IT-88",         "oristano|IT": "IT-88",
+  "porto cervo|IT": "IT-88",   "costa smeralda|IT": "IT-88",
+
+  // ── Spain ─────────────────────────────────────────────────────────────────
+  // Andalucía (ES-AN)
+  "sevilla|ES": "ES-AN",       "seville|ES": "ES-AN",
+  "malaga|ES": "ES-AN",        "granada|ES": "ES-AN",
+  "cordoba|ES": "ES-AN",       "jerez de la frontera|ES": "ES-AN",
+  "cadiz|ES": "ES-AN",         "almeria|ES": "ES-AN",
+  "huelva|ES": "ES-AN",        "jaen|ES": "ES-AN",
+  "marbella|ES": "ES-AN",      "ronda|ES": "ES-AN",
+
+  // Aragón (ES-AR)
+  "zaragoza|ES": "ES-AR",      "huesca|ES": "ES-AR",
+  "teruel|ES": "ES-AR",        "jaca|ES": "ES-AR",
+
+  // Asturias (ES-AS)
+  "oviedo|ES": "ES-AS",        "gijon|ES": "ES-AS",
+  "aviles|ES": "ES-AS",
+
+  // Cantabria (ES-CB)
+  "santander|ES": "ES-CB",
+
+  // Castilla y León (ES-CL)
+  "burgos|ES": "ES-CL",        "leon|ES": "ES-CL",
+  "salamanca|ES": "ES-CL",     "valladolid|ES": "ES-CL",
+  "zamora|ES": "ES-CL",        "segovia|ES": "ES-CL",
+  "avila|ES": "ES-CL",         "soria|ES": "ES-CL",
+  "palencia|ES": "ES-CL",
+
+  // Castilla-La Mancha (ES-CM)
+  "toledo|ES": "ES-CM",        "ciudad real|ES": "ES-CM",
+  "albacete|ES": "ES-CM",      "cuenca|ES": "ES-CM",
+  "guadalajara|ES": "ES-CM",
+
+  // Canarias (ES-CN)
+  "las palmas|ES": "ES-CN",    "santa cruz de tenerife|ES": "ES-CN",
+  "tenerife|ES": "ES-CN",      "gran canaria|ES": "ES-CN",
+  "lanzarote|ES": "ES-CN",     "fuerteventura|ES": "ES-CN",
+
+  // Catalunya (ES-CT)
+  "barcelona|ES": "ES-CT",     "girona|ES": "ES-CT",
+  "lleida|ES": "ES-CT",        "tarragona|ES": "ES-CT",
+  "montmelo|ES": "ES-CT",      "sitges|ES": "ES-CT",
+
+  // Extremadura (ES-EX)
+  "merida|ES": "ES-EX",        "caceres|ES": "ES-EX",
+  "badajoz|ES": "ES-EX",
+
+  // Galicia (ES-GA)
+  "santiago de compostela|ES": "ES-GA",
+  "vigo|ES": "ES-GA",          "a coruna|ES": "ES-GA",
+  "pontevedra|ES": "ES-GA",    "lugo|ES": "ES-GA",
+  "ourense|ES": "ES-GA",
+
+  // Baleares (ES-IB)
+  "palma|ES": "ES-IB",         "ibiza|ES": "ES-IB",
+  "menorca|ES": "ES-IB",       "mallorca|ES": "ES-IB",
+  "eivissa|ES": "ES-IB",
+
+  // La Rioja (ES-RI)
+  "logrono|ES": "ES-RI",
+
+  // Comunidad de Madrid (ES-MD)
+  "madrid|ES": "ES-MD",
+
+  // Región de Murcia (ES-MC)
+  "murcia|ES": "ES-MC",        "cartagena|ES": "ES-MC",
+
+  // Navarra (ES-NC)
+  "pamplona|ES": "ES-NC",      "irunea|ES": "ES-NC",
+
+  // País Vasco (ES-PV)
+  "bilbao|ES": "ES-PV",        "san sebastian|ES": "ES-PV",
+  "donostia|ES": "ES-PV",      "vitoria|ES": "ES-PV",
+  "zarautz|ES": "ES-PV",       "donostia-san sebastian|ES": "ES-PV",
+
+  // Comunitat Valenciana (ES-VC)
+  "valencia|ES": "ES-VC",      "alicante|ES": "ES-VC",
+  "castellon|ES": "ES-VC",     "cheste|ES": "ES-VC",
+  "benidorm|ES": "ES-VC",      "denia|ES": "ES-VC",
+
+  // ── South Korea ───────────────────────────────────────────────────────────
+  "seoul|KR": "KR-11",
+  "busan|KR": "KR-26",
+  "daegu|KR": "KR-27",
+  "incheon|KR": "KR-28",
+  "gwangju|KR": "KR-29",
+  "daejeon|KR": "KR-30",
+  "ulsan|KR": "KR-31",
+  "jeju|KR": "KR-49",
+
+  // ── Belgium ───────────────────────────────────────────────────────────────
+  "brussels|BE": "BE-BRU",     "bruxelles|BE": "BE-BRU",
+  "brussel|BE": "BE-BRU",
+  "antwerp|BE": "BE-VAN",      "antwerpen|BE": "BE-VAN",
+  "ghent|BE": "BE-VOV",        "gent|BE": "BE-VOV",
+  "bruges|BE": "BE-VWV",       "brugge|BE": "BE-VWV",
+  "leuven|BE": "BE-VBR",
+  "liege|BE": "BE-WLG",        "luik|BE": "BE-WLG",
+  "spa|BE": "BE-WLG",          "stavelot|BE": "BE-WLG",
+  "francorchamps|BE": "BE-WLG","spa-francorchamps|BE": "BE-WLG",
+  "namur|BE": "BE-WNA",
+  "mons|BE": "BE-WHT",         "charleroi|BE": "BE-WHT",
+};
+
 // ── Per-country admin-1 type filter (type_en fallback for unlisted countries) ────
 const ADMIN1_PREFERRED_TYPES: Record<string, string[]> = {
   // Only used as last-resort fallback when iso_3166_2 is absent/mismatched.
@@ -543,6 +788,23 @@ function computePinDebugInfo(
       return { cityName: pin.name, countryIso: iso, regionName: null, iso3166_2: null, subdivKey: null, pinType: type, resolvedVia: "country-fallback" as const };
     }
 
+    // Override: city-specific subdivision assignment (bypasses polygon/centroid lookup)
+    const overrideCode = CITY_SUBDIVISION_OVERRIDE[`${normCity(pin.name)}|${iso}`];
+    if (overrideCode) {
+      const overrideFeat = candidates.find(
+        (f) => String(f.properties?.iso_3166_2 ?? "").toUpperCase().trim() === overrideCode,
+      );
+      return {
+        cityName: pin.name,
+        countryIso: iso,
+        regionName: overrideFeat ? ((overrideFeat.properties?.name as string) ?? null) : null,
+        iso3166_2: overrideCode,
+        subdivKey: overrideCode,
+        pinType: type,
+        resolvedVia: "override" as const,
+      };
+    }
+
     // Point-in-polygon: pick largest containing feature
     let bestFeature: GeoFeature | null = null;
     let bestArea = -1;
@@ -643,6 +905,7 @@ function SubdivisionDebugTable({ rows }: { rows: PinDebugInfo[] }) {
                 </td>
                 <td className="py-1.5">
                   {row.resolvedVia === "point-in-polygon" && <span className="text-green-600 dark:text-green-400">✓ poly</span>}
+                  {row.resolvedVia === "override" && <span className="text-purple-600 dark:text-purple-400">📌 override</span>}
                   {row.resolvedVia === "centroid-fallback" && <span className="text-yellow-600 dark:text-yellow-400">⚠ centroide</span>}
                   {row.resolvedVia === "fixed-coord" && <span className="text-blue-500">↗ fixed</span>}
                   {row.resolvedVia === "country-fallback" && <span className="text-red-500">✗ paese</span>}
@@ -733,7 +996,7 @@ function featureCentroid(feature: GeoFeature): { lat: number; lng: number } | nu
 }
 
 function computeSubdivData(
-  pins: Array<{ lat: number; lng: number; country: string }>,
+  pins: Array<{ lat: number; lng: number; country: string; name: string }>,
   admin1Geo: GeoCollection,
 ): { subdivKeys: Set<string>; fallbackCountries: Set<string> } {
   const subdivKeys = new Set<string>();
@@ -774,6 +1037,10 @@ function computeSubdivData(
     if (FIXED_COORDS[iso]) { fallbackCountries.add(iso); continue; }
     const candidates = featuresByCountry.get(iso) ?? [];
     if (candidates.length === 0) { fallbackCountries.add(iso); continue; }
+
+    // Override: city-specific subdivision assignment (bypasses polygon/centroid lookup)
+    const overrideCode = CITY_SUBDIVISION_OVERRIDE[`${normCity(pin.name)}|${iso}`];
+    if (overrideCode) { subdivKeys.add(overrideCode); continue; }
 
     // Pick the LARGEST polygon that contains the pin (prefers region over sub-region)
     let bestFeature: GeoFeature | null = null;
