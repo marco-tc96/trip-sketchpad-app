@@ -5,14 +5,13 @@ import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
-  BarChart3, Globe2, MapPin, CalendarDays, User, Briefcase, Palmtree, Footprints, Settings as SettingsIcon,
+  BarChart3, Globe2, MapPin, CalendarDays, Briefcase, Palmtree, Footprints, Settings as SettingsIcon,
 } from "lucide-react";
 import { getProfile, updateProfile } from "@/lib/profile.functions";
 import { listTrips } from "@/lib/trips.functions";
 import type { Lang } from "@/i18n/translations";
 import { setLanguage } from "@/i18n";
 import { flagOf, countryNameLocalized, cityNameLocalized } from "@/lib/country-data";
-import { Button } from "@/components/ui/button";
 import { SettingsDialog, type ProfileFormValues } from "@/components/app/settings-dialog";
 
 export const Route = createFileRoute("/_authenticated/profile")({
@@ -184,36 +183,41 @@ function ProfilePage() {
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-6 sm:py-8">
-      <div className="flex items-center gap-2">
-        <User className="h-5 w-5 text-primary" />
-        <h1 className="font-serif text-3xl font-bold tracking-tight sm:text-4xl">{t("profile")}</h1>
-      </div>
-
-      <section className="mt-6 flex flex-col items-center gap-3 rounded-3xl border border-border bg-card p-6 text-center shadow-soft sm:p-8">
-        <span aria-hidden className="grid h-24 w-24 place-items-center rounded-full bg-secondary text-secondary-foreground/70 ring-1 ring-border">
-          <svg viewBox="0 0 24 24" fill="currentColor" className="h-14 w-14">
+      {/* Profile header */}
+      <div className="relative flex items-center gap-4 pb-6">
+        {/* Avatar */}
+        <span aria-hidden className="grid h-20 w-20 shrink-0 place-items-center rounded-full bg-secondary text-secondary-foreground/70 ring-1 ring-border">
+          <svg viewBox="0 0 24 24" fill="currentColor" className="h-12 w-12">
             <circle cx="12" cy="8" r="4" />
             <path d="M4 20c0-4.418 3.582-8 8-8s8 3.582 8 8v1H4v-1z" />
           </svg>
         </span>
-        <div className="space-y-0.5">
-          <p className="font-serif text-xl font-semibold">{prof.data?.display_name || t("display_name")}</p>
+
+        {/* Name / username / country */}
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <p className="font-serif text-2xl font-bold leading-tight">{prof.data?.display_name || t("display_name")}</p>
           {username && <p className="text-sm text-muted-foreground">@{username}</p>}
           {homeCountryIso && (
-            <p className="inline-flex items-center gap-1.5 pt-1 text-sm text-muted-foreground">
+            <p className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
               <span>{flagOf(homeCountryIso)}</span>
               <span>{countryNameLocalized(homeCountryIso, lang)}</span>
             </p>
           )}
         </div>
-        <SettingsDialog initial={formInitial} onSave={handleSaveSettings} trigger={
-          <Button variant="outline" className="mt-2 gap-2">
-            <SettingsIcon className="h-4 w-4" />{t("edit_settings")}
-          </Button>
-        } />
-      </section>
 
-      <section className="mt-6">
+        {/* Settings gear — top right */}
+        <SettingsDialog initial={formInitial} onSave={handleSaveSettings} trigger={
+          <button
+            type="button"
+            aria-label={t("edit_settings")}
+            className="absolute right-0 top-0 grid h-9 w-9 place-items-center rounded-full border border-border bg-card text-muted-foreground shadow-soft transition hover:bg-muted hover:text-foreground"
+          >
+            <SettingsIcon className="h-4 w-4" />
+          </button>
+        } />
+      </div>
+
+      <section className="mt-0">
         <div className="flex items-center justify-center gap-2">
           <BarChart3 className="h-4 w-4 text-primary" />
           <h2 className="font-serif text-lg font-semibold">{t("stats")}</h2>
