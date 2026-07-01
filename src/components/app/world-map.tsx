@@ -199,6 +199,7 @@ export function WorldMap({
   showPins?: boolean;
   lang?: string;
   className?: string;
+  showSubdivisions?: boolean;
 }) {
   const { data: world, error } = useWorldBorders();
 
