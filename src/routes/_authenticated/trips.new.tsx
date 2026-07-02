@@ -175,7 +175,7 @@ function NewTrip() {
             <Plane className="h-5 w-5 shrink-0" style={{ color: accentColor }} />
           )}
           <h1 className="font-serif text-2xl font-bold">
-            {wishlist ? "Viaggio dei sogni" : t("new_trip")}
+            {wishlist ? t("dream_trip") : t("new_trip")}
           </h1>
         </div>
 
@@ -193,7 +193,7 @@ function NewTrip() {
             style={!wishlist ? { background: accentColor } : undefined}
           >
             <Plane className="h-3 w-3" />
-            <span>Viaggio</span>
+            <span>{t("trip")}</span>
           </button>
           <button
             type="button"
@@ -207,7 +207,7 @@ function NewTrip() {
             style={wishlist ? { background: accentColor } : undefined}
           >
             <Cloud className="h-3 w-3" />
-            <span>Wishlist</span>
+            <span>{t("wishlist")}</span>
           </button>
         </div>
       </div>
@@ -399,7 +399,7 @@ function NewTrip() {
             className="ml-auto"
             style={wishlist ? { background: accentColor, color: "white" } : undefined}
           >
-            {wishlist ? "Salva nella Wishlist" : t("save")}
+            {wishlist ? t("save_wishlist") : t("save")}
           </Button>
         </div>
       </form>
@@ -416,6 +416,7 @@ function CountryPicker({
   picked: string[];
   onToggle: (iso: string) => void;
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -428,17 +429,17 @@ function CountryPicker({
         >
           <span className="truncate text-muted-foreground">
             {picked.length === 0
-              ? "Seleziona uno o più stati…"
-              : `${picked.length} stat${picked.length === 1 ? "o" : "i"} selezionat${picked.length === 1 ? "o" : "i"}`}
+              ? t("select_countries")
+              : t("countries_selected", { count: picked.length })}
           </span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
         <Command>
-          <CommandInput placeholder="Cerca stato…" />
+          <CommandInput placeholder={t("search_country")} />
           <CommandList className="max-h-72">
-            <CommandEmpty>Nessun risultato</CommandEmpty>
+            <CommandEmpty>{t("no_results")}</CommandEmpty>
             <CommandGroup>
               {countries.map((c) => {
                 const sel = picked.includes(c.iso);
@@ -479,6 +480,7 @@ function CityPicker({
   picked: CityPick[];
   onToggle: (c: CityPick) => void;
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const multi = countries.length > 1;
@@ -514,8 +516,8 @@ function CityPicker({
         >
           <span className="truncate text-muted-foreground">
             {picked.length === 0
-              ? "Cerca o aggiungi città…"
-              : `${picked.length} città selezionate`}
+              ? t("search_add_city")
+              : t("cities_selected", { count: picked.length })}
           </span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
@@ -523,21 +525,21 @@ function CityPicker({
       <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
         <Command shouldFilter={false}>
           <CommandInput
-            placeholder="Digita per cercare…"
+            placeholder={t("type_to_search")}
             value={query}
             onValueChange={setQuery}
           />
           <CommandList className="max-h-72">
             {filtered.length === 0 && !canAddCustom && (
               <CommandEmpty>
-                {cities.length === 0 ? "Caricamento città…" : "Nessuna città"}
+                {cities.length === 0 ? t("loading_cities") : t("no_cities")}
               </CommandEmpty>
             )}
             {canAddCustom && (
-              <CommandGroup heading="Aggiungi">
+              <CommandGroup heading={t("add")}>
                 <CommandItem onSelect={addCustom}>
                   <Plus className="mr-2 h-4 w-4" />
-                  <span>Aggiungi "{query.trim()}"</span>
+                  <span>{t("add_city", { name: query.trim() })}</span>
                 </CommandItem>
               </CommandGroup>
             )}

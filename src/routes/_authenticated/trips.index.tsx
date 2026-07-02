@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { MapPin, Calendar, Briefcase, Palmtree, Footprints, Globe2, Pin, PinOff, Layers, Cloud, Compass } from "lucide-react";
+import { MapPin, Calendar, Briefcase, Palmtree, Footprints, Globe2, Pin, PinOff, Cloud, Compass } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { listTrips } from "@/lib/trips.functions";
@@ -31,6 +31,11 @@ function TripsList() {
 
   const today = new Date().toISOString().slice(0, 10);
   const trips = q.data ?? [];
+
+  // Scroll to top on mount
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
 
   // Wishlist trips are identified by sentinel start_date "2099-01-01"
   const WISHLIST_SENTINEL = "2099-01-01";
@@ -158,16 +163,10 @@ function TripsList() {
   const [showPins, setShowPins] = useState(() => {
     try { return localStorage.getItem("map_showPins") !== "false"; } catch { return true; }
   });
-  const [showSubdivisions, setShowSubdivisions] = useState(() => {
-    try { return localStorage.getItem("map_showSubdivisions") === "true"; } catch { return false; }
-  });
 
   useEffect(() => {
     try { localStorage.setItem("map_showPins", String(showPins)); } catch { /* ignore */ }
   }, [showPins]);
-  useEffect(() => {
-    try { localStorage.setItem("map_showSubdivisions", String(showSubdivisions)); } catch { /* ignore */ }
-  }, [showSubdivisions]);
 
   const allTripsCount = trips.length;
 
@@ -188,11 +187,6 @@ function TripsList() {
             <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">{t("countries_visited")}</h2>
             <span className="text-xs text-muted-foreground/70">· {visitedCountries.length}</span>
             <label className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Layers className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">{t("show_subdivisions")}</span>
-              <Switch checked={showSubdivisions} onCheckedChange={setShowSubdivisions} />
-            </label>
-            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
               {showPins ? <Pin className="h-3.5 w-3.5" /> : <PinOff className="h-3.5 w-3.5" />}
               <span className="hidden sm:inline">{t("show_pins")}</span>
               <Switch checked={showPins} onCheckedChange={setShowPins} />
@@ -209,7 +203,7 @@ function TripsList() {
             wishlistCities={wishlistCities}
             homeCountry={homeCountry}
             showPins={showPins}
-            showSubdivisions={showSubdivisions}
+            showSubdivisions={false}
             lang={lang}
             className="h-[280px] w-full sm:h-[360px]"
           />
@@ -225,7 +219,7 @@ function TripsList() {
           {ongoing.length > 0 && <Section title={t("ongoing")} trips={ongoing} accent="ongoing" />}
           {planned.length > 0 && <Section title={t("planned")} trips={planned} accent="planned" />}
           {past.length > 0 && <Section title={t("past")} trips={past} accent="past" withYearSelector />}
-          {wishlistTrips.length > 0 && <Section title="Wishlist" trips={wishlistTrips} accent="wishlist" />}
+          {wishlistTrips.length > 0 && <Section title={t("wishlist")} trips={wishlistTrips} accent="wishlist" />}
         </div>
       )}
     </main>
@@ -250,7 +244,7 @@ function EmptyState() {
           className="inline-flex items-center gap-1.5 rounded-full border border-[oklch(0.6_0.13_255)] px-4 py-2 text-sm font-medium text-[oklch(0.45_0.13_255)] transition hover:bg-[oklch(0.97_0.02_255)]"
         >
           <Cloud className="h-4 w-4" />
-          Wishlist
+          {t("wishlist")}
         </Link>
       </div>
     </div>
@@ -550,7 +544,7 @@ function TripTypePill({ tripType }: { tripType: "vacation" | "business" | "daytr
   if (tripType === "wishlist") {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-blue-700/70 px-2 py-0.5 text-[11px] font-medium text-white backdrop-blur">
-        <Cloud className="h-3 w-3" />Wishlist
+        <Cloud className="h-3 w-3" />{t("wishlist")}
       </span>
     );
   }
