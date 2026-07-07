@@ -115,6 +115,18 @@ const A3_TO_A2: Record<string, string> = {
   VGB:"VG",VIR:"VI",WLF:"WF",XKX:"XK",
 };
 
+/**
+ * Countries where the GeoJSON dataset stores ISO_A2 = "-99" (typically due to
+ * overseas territories or disputed boundaries). We fall back to the ADMIN name.
+ */
+const ADMIN_NAME_TO_A2: Record<string, string> = {
+  "Norway": "NO",
+  "France": "FR",
+  "Kosovo": "XK",
+  "Northern Cyprus": "CY",
+  "Somaliland": "SO",
+};
+
 function normIso(c: string): string {
   const u = c.toUpperCase().trim();
   if (u.length === 3 && A3_TO_A2[u]) return A3_TO_A2[u];
@@ -123,18 +135,28 @@ function normIso(c: string): string {
 
 function isoOf(feature: GeoFeature): string | null {
   const p = feature.properties ?? {};
-  const candidates = ["ISO3166-1-Alpha-2", "ISO_A2", "iso_a2", "ISO2", "iso2"];
+
+  // ── A2 candidates (direct 2-letter code) ──────────────────────────────────
+  const candidates = ["ISO3166-1-Alpha-2", "ISO_A2", "ISO_A2_EH", "iso_a2", "ISO2", "iso2"];
   for (const key of candidates) {
     const v = p[key];
     if (typeof v === "string" && v.length === 2 && v !== "-99" && v !== "-1") {
       return v.toUpperCase();
     }
   }
-  const a3Keys = ["ISO3166-1-Alpha-3", "ISO_A3", "ISO_A3_EH", "adm0_a3"];
+
+  // ── A3 candidates (3-letter → convert to A2) ──────────────────────────────
+  const a3Keys = ["ISO3166-1-Alpha-3", "ISO_A3", "ISO_A3_EH", "adm0_a3", "adm0_a3_us", "adm0_a3_is"];
   for (const key of a3Keys) {
     const v = String(p[key] ?? "").trim();
     if (v.length === 3 && v !== "-99" && A3_TO_A2[v]) return A3_TO_A2[v];
   }
+
+  // ── Name-based fallback for countries where ISO codes are absent/invalid ───
+  // (e.g. Norway, France — their ISO_A2 is "-99" in some GeoJSON datasets)
+  const adminName = String(p["ADMIN"] ?? p["name"] ?? p["NAME"] ?? "").trim();
+  if (adminName && ADMIN_NAME_TO_A2[adminName]) return ADMIN_NAME_TO_A2[adminName];
+
   return null;
 }
 
