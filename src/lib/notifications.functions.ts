@@ -55,7 +55,7 @@ export const listNotifications = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     const { data, error } = await context.supabase
       .from("notifications")
-      .select("id, type, title, body, link, read, created_at, meta")
+      .select("id, type, title, body, link, read, created_at")
       .order("created_at", { ascending: false })
       .limit(50);
     if (error) throw new Error(error.message);
