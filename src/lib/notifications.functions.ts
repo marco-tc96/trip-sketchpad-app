@@ -11,7 +11,6 @@ export type AppNotification = {
   link: string | null;
   read: boolean;
   created_at: string;
-  meta: Record<string, unknown> | null;
 };
 
 // ── Timezone helpers ──────────────────────────────────────────────────────────
