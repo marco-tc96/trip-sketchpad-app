@@ -3,19 +3,8 @@
 // For each user with push subscriptions, checks for pending trip
 // notifications and sends Web Push messages via VAPID.
 //
-// Required Supabase secrets (set via dashboard or CLI):
-//   VAPID_PUBLIC_KEY   — generated with: npx web-push generate-vapid-keys
-//   VAPID_PRIVATE_KEY  — same command
-//   VAPID_SUBJECT      — e.g. "mailto:admin@yourdomain.com"
-//
-// Schedule setup (Supabase Dashboard → Database → Cron):
-//   Name:     send-trip-notifications
-//   Schedule: */5 * * * *
-//   Command:  SELECT net.http_post(
-//               url := '<SUPABASE_URL>/functions/v1/send-trip-notifications',
-//               headers := '{"Authorization":"Bearer <SERVICE_ROLE_KEY>"}'::jsonb,
-//               body := '{}'::jsonb
-//             );
+// Required Supabase secrets:
+//   VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
@@ -29,33 +18,91 @@ const VAPID_SUBJECT = Deno.env.get("VAPID_SUBJECT") ?? "mailto:marco.colletta199
 
 webPush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC, VAPID_PRIVATE);
 
-// ── Italian ordinals ──────────────────────────────────────────────────────────
+// ── Country → IANA timezone map (representative timezone per country) ────────
+const COUNTRY_TZ: Record<string, string> = {
+  AF:"Asia/Kabul",AL:"Europe/Tirane",DZ:"Africa/Algiers",AD:"Europe/Andorra",AO:"Africa/Luanda",
+  AG:"America/Antigua",AR:"America/Argentina/Buenos_Aires",AM:"Asia/Yerevan",AU:"Australia/Sydney",
+  AT:"Europe/Vienna",AZ:"Asia/Baku",BS:"America/Nassau",BH:"Asia/Bahrain",BD:"Asia/Dhaka",
+  BB:"America/Barbados",BY:"Europe/Minsk",BE:"Europe/Brussels",BZ:"America/Belize",
+  BJ:"Africa/Porto-Novo",BT:"Asia/Thimphu",BO:"America/La_Paz",BA:"Europe/Sarajevo",
+  BW:"Africa/Gaborone",BR:"America/Sao_Paulo",BN:"Asia/Brunei",BG:"Europe/Sofia",
+  BF:"Africa/Ouagadougou",BI:"Africa/Bujumbura",CV:"Atlantic/Cape_Verde",KH:"Asia/Phnom_Penh",
+  CM:"Africa/Douala",CA:"America/Toronto",CF:"Africa/Bangui",TD:"Africa/Ndjamena",
+  CL:"America/Santiago",CN:"Asia/Shanghai",CO:"America/Bogota",KM:"Indian/Comoro",
+  CG:"Africa/Brazzaville",CD:"Africa/Kinshasa",CR:"America/Costa_Rica",CI:"Africa/Abidjan",
+  HR:"Europe/Zagreb",CU:"America/Havana",CY:"Asia/Nicosia",CZ:"Europe/Prague",
+  DK:"Europe/Copenhagen",DJ:"Africa/Djibouti",DM:"America/Dominica",DO:"America/Santo_Domingo",
+  EC:"America/Guayaquil",EG:"Africa/Cairo",SV:"America/El_Salvador",GQ:"Africa/Malabo",
+  ER:"Africa/Asmara",EE:"Europe/Tallinn",SZ:"Africa/Mbabane",ET:"Africa/Addis_Ababa",
+  FJ:"Pacific/Fiji",FI:"Europe/Helsinki",FR:"Europe/Paris",GA:"Africa/Libreville",
+  GM:"Africa/Banjul",GE:"Asia/Tbilisi",DE:"Europe/Berlin",GH:"Africa/Accra",
+  GI:"Europe/Gibraltar",GR:"Europe/Athens",GL:"America/Godthab",GD:"America/Grenada",
+  GT:"America/Guatemala",GN:"Africa/Conakry",GW:"Africa/Bissau",GY:"America/Guyana",
+  HT:"America/Port-au-Prince",VA:"Europe/Vatican",HN:"America/Tegucigalpa",HK:"Asia/Hong_Kong",
+  HU:"Europe/Budapest",IS:"Atlantic/Reykjavik",IN:"Asia/Kolkata",ID:"Asia/Jakarta",
+  IR:"Asia/Tehran",IQ:"Asia/Baghdad",IE:"Europe/Dublin",IL:"Asia/Jerusalem",IT:"Europe/Rome",
+  JM:"America/Jamaica",JP:"Asia/Tokyo",JO:"Asia/Amman",KZ:"Asia/Almaty",KE:"Africa/Nairobi",
+  KP:"Asia/Pyongyang",KR:"Asia/Seoul",KW:"Asia/Kuwait",KG:"Asia/Bishkek",LA:"Asia/Vientiane",
+  LV:"Europe/Riga",LB:"Asia/Beirut",LS:"Africa/Maseru",LR:"Africa/Monrovia",LY:"Africa/Tripoli",
+  LI:"Europe/Vaduz",LT:"Europe/Vilnius",LU:"Europe/Luxembourg",MO:"Asia/Macau",
+  MG:"Indian/Antananarivo",MW:"Africa/Blantyre",MY:"Asia/Kuala_Lumpur",MV:"Indian/Maldives",
+  ML:"Africa/Bamako",MT:"Europe/Malta",MH:"Pacific/Majuro",MR:"Africa/Nouakchott",
+  MU:"Indian/Mauritius",MX:"America/Mexico_City",FM:"Pacific/Pohnpei",MD:"Europe/Chisinau",
+  MC:"Europe/Monaco",MN:"Asia/Ulaanbaatar",ME:"Europe/Podgorica",MA:"Africa/Casablanca",
+  MZ:"Africa/Maputo",MM:"Asia/Rangoon",NA:"Africa/Windhoek",NP:"Asia/Kathmandu",
+  NL:"Europe/Amsterdam",NZ:"Pacific/Auckland",NI:"America/Managua",NE:"Africa/Niamey",
+  NG:"Africa/Lagos",MK:"Europe/Skopje",NO:"Europe/Oslo",OM:"Asia/Muscat",PK:"Asia/Karachi",
+  PW:"Pacific/Palau",PS:"Asia/Gaza",PA:"America/Panama",PG:"Pacific/Port_Moresby",
+  PY:"America/Asuncion",PE:"America/Lima",PH:"Asia/Manila",PL:"Europe/Warsaw",PT:"Europe/Lisbon",
+  QA:"Asia/Qatar",RE:"Indian/Reunion",RO:"Europe/Bucharest",RU:"Europe/Moscow",RW:"Africa/Kigali",
+  SM:"Europe/San_Marino",ST:"Africa/Sao_Tome",SA:"Asia/Riyadh",SN:"Africa/Dakar",
+  RS:"Europe/Belgrade",SC:"Indian/Mahe",SL:"Africa/Freetown",SG:"Asia/Singapore",
+  SK:"Europe/Bratislava",SI:"Europe/Ljubljana",SB:"Pacific/Guadalcanal",SO:"Africa/Mogadishu",
+  ZA:"Africa/Johannesburg",SS:"Africa/Juba",ES:"Europe/Madrid",LK:"Asia/Colombo",
+  SD:"Africa/Khartoum",SR:"America/Paramaribo",SE:"Europe/Stockholm",CH:"Europe/Zurich",
+  SY:"Asia/Damascus",TW:"Asia/Taipei",TJ:"Asia/Dushanbe",TZ:"Africa/Dar_es_Salaam",
+  TH:"Asia/Bangkok",TL:"Asia/Dili",TG:"Africa/Lome",TO:"Pacific/Tongatapu",
+  TT:"America/Port_of_Spain",TN:"Africa/Tunis",TR:"Europe/Istanbul",TM:"Asia/Ashgabat",
+  TV:"Pacific/Funafuti",UG:"Africa/Kampala",UA:"Europe/Kiev",AE:"Asia/Dubai",
+  GB:"Europe/London",US:"America/New_York",UY:"America/Montevideo",UZ:"Asia/Tashkent",
+  VU:"Pacific/Efate",VE:"America/Caracas",VN:"Asia/Ho_Chi_Minh",YE:"Asia/Aden",
+  ZM:"Africa/Lusaka",ZW:"Africa/Harare",KN:"America/St_Kitts",LC:"America/St_Lucia",
+  VC:"America/St_Vincent",WS:"Pacific/Apia",
+};
 
-function ordinalItM(n: number): string {
-  const map: Record<number, string> = {
-    1: "primo", 2: "secondo", 3: "terzo", 4: "quarto", 5: "quinto",
-    6: "sesto", 7: "settimo", 8: "ottavo", 9: "nono", 10: "decimo",
+// ── Timezone helpers ──────────────────────────────────────────────────────────
+
+function tzUtcOffsetMinutes(ianaTimezone: string, forDate: Date): number {
+  const fmt = (tz: string) =>
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit",
+      hour12: false,
+    }).format(forDate);
+  const toMs = (s: string): number => {
+    const [datePart, timePart] = s.split(", ");
+    const [m, d, y] = datePart.split("/");
+    return new Date(`${y}-${m}-${d}T${timePart}Z`).getTime();
   };
-  return map[n] ?? `${n}°`;
+  return (toMs(fmt(ianaTimezone)) - toMs(fmt("UTC"))) / 60_000;
 }
 
-function ordinalItF(n: number): string {
-  const map: Record<number, string> = {
-    1: "prima", 2: "seconda", 3: "terza", 4: "quarta", 5: "quinta",
-    6: "sesta", 7: "settima", 8: "ottava", 9: "nona", 10: "decima",
-  };
-  return map[n] ?? `${n}°`;
+function naiveLocalToUtcMs(naiveDateStr: string, utcPlusMinutes: number): number {
+  return new Date(naiveDateStr).getTime() - utcPlusMinutes * 60_000;
+}
+
+function localDateStr(ianaTimezone: string, forDate: Date): string {
+  return new Intl.DateTimeFormat("sv", { timeZone: ianaTimezone }).format(forDate);
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────
 
 Deno.serve(async (_req) => {
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
-
   const now = new Date();
-  const todayStr = now.toISOString().slice(0, 10);
+  const todayUtcStr = now.toISOString().slice(0, 10);
 
-  // Fetch all push subscriptions grouped by user
   const { data: allSubs, error: subsError } = await supabase
     .from("push_subscriptions")
     .select("user_id, endpoint, p256dh, auth");
@@ -69,10 +116,19 @@ Deno.serve(async (_req) => {
 
   for (const userId of userIds) {
     const userSubs = (allSubs ?? []).filter((s: any) => s.user_id === userId);
-    // Collect newly inserted notifications to push
     const toSend: Array<{ title: string; body: string | null; link: string }> = [];
 
-    // Helper: upsert + detect if it was newly created (empty data = duplicate)
+    // Fetch user profile for timezone
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("timezone")
+      .eq("id", userId)
+      .maybeSingle();
+
+    const userTz = (profile as any)?.timezone as string | null;
+    const userLocalDate = userTz ? localDateStr(userTz, now) : todayUtcStr;
+    const userUtcOffset = userTz ? tzUtcOffsetMinutes(userTz, now) : 0;
+
     const upsertAndCapture = async (
       row: Record<string, unknown>,
       notif: { title: string; body: string | null; link: string }
@@ -83,120 +139,147 @@ Deno.serve(async (_req) => {
       if (inserted && inserted.length > 0) toSend.push(notif);
     };
 
-    // ── 1. Trip-start ─────────────────────────────────────────────────────
+    // ── 1. Trip-start — at user's local midnight ──────────────────────────
     const { data: startingTrips } = await supabase
       .from("trips")
       .select("id, title, start_date")
       .eq("user_id", userId)
-      .eq("start_date", todayStr);
+      .eq("start_date", userLocalDate);
 
     for (const trip of startingTrips ?? []) {
-      const title = "Un nuovo viaggio sta per iniziare";
-      const body = trip.title ?? null;
       await upsertAndCapture(
         {
           user_id: userId,
           type: "trip_upcoming",
-          title,
-          body,
+          title: "notif_trip_start",
+          body: trip.title ?? null,
           link: `/trips/${trip.id}`,
           read: false,
           notif_key: `trip_start:${trip.id}:${trip.start_date}`,
           trip_id: trip.id,
+          meta: {},
         },
-        { title, body, link: `/trips/${trip.id}` }
+        { title: "notif_trip_start", body: trip.title ?? null, link: `/trips/${trip.id}` }
       );
     }
 
-    // ── 2. Departure — 1 hour before outbound start_at ───────────────────
-    const dep55 = new Date(now.getTime() + 55 * 60_000).toISOString();
-    const dep65 = new Date(now.getTime() + 65 * 60_000).toISOString();
+    // ── 2. Departure — 1 hour before outbound start_at (user local time) ─
+    const dep55Ms = now.getTime() + 55 * 60_000;
+    const dep65Ms = now.getTime() + 65 * 60_000;
+    const wideFrom = new Date(dep55Ms - Math.abs(userUtcOffset) * 60_000 - 3_600_000).toISOString();
+    const wideTo   = new Date(dep65Ms + Math.abs(userUtcOffset) * 60_000 + 3_600_000).toISOString();
 
-    const { data: departures } = await supabase
+    const { data: depCandidates } = await supabase
       .from("itinerary_items")
-      .select("id, trip_id, trips(title)")
+      .select("id, trip_id, start_at, trips(title)")
       .eq("user_id", userId)
       .eq("kind", "outbound")
-      .gte("start_at", dep55)
-      .lte("start_at", dep65);
+      .gte("start_at", wideFrom)
+      .lte("start_at", wideTo);
 
-    for (const item of departures ?? []) {
+    for (const item of depCandidates ?? []) {
+      if (!item.start_at) continue;
+      const actualDepUtcMs = naiveLocalToUtcMs(item.start_at as string, userUtcOffset);
+      if (actualDepUtcMs < dep55Ms || actualDepUtcMs > dep65Ms) continue;
       const tripTitle = (item.trips as any)?.title ?? null;
-      const title = "Manca un'ora alla partenza";
       await upsertAndCapture(
         {
           user_id: userId,
           type: "trip_upcoming",
-          title,
+          title: "notif_departure",
           body: tripTitle,
           link: `/trips/${item.trip_id}`,
           read: false,
           notif_key: `departure_1h:${item.id}`,
           trip_id: item.trip_id,
+          meta: {},
         },
-        { title, body: tripTitle, link: `/trips/${item.trip_id}` }
+        { title: "notif_departure", body: tripTitle, link: `/trips/${item.trip_id}` }
       );
     }
 
-    // ── 3. Arrival — at outbound end_at (window: -5 min / +2 min) ────────
-    const arrFrom = new Date(now.getTime() - 5 * 60_000).toISOString();
-    const arrTo = new Date(now.getTime() + 2 * 60_000).toISOString();
+    // ── 3. Arrival — at outbound end_at (destination country's timezone) ──
+    const arrFromMs = now.getTime() - 5 * 60_000;
+    const arrToMs   = now.getTime() + 2 * 60_000;
+    const arrWideFrom = new Date(arrFromMs - 12 * 3_600_000).toISOString();
+    const arrWideTo   = new Date(arrToMs   + 12 * 3_600_000).toISOString();
 
-    const { data: arrivals } = await supabase
+    const { data: arrCandidates } = await supabase
       .from("itinerary_items")
-      .select("id, trip_id, trips(title, country)")
+      .select("id, trip_id, end_at, trips(title, country)")
       .eq("user_id", userId)
       .eq("kind", "outbound")
-      .gte("end_at", arrFrom)
-      .lte("end_at", arrTo);
+      .gte("end_at", arrWideFrom)
+      .lte("end_at", arrWideTo);
 
-    for (const item of arrivals ?? []) {
+    for (const item of arrCandidates ?? []) {
+      if (!item.end_at) continue;
       const tripData = item.trips as { title?: string; country?: string | null } | null;
-      const country = tripData?.country ?? null;
+      const countryIso = tripData?.country ?? null;
 
-      let title: string;
-      let body: string | null = null;
+      let destOffset = 0;
+      if (countryIso) {
+        const destTz = COUNTRY_TZ[countryIso.toUpperCase()];
+        if (destTz) destOffset = tzUtcOffsetMinutes(destTz, now);
+      }
 
-      if (country) {
+      const actualArrUtcMs = naiveLocalToUtcMs(item.end_at as string, destOffset);
+      if (actualArrUtcMs < arrFromMs || actualArrUtcMs > arrToMs) continue;
+
+      let titleKey: string;
+      let bodyKey: string | null = null;
+      let meta: Record<string, unknown> = {};
+
+      if (countryIso) {
+        // Exclude the current trip so the result is deterministic whether or not
+        // the trip has already ended (end_date <= today).
         const { data: pastTrips } = await supabase
           .from("trips")
           .select("id, country")
           .eq("user_id", userId)
           .not("country", "is", null)
-          .lte("end_date", todayStr);
+          .neq("id", item.trip_id)
+          .lte("end_date", todayUtcStr);
 
         const all = (pastTrips ?? []) as { id: string; country: string }[];
-        const sameCountry = all.filter((t) => t.country === country);
+        const sameCountry = all.filter((t) => t.country === countryIso);
         const uniqueCountries = new Set(all.map((t) => t.country));
+        // Always include the country we just arrived in.
+        uniqueCountries.add(countryIso);
 
-        if (sameCountry.length <= 1) {
-          title = `Benvenuto in ${country}`;
-          body = `Questo è il tuo ${ordinalItM(uniqueCountries.size)} paese visitato`;
+        if (sameCountry.length === 0) {
+          // First time visiting this country
+          titleKey = "notif_arrival_new";
+          bodyKey  = "notif_arrival_new_body";
+          meta = { country_iso: countryIso, n: uniqueCountries.size };
         } else {
-          title = `Bentornato in ${country}`;
-          body = `Questa è la ${ordinalItF(sameCountry.length)} volta in questo paese`;
+          // Returning: past ended trips + this one
+          titleKey = "notif_arrival_return";
+          bodyKey  = "notif_arrival_return_body";
+          meta = { country_iso: countryIso, n: sameCountry.length + 1 };
         }
       } else {
-        title = "Benvenuto!";
-        body = tripData?.title ?? null;
+        titleKey = "notif_arrival_generic";
+        meta = {};
       }
 
       await upsertAndCapture(
         {
           user_id: userId,
           type: "trip_ongoing",
-          title,
-          body,
+          title: titleKey,
+          body: bodyKey,
           link: `/trips/${item.trip_id}`,
           read: false,
           notif_key: `arrival:${item.id}`,
           trip_id: item.trip_id,
+          meta,
         },
-        { title, body, link: `/trips/${item.trip_id}` }
+        { title: titleKey, body: bodyKey, link: `/trips/${item.trip_id}` }
       );
     }
 
-    // ── Send Web Push for newly created notifications ─────────────────────
+    // ── Send Web Push ─────────────────────────────────────────────────────
     for (const notif of toSend) {
       for (const sub of userSubs as any[]) {
         try {
@@ -205,12 +288,8 @@ Deno.serve(async (_req) => {
             JSON.stringify({ title: notif.title, body: notif.body, link: notif.link })
           );
         } catch (e: any) {
-          // 410 Gone = subscription expired → clean it up
           if (e?.statusCode === 410) {
-            await supabase
-              .from("push_subscriptions")
-              .delete()
-              .eq("endpoint", sub.endpoint);
+            await supabase.from("push_subscriptions").delete().eq("endpoint", sub.endpoint);
           } else {
             console.error("Push send failed:", e?.message ?? e);
           }

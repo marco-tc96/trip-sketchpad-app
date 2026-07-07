@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
+import { primaryTimezoneOfCountry } from "@/lib/country-data";
 
 export type AppNotification = {
   id: string;
@@ -10,29 +11,44 @@ export type AppNotification = {
   link: string | null;
   read: boolean;
   created_at: string;
+  meta: Record<string, unknown> | null;
 };
 
-// ── Italian ordinals ──────────────────────────────────────────────────────────
+// ── Timezone helpers ──────────────────────────────────────────────────────────
 
-/** Masculine: primo, secondo, terzo … (used for "paese") */
-function ordinalItM(n: number): string {
-  const map: Record<number, string> = {
-    1: "primo", 2: "secondo", 3: "terzo", 4: "quarto", 5: "quinto",
-    6: "sesto", 7: "settimo", 8: "ottavo", 9: "nono", 10: "decimo",
+/**
+ * Returns the UTC+ offset in minutes for an IANA timezone at a given date.
+ * e.g. "Europe/Rome" in summer → +120
+ */
+function tzUtcOffsetMinutes(ianaTimezone: string, forDate: Date): number {
+  const fmt = (tz: string) =>
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit",
+      hour12: false,
+    }).format(forDate);
+
+  const toMs = (s: string): number => {
+    // "MM/DD/YYYY, HH:MM:SS" → epoch (treating as UTC for diff purposes)
+    const [datePart, timePart] = s.split(", ");
+    const [m, d, y] = datePart.split("/");
+    return new Date(`${y}-${m}-${d}T${timePart}Z`).getTime();
   };
-  return map[n] ?? `${n}°`;
+
+  return (toMs(fmt(ianaTimezone)) - toMs(fmt("UTC"))) / 60_000;
 }
 
-/** Feminine: prima, seconda, terza … (used for "volta") */
-function ordinalItF(n: number): string {
-  const map: Record<number, string> = {
-    1: "prima", 2: "seconda", 3: "terza", 4: "quarta", 5: "quinta",
-    6: "sesta", 7: "settima", 8: "ottava", 9: "nona", 10: "decima",
-  };
-  return map[n] ?? `${n}°`;
+/**
+ * Converts a naive local-time ISO string (stored without TZ info, e.g. "2026-07-03T10:00:00")
+ * to its actual UTC milliseconds, given the UTC+ offset of the source timezone.
+ */
+function naiveLocalToUtcMs(naiveDateStr: string, utcPlusMinutes: number): number {
+  // Server (Node) parses naive ISO as UTC; subtract the UTC+ offset to get actual UTC
+  return new Date(naiveDateStr).getTime() - utcPlusMinutes * 60_000;
 }
 
-// ── Existing notification functions ──────────────────────────────────────────
+// ── Notification functions ────────────────────────────────────────────────────
 
 /** Return up to 50 notifications for the current user, newest-first. */
 export const listNotifications = createServerFn({ method: "GET" })
@@ -40,7 +56,7 @@ export const listNotifications = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     const { data, error } = await context.supabase
       .from("notifications")
-      .select("id, type, title, body, link, read, created_at")
+      .select("id, type, title, body, link, read, created_at, meta")
       .order("created_at", { ascending: false })
       .limit(50);
     if (error) throw new Error(error.message);
@@ -84,43 +100,27 @@ export const markAllNotificationsRead = createServerFn({ method: "POST" })
 
 // ── Push subscription management ─────────────────────────────────────────────
 
-/** Save (or refresh) a browser push subscription for the current user. */
 export const subscribePush = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) =>
-    z
-      .object({ endpoint: z.string(), p256dh: z.string(), auth: z.string() })
-      .parse(d)
+    z.object({ endpoint: z.string(), p256dh: z.string(), auth: z.string() }).parse(d)
   )
   .handler(async ({ data, context }) => {
-    const {
-      data: { user },
-    } = await context.supabase.auth.getUser();
+    const { data: { user } } = await context.supabase.auth.getUser();
     if (!user) throw new Error("Not authenticated");
-
-    // push_subscriptions added by migration — cast until types are regenerated
     const { error } = await (context.supabase.from("push_subscriptions") as any).upsert(
-      {
-        user_id: user.id,
-        endpoint: data.endpoint,
-        p256dh: data.p256dh,
-        auth: data.auth,
-      },
+      { user_id: user.id, endpoint: data.endpoint, p256dh: data.p256dh, auth: data.auth },
       { onConflict: "user_id,endpoint" }
     );
     if (error) throw new Error(error.message);
   });
 
-/** Remove a push subscription (e.g. when the user denies permission). */
 export const unsubscribePush = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) => z.object({ endpoint: z.string() }).parse(d))
   .handler(async ({ data, context }) => {
-    const {
-      data: { user },
-    } = await context.supabase.auth.getUser();
+    const { data: { user } } = await context.supabase.auth.getUser();
     if (!user) return;
-
     const { error } = await (context.supabase.from("push_subscriptions") as any)
       .delete()
       .eq("user_id", user.id)
@@ -132,21 +132,26 @@ export const unsubscribePush = createServerFn({ method: "POST" })
 
 /**
  * Checks and inserts trip-related notifications for the current user.
- * Safe to call frequently — notif_key unique index prevents duplicates.
  * Called by NotificationBootstrap every 5 minutes when the app is open.
+ *
+ * @param localDate         - User's local date as "YYYY-MM-DD"
+ * @param utcOffsetMinutes  - User's UTC+ offset in minutes (e.g. +120 for UTC+2)
  */
 export const checkTripNotifications = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
-    const {
-      data: { user },
-    } = await context.supabase.auth.getUser();
+  .inputValidator((d) =>
+    z.object({
+      localDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      utcOffsetMinutes: z.number().int().min(-840).max(840).default(0),
+    }).parse(d)
+  )
+  .handler(async ({ data, context }) => {
+    const { data: { user } } = await context.supabase.auth.getUser();
     if (!user) return;
 
     const now = new Date();
-    const todayStr = now.toISOString().slice(0, 10);
+    const { localDate, utcOffsetMinutes } = data;
 
-    // Helper: upsert a notification — skips on duplicate notif_key
     const upsertNotif = async (row: Record<string, unknown>) => {
       await (context.supabase.from("notifications") as any).upsert(row, {
         onConflict: "user_id,notif_key",
@@ -154,107 +159,137 @@ export const checkTripNotifications = createServerFn({ method: "POST" })
       });
     };
 
-    // ── 1. Trip-start — fires once on the calendar day the trip begins ────
+    // ── 1. Trip-start — fires on the user's local calendar day ───────────
     const { data: startingTrips } = await context.supabase
       .from("trips")
       .select("id, title, start_date")
-      .eq("start_date", todayStr);
+      .eq("start_date", localDate);
 
     for (const trip of startingTrips ?? []) {
       await upsertNotif({
         user_id: user.id,
         type: "trip_upcoming",
-        title: "Un nuovo viaggio sta per iniziare",
+        title: "notif_trip_start",
         body: trip.title ?? null,
         link: `/trips/${trip.id}`,
         read: false,
         notif_key: `trip_start:${trip.id}:${trip.start_date}`,
         trip_id: trip.id,
+        meta: {},
       });
     }
 
-    // ── 2. Departure — 1 hour before outbound start_at ───────────────────
-    const dep55 = new Date(now.getTime() + 55 * 60_000).toISOString();
-    const dep65 = new Date(now.getTime() + 65 * 60_000).toISOString();
+    // ── 2. Departure — 1 hour before outbound start_at (user local time) ─
+    // Window: [now+55min, now+65min] in UTC
+    const dep55Ms = now.getTime() + 55 * 60_000;
+    const dep65Ms = now.getTime() + 65 * 60_000;
 
-    const { data: departures } = await context.supabase
+    // Fetch all outbound items and filter by adjusted time
+    // We need to fetch a wider window to avoid missing due to offset
+    const wideFrom = new Date(dep55Ms - Math.abs(utcOffsetMinutes) * 60_000 - 60_000 * 60).toISOString();
+    const wideTo   = new Date(dep65Ms + Math.abs(utcOffsetMinutes) * 60_000 + 60_000 * 60).toISOString();
+
+    const { data: depCandidates } = await context.supabase
       .from("itinerary_items")
-      .select("id, trip_id, trips(title)")
+      .select("id, trip_id, start_at, trips(title)")
       .eq("kind", "outbound")
-      .gte("start_at", dep55)
-      .lte("start_at", dep65);
+      .gte("start_at", wideFrom)
+      .lte("start_at", wideTo);
 
-    for (const item of departures ?? []) {
-      const tripTitle =
-        (item.trips as { title?: string } | null)?.title ?? null;
-      await upsertNotif({
-        user_id: user.id,
-        type: "trip_upcoming",
-        title: "Manca un'ora alla partenza",
-        body: tripTitle,
-        link: `/trips/${item.trip_id}`,
-        read: false,
-        notif_key: `departure_1h:${item.id}`,
-        trip_id: item.trip_id,
-      });
+    for (const item of depCandidates ?? []) {
+      if (!item.start_at) continue;
+      const actualDepUtcMs = naiveLocalToUtcMs(item.start_at, utcOffsetMinutes);
+      if (actualDepUtcMs >= dep55Ms && actualDepUtcMs <= dep65Ms) {
+        const tripTitle = (item.trips as any)?.title ?? null;
+        await upsertNotif({
+          user_id: user.id,
+          type: "trip_upcoming",
+          title: "notif_departure",
+          body: tripTitle,
+          link: `/trips/${item.trip_id}`,
+          read: false,
+          notif_key: `departure_1h:${item.id}`,
+          trip_id: item.trip_id,
+          meta: {},
+        });
+      }
     }
 
-    // ── 3. Arrival — at outbound end_at (window: -5 min / +2 min) ────────
-    const arrFrom = new Date(now.getTime() - 5 * 60_000).toISOString();
-    const arrTo = new Date(now.getTime() + 2 * 60_000).toISOString();
+    // ── 3. Arrival — at outbound end_at (destination local time) ─────────
+    // Window: [now-5min, now+2min] in UTC
+    const arrFromMs = now.getTime() - 5 * 60_000;
+    const arrToMs   = now.getTime() + 2 * 60_000;
 
-    const { data: arrivals } = await context.supabase
+    const { data: arrCandidates } = await context.supabase
       .from("itinerary_items")
-      .select("id, trip_id, trips(title, country)")
+      .select("id, trip_id, end_at, trips(title, country)")
       .eq("kind", "outbound")
-      .gte("end_at", arrFrom)
-      .lte("end_at", arrTo);
+      .gte("end_at", wideFrom)
+      .lte("end_at", wideTo);
 
-    for (const item of arrivals ?? []) {
-      const tripData = item.trips as {
-        title?: string;
-        country?: string | null;
-      } | null;
-      const country = tripData?.country ?? null;
+    for (const item of arrCandidates ?? []) {
+      if (!item.end_at) continue;
+      const tripData = item.trips as { title?: string; country?: string | null } | null;
+      const countryIso = tripData?.country ?? null;
 
-      let title: string;
-      let body: string | null = null;
+      // Compute destination UTC+ offset
+      let destOffset = 0;
+      if (countryIso) {
+        const destTz = primaryTimezoneOfCountry(countryIso);
+        if (destTz) destOffset = tzUtcOffsetMinutes(destTz, now);
+      }
 
-      if (country) {
-        // Fetch all past/current trips with a country to compute ordinals
+      const actualArrUtcMs = naiveLocalToUtcMs(item.end_at, destOffset);
+      if (actualArrUtcMs < arrFromMs || actualArrUtcMs > arrToMs) continue;
+
+      const todayStr = now.toISOString().slice(0, 10);
+
+      let titleKey: string;
+      let bodyKey: string | null = null;
+      let meta: Record<string, unknown> = {};
+
+      if (countryIso) {
+        // Exclude the current trip so the result is deterministic whether or not
+        // the trip has already ended (end_date <= today).
         const { data: pastTrips } = await context.supabase
           .from("trips")
           .select("id, country")
           .not("country", "is", null)
+          .neq("id", item.trip_id)
           .lte("end_date", todayStr);
 
         const all = (pastTrips ?? []) as { id: string; country: string }[];
-        const sameCountry = all.filter((t) => t.country === country);
+        const sameCountry = all.filter((t) => t.country === countryIso);
         const uniqueCountries = new Set(all.map((t) => t.country));
+        // Always include the country we just arrived in.
+        uniqueCountries.add(countryIso);
 
-        if (sameCountry.length <= 1) {
-          // First visit: "Benvenuto in X. Questo è il tuo N° paese visitato"
-          title = `Benvenuto in ${country}`;
-          body = `Questo è il tuo ${ordinalItM(uniqueCountries.size)} paese visitato`;
+        if (sameCountry.length === 0) {
+          // First time visiting this country
+          titleKey = "notif_arrival_new";
+          bodyKey  = "notif_arrival_new_body";
+          meta = { country_iso: countryIso, n: uniqueCountries.size };
         } else {
-          // Return visit: "Bentornato in X. Questa è la N° volta in questo paese"
-          title = `Bentornato in ${country}`;
-          body = `Questa è la ${ordinalItF(sameCountry.length)} volta in questo paese`;
+          // Returning: past ended trips + this one
+          titleKey = "notif_arrival_return";
+          bodyKey  = "notif_arrival_return_body";
+          meta = { country_iso: countryIso, n: sameCountry.length + 1 };
         }
       } else {
-        title = "Benvenuto!";
-        body = tripData?.title ?? null;
+        titleKey = "notif_arrival_generic";
+        meta = {};
       }
 
       await upsertNotif({
         user_id: user.id,
         type: "trip_ongoing",
-        title,
-        body,
+        title: titleKey,
+        body: bodyKey,
         link: `/trips/${item.trip_id}`,
         read: false,
         notif_key: `arrival:${item.id}`,
         trip_id: item.trip_id,
+        meta,
       });
     }
   });
