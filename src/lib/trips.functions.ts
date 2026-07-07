@@ -93,3 +93,29 @@ export const deleteTrip = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     return { ok: true };
   });
+
+/**
+ * Returns inbound itinerary items (kind="inbound") for trips whose end_date is today.
+ * Used by the home page to determine if a trip ending today has truly concluded
+ * (i.e. the return flight has already landed).
+ */
+export const getTodayInboundItems = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const today = new Date().toISOString().slice(0, 10);
+
+    const { data: todayTrips } = await context.supabase
+      .from("trips")
+      .select("id")
+      .eq("end_date", today);
+
+    if (!todayTrips?.length) return [] as { trip_id: string; end_at: string | null }[];
+
+    const { data: items } = await context.supabase
+      .from("itinerary_items")
+      .select("trip_id, end_at")
+      .eq("kind", "inbound")
+      .in("trip_id", todayTrips.map((t) => t.id));
+
+    return (items ?? []) as { trip_id: string; end_at: string | null }[];
+  });

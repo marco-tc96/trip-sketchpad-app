@@ -249,16 +249,43 @@ export const checkTripNotifications = createServerFn({ method: "POST" })
       let meta: Record<string, unknown> = {};
 
       if (countryIso) {
-        // Exclude the current trip so the result is deterministic whether or not
-        // the trip has already ended (end_date <= today).
-        const { data: pastTrips } = await context.supabase
+        // Fetch trips ending by today, excluding the current trip.
+        const { data: rawTrips } = await context.supabase
           .from("trips")
-          .select("id, country")
+          .select("id, country, end_date")
           .not("country", "is", null)
           .neq("id", item.trip_id)
           .lte("end_date", todayStr);
 
-        const all = (pastTrips ?? []) as { id: string; country: string }[];
+        // For trips whose end_date is today, check whether the inbound (return)
+        // flight has actually landed — only then the trip is truly concluded.
+        const todayTrips = (rawTrips ?? []).filter((t: any) => t.end_date === todayStr);
+        const concludedTodayIds = new Set<string>();
+
+        if (todayTrips.length > 0) {
+          const { data: inboundItems } = await context.supabase
+            .from("itinerary_items")
+            .select("trip_id, end_at")
+            .eq("kind", "inbound")
+            .in("trip_id", todayTrips.map((t: any) => t.id));
+
+          const nowMs = now.getTime();
+          for (const trip of todayTrips) {
+            const inbound = (inboundItems ?? []).find((i: any) => i.trip_id === trip.id);
+            if (!inbound?.end_at) {
+              // No return flight stored → treat as concluded when end_date is reached
+              concludedTodayIds.add(trip.id);
+            } else {
+              const inboundUtcMs = naiveLocalToUtcMs(inbound.end_at as string, utcOffsetMinutes);
+              if (inboundUtcMs <= nowMs) concludedTodayIds.add(trip.id);
+            }
+          }
+        }
+
+        const all = (rawTrips ?? []).filter(
+          (t: any) => t.end_date < todayStr || concludedTodayIds.has(t.id)
+        ) as { id: string; country: string }[];
+
         const sameCountry = all.filter((t) => t.country === countryIso);
         const uniqueCountries = new Set(all.map((t) => t.country));
         // Always include the country we just arrived in.

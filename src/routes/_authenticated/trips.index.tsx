@@ -4,7 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { MapPin, Calendar, Briefcase, Palmtree, Footprints, Globe2, Pin, PinOff, Cloud, Compass } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { listTrips } from "@/lib/trips.functions";
+import { listTrips, getTodayInboundItems } from "@/lib/trips.functions";
 import { getProfile } from "@/lib/profile.functions";
 import { flagOf, cityNameLocalized } from "@/lib/country-data";
 import { CityCover } from "@/components/app/city-cover";
@@ -20,22 +20,60 @@ export const Route = createFileRoute("/_authenticated/trips/")({
 type Trip = Awaited<ReturnType<typeof listTrips>>[number];
 type TripAccent = "ongoing" | "planned" | "past" | "wishlist";
 
+/**
+ * Converts a naive local-time ISO string to UTC milliseconds
+ * given the UTC+ offset in minutes of the source timezone.
+ */
+function naiveLocalToUtcMs(naiveDateStr: string, utcPlusMinutes: number): number {
+  return new Date(naiveDateStr).getTime() - utcPlusMinutes * 60_000;
+}
+
 function TripsList() {
   const { t, i18n } = useTranslation();
   const lang = i18n.language ?? "en";
   const fn = useServerFn(listTrips);
+  const inboundFn = useServerFn(getTodayInboundItems);
   const profileFn = useServerFn(getProfile);
   const q = useQuery({ queryKey: ["trips"], queryFn: () => fn() });
+  const inboundQ = useQuery({ queryKey: ["today-inbound"], queryFn: () => inboundFn() });
   const profileQ = useQuery({ queryKey: ["profile"], queryFn: () => profileFn() });
   const homeCountry = (profileQ.data as { home_country?: string | null } | undefined)?.home_country ?? null;
 
   const today = new Date().toISOString().slice(0, 10);
+  // User's UTC+ offset in minutes (e.g. +120 for UTC+2)
+  const utcOffsetMinutes = -new Date().getTimezoneOffset();
   const trips = q.data ?? [];
 
   // Scroll to top on mount
   useEffect(() => {
     window.scrollTo(0, 0);
   }, []);
+
+  // Map of trip_id → inbound end_at for trips ending today
+  const todayInboundMap = useMemo(() => {
+    const map = new Map<string, string | null>();
+    for (const item of inboundQ.data ?? []) {
+      map.set(item.trip_id, item.end_at);
+    }
+    return map;
+  }, [inboundQ.data]);
+
+  /**
+   * A trip is "concluded" (past) if:
+   * - end_date < today, OR
+   * - end_date === today AND the inbound (return) flight's end_at has passed
+   *   (if no inbound item is stored, keep as ongoing until midnight)
+   */
+  const isConcluded = useMemo(() => (tr: Trip): boolean => {
+    if (tr.end_date < today) return true;
+    if (tr.end_date > today) return false;
+    // end_date === today: check return flight
+    if (!todayInboundMap.has(tr.id)) return false; // no inbound item → stays ongoing
+    const endAt = todayInboundMap.get(tr.id);
+    if (!endAt) return false; // inbound item exists but end_at is null
+    const inboundUtcMs = naiveLocalToUtcMs(endAt, utcOffsetMinutes);
+    return inboundUtcMs <= Date.now();
+  }, [today, todayInboundMap, utcOffsetMinutes]);
 
   // Wishlist trips are identified by sentinel start_date "2099-01-01"
   const WISHLIST_SENTINEL = "2099-01-01";
@@ -49,16 +87,16 @@ function TripsList() {
   );
 
   const ongoing = useMemo(
-    () => realTrips.filter((tr) => tr.start_date <= today && tr.end_date >= today).sort((a, b) => b.start_date.localeCompare(a.start_date)),
-    [realTrips, today],
+    () => realTrips.filter((tr) => tr.start_date <= today && !isConcluded(tr)).sort((a, b) => b.start_date.localeCompare(a.start_date)),
+    [realTrips, today, isConcluded],
   );
   const planned = useMemo(
     () => realTrips.filter((tr) => tr.start_date > today).sort((a, b) => a.start_date.localeCompare(b.start_date)),
     [realTrips, today],
   );
   const past = useMemo(
-    () => realTrips.filter((tr) => tr.end_date < today).sort((a, b) => b.start_date.localeCompare(a.start_date)),
-    [realTrips, today],
+    () => realTrips.filter((tr) => isConcluded(tr)).sort((a, b) => b.start_date.localeCompare(a.start_date)),
+    [realTrips, isConcluded],
   );
 
   // Map data — past = orange, ongoing = yellow, planned = gray, wishlist = blue dashed
