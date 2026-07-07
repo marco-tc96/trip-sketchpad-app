@@ -203,7 +203,9 @@ function NotificationBootstrap() {
 
     const check = async () => {
       try {
-        await checkFn();
+        const now = new Date();
+        const localDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+        await checkFn({ data: { localDate, utcOffsetMinutes: -now.getTimezoneOffset() } });
         qc.invalidateQueries({ queryKey: ["notifications"] });
         qc.invalidateQueries({ queryKey: ["notifications-count"] });
       } catch (e) {
