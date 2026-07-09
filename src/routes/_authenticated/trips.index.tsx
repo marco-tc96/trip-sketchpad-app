@@ -44,9 +44,11 @@ function TripsList() {
   const utcOffsetMinutes = -new Date().getTimezoneOffset();
   const trips = q.data ?? [];
 
-  // Scroll to top on mount
+  // Scroll to top on mount — requestAnimationFrame ensures it runs after any
+  // router scroll-restoration that may fire asynchronously (fixes "page starts
+  // at the bottom" on app open).
   useEffect(() => {
-    window.scrollTo(0, 0);
+    requestAnimationFrame(() => window.scrollTo(0, 0));
   }, []);
 
   // Map of trip_id → inbound end_at for trips ending today
@@ -323,6 +325,9 @@ function Section({
   const carouselRef = useRef<HTMLDivElement>(null);
   const dotsRef = useRef<HTMLDivElement>(null);
   const dotRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  // Prevents scrollIntoView from firing on first mount (which would scroll the
+  // whole page down to the dots row).
+  const isFirstDotMount = useRef(true);
 
   const years = useMemo(() => {
     const ys = new Set(trips.map((tr) => tr.start_date.slice(0, 4)));
@@ -338,6 +343,11 @@ function Section({
   useEffect(() => { setIdx(0); setDragX(0); }, [selectedYear]);
 
   useEffect(() => {
+    // Skip on first render to avoid scrolling the page to the dots on load.
+    if (isFirstDotMount.current) {
+      isFirstDotMount.current = false;
+      return;
+    }
     dotRefs.current[idx]?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
   }, [idx]);
 
@@ -450,10 +460,17 @@ function Section({
                   const eff = offset + dragFrac;
 
                   const isCurrent = offset === 0;
-                  const rotate    = eff * 5;                                     // ±5deg max (was 8)
-                  const scale     = Math.max(0.84, 1 - Math.abs(eff) * 0.16);   // 0.84 min (was 0.80)
-                  const brightness = Math.max(0.55, 1 - Math.abs(eff) * 0.45);  // 0.55 min (was 0.48)
+                  const rotate    = eff * 5;                                     // ±5deg max
+                  const scale     = Math.max(0.84, 1 - Math.abs(eff) * 0.16);   // 0.84 min
+                  const brightness = Math.max(0.55, 1 - Math.abs(eff) * 0.45);  // 0.55 min
                   const translateVw = offset * PEEK_VW;
+
+                  // During drag, the card whose |eff| is smaller (closest to centre)
+                  // rises to the front. This makes the approaching card naturally slide
+                  // ON TOP of the departing card as you swipe past the halfway point.
+                  const zIndex = dragging
+                    ? (Math.abs(eff) < 0.5 ? 10 : 5)
+                    : (isCurrent ? 10 : 5);
 
                   return (
                     <div
@@ -463,7 +480,7 @@ function Section({
                         top: "50%",
                         left: "50%",
                         transform: `translate(calc(-50% + ${translateVw}vw + ${dragging ? dragX : 0}px), -50%) rotate(${rotate}deg) scale(${scale})`,
-                        zIndex: isCurrent ? 10 : 5,
+                        zIndex,
                         filter: brightness < 1 ? `brightness(${brightness})` : undefined,
                         // expo-out easing → starts fast, decelerates naturally
                         transition: dragging
