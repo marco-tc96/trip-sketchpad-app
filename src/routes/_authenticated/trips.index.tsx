@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { MapPin, Calendar, Briefcase, Palmtree, Footprints, Globe2, Pin, PinOff, Cloud, Compass, Heart } from "lucide-react";
+import { MapPin, Calendar, Briefcase, Palmtree, Footprints, Globe2, Pin, PinOff, Cloud, Compass } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { listTrips, getTodayInboundItems } from "@/lib/trips.functions";
@@ -63,15 +63,6 @@ function TripsList() {
     } catch { return new Set<string>(); }
   });
 
-  function toggleFavorite(id: string) {
-    setFavorites((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      try { localStorage.setItem("trip_favorites", JSON.stringify([...next])); } catch { /* ignore */ }
-      return next;
-    });
-  }
-
   const todayInboundMap = useMemo(() => {
     const map = new Map<string, string | null>();
     for (const item of inboundQ.data ?? []) map.set(item.trip_id, item.end_at);
@@ -109,29 +100,6 @@ function TripsList() {
     () => trips.filter((tr) => favorites.has(tr.id)),
     [trips, favorites],
   );
-
-  const favoriteCountries = useMemo(() => {
-    const set = new Set<string>();
-    for (const tr of favoriteTrips) {
-      const cs = (tr as unknown as { countries?: string[] }).countries;
-      if (Array.isArray(cs)) cs.forEach((c) => set.add(c));
-    }
-    return Array.from(set);
-  }, [favoriteTrips]);
-
-  const favoriteCities = useMemo<WorldMapCity[]>(() => {
-    const seen = new Set<string>();
-    const out: WorldMapCity[] = [];
-    for (const tr of favoriteTrips) {
-      for (const c of getCities(tr)) {
-        const key = `${c.country}|${c.name.toLowerCase()}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push(c);
-      }
-    }
-    return out;
-  }, [favoriteTrips]);
 
   const visitedCountries = useMemo(() => {
     const set = new Set<string>();
@@ -270,8 +238,6 @@ function TripsList() {
             plannedCities={plannedCities}
             wishlistCountries={wishlistCountries}
             wishlistCities={wishlistCities}
-            favoriteCountries={favoriteCountries}
-            favoriteCities={favoriteCities}
             homeCountry={homeCountry}
             showPins={showPins}
             showSubdivisions={false}
@@ -288,50 +254,19 @@ function TripsList() {
       ) : (
         <div className="mt-8 space-y-8">
           {ongoing.length > 0 && (
-            <Section
-              title={t("ongoing")}
-              trips={ongoing}
-              accent="ongoing"
-              favorites={favorites}
-              onToggleFavorite={toggleFavorite}
-            />
+            <Section title={t("ongoing")} trips={ongoing} accent="ongoing" />
           )}
           {planned.length > 0 && (
-            <Section
-              title={t("planned")}
-              trips={planned}
-              accent="planned"
-              favorites={favorites}
-              onToggleFavorite={toggleFavorite}
-            />
+            <Section title={t("planned")} trips={planned} accent="planned" />
           )}
           {past.length > 0 && (
-            <Section
-              title={t("past")}
-              trips={past}
-              accent="past"
-              withYearSelector
-              favorites={favorites}
-              onToggleFavorite={toggleFavorite}
-            />
+            <Section title={t("past")} trips={past} accent="past" withYearSelector />
           )}
           {favoriteTrips.length > 0 && (
-            <Section
-              title={t("favorites")}
-              trips={favoriteTrips}
-              accent="favorites"
-              favorites={favorites}
-              onToggleFavorite={toggleFavorite}
-            />
+            <Section title={t("favorites")} trips={favoriteTrips} accent="favorites" />
           )}
           {wishlistTrips.length > 0 && (
-            <Section
-              title={t("wishlist")}
-              trips={wishlistTrips}
-              accent="wishlist"
-              favorites={favorites}
-              onToggleFavorite={toggleFavorite}
-            />
+            <Section title={t("wishlist")} trips={wishlistTrips} accent="wishlist" />
           )}
         </div>
       )}
@@ -384,15 +319,11 @@ function Section({
   trips,
   accent,
   withYearSelector = false,
-  favorites,
-  onToggleFavorite,
 }: {
   title: string;
   trips: Trip[];
   accent: TripAccent;
   withYearSelector?: boolean;
-  favorites?: Set<string>;
-  onToggleFavorite?: (id: string) => void;
 }) {
   const { t } = useTranslation();
 
@@ -474,9 +405,6 @@ function Section({
   return (
     <section>
       <div className="mb-3 flex items-center gap-2">
-        {accent === "favorites" && (
-          <Heart className="h-3.5 w-3.5 fill-current" style={{ color: dotColor }} />
-        )}
         <h2 className="text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground sm:text-left">
           {title}
         </h2>
@@ -505,8 +433,6 @@ function Section({
             <TripCard
               trip={filtered[0]}
               carousel
-              isFavorite={favorites?.has(filtered[0].id) ?? false}
-              onToggleFavorite={() => onToggleFavorite?.(filtered[0].id)}
             />
           </div>
         ) : (
@@ -562,8 +488,6 @@ function Section({
                       <TripCard
                         trip={tr}
                         carousel
-                        isFavorite={favorites?.has(tr.id) ?? false}
-                        onToggleFavorite={() => onToggleFavorite?.(tr.id)}
                       />
                     </div>
                   );
@@ -611,12 +535,7 @@ function Section({
       {/* ─── Desktop grid ─── */}
       <div className="hidden sm:grid sm:grid-cols-3 sm:gap-3 lg:grid-cols-4">
         {filtered.map((tr) => (
-          <TripCard
-            key={tr.id}
-            trip={tr}
-            isFavorite={favorites?.has(tr.id) ?? false}
-            onToggleFavorite={() => onToggleFavorite?.(tr.id)}
-          />
+          <TripCard key={tr.id} trip={tr} />
         ))}
       </div>
     </section>
@@ -642,13 +561,9 @@ function getCities(trip: Trip): CityObj[] {
 function TripCard({
   trip,
   carousel = false,
-  isFavorite = false,
-  onToggleFavorite,
 }: {
   trip: Trip;
   carousel?: boolean;
-  isFavorite?: boolean;
-  onToggleFavorite?: () => void;
 }) {
   const { i18n } = useTranslation();
   const lang = i18n.language ?? "en";
@@ -691,27 +606,10 @@ function TripCard({
         <TripTypePill tripType={tripType} />
       </div>
 
-      {/* Top-right: heart + flag */}
-      <div className="absolute right-3 top-3 flex flex-col items-end gap-1.5 z-20">
-        <button
-          type="button"
-          aria-label={isFavorite ? "Rimuovi dai preferiti" : "Aggiungi ai preferiti"}
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            onToggleFavorite?.();
-          }}
-          className="flex h-7 w-7 items-center justify-center rounded-full bg-black/45 backdrop-blur transition hover:bg-black/65 active:scale-90"
-        >
-          <Heart
-            className="h-3.5 w-3.5 transition-colors"
-            style={isFavorite ? { fill: "oklch(0.60 0.22 25)", color: "oklch(0.60 0.22 25)" } : { color: "white" }}
-          />
-        </button>
-        {flagStr && (
-          <div className="rounded-full bg-black/45 px-2 py-0.5 text-sm leading-none backdrop-blur">{flagStr}</div>
-        )}
-      </div>
+      {/* Top-right: flag */}
+      {flagStr && (
+        <div className="absolute right-3 top-3 z-20 rounded-full bg-black/45 px-2 py-0.5 text-sm leading-none backdrop-blur">{flagStr}</div>
+      )}
 
       <div className="relative z-10 flex flex-col gap-1.5 p-4 text-white">
         <h3 className="font-serif text-lg font-semibold leading-tight tracking-tight line-clamp-2">

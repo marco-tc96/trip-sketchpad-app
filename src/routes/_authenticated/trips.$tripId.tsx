@@ -1,7 +1,7 @@
 import { createFileRoute, Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowLeft, Trash2, Image as ImageIcon, Map as MapIcon, Sparkles, Upload, Palette, Check, Pencil, X, Plus, ChevronsUpDown, Briefcase, Palmtree, Footprints, CalendarDays, Wallet, Clock, Move, Menu, ChevronUp } from "lucide-react";
+import { ArrowLeft, Trash2, Image as ImageIcon, Map as MapIcon, Sparkles, Upload, Palette, Check, Pencil, X, Plus, ChevronsUpDown, Briefcase, Palmtree, Footprints, CalendarDays, Wallet, Clock, Move, Menu, ChevronUp, Heart } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useEffect, useRef, useState } from "react";
@@ -21,7 +21,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "@tanstack/react-router";
-import { countryNameLocalized, citiesOfCountry, flagOf, localizedCountries, cityNameLocalized, primaryTimezoneOfCountry, currencyForCountryAt, geocodeCity } from "@/lib/country-data";
+import { countryNameLocalized, citiesOfCountry, flagOf, localizedCountries, cityNameLocalized, primaryTimezoneOfCountry, currencyForCountryAt } from "@/lib/country-data";
 import { flagGradient } from "@/lib/flag-gradient";
 
 export const Route = createFileRoute("/_authenticated/trips/$tripId")({
@@ -77,6 +77,28 @@ function TripLayout() {
     observer.observe(sentinel);
     return () => observer.disconnect();
   }, [trip.data]);
+
+  const [isFavorite, setIsFavorite] = useState(() => {
+    try {
+      const stored = localStorage.getItem("trip_favorites");
+      return stored ? (JSON.parse(stored) as string[]).includes(tripId) : false;
+    } catch { return false; }
+  });
+
+  function toggleFavorite() {
+    setIsFavorite((prev) => {
+      const next = !prev;
+      try {
+        const stored = localStorage.getItem("trip_favorites");
+        const ids: string[] = stored ? (JSON.parse(stored) as string[]) : [];
+        const updated = next
+          ? [...new Set([...ids, tripId])]
+          : ids.filter((id) => id !== tripId);
+        localStorage.setItem("trip_favorites", JSON.stringify(updated));
+      } catch { /* ignore */ }
+      return next;
+    });
+  }
 
   if (trip.isLoading || !trip.data) {
     return <main className="mx-auto max-w-5xl px-4 py-8 text-sm text-muted-foreground">{t("loading")}</main>;
@@ -236,6 +258,18 @@ function TripLayout() {
         >
           <ArrowLeft className="h-4 w-4" />
         </Link>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={toggleFavorite}
+            aria-label={isFavorite ? "Rimuovi dai preferiti" : "Aggiungi ai preferiti"}
+            className="inline-flex items-center justify-center rounded-full bg-background/60 p-2.5 text-foreground backdrop-blur hover:bg-background/80"
+          >
+            <Heart
+              className="h-4 w-4 transition-colors"
+              style={isFavorite ? { fill: "oklch(0.58 0.22 25)", color: "oklch(0.58 0.22 25)" } : undefined}
+            />
+          </button>
         {/* Hamburger trigger. Options stack top-to-bottom in a vertical
             menu to the left of the trigger button, not as a row of pills. */}
         <Popover open={coverMenuOpen} onOpenChange={setCoverMenuOpen}>
@@ -314,6 +348,7 @@ function TripLayout() {
             </div>
           </PopoverContent>
         </Popover>
+        </div>
       </div>
 
       {/* Compact pinned title pill — fades in once the title-card sentinel
@@ -576,7 +611,6 @@ function EditTripDialog({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [countryQuery, setCountryQuery] = useState("");
   const [countryPickerOpen, setCountryPickerOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -850,39 +884,20 @@ function EditTripDialog({
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>{t("cancel")}</Button>
           <Button
-            disabled={saving}
-            onClick={async () => {
-              setSaving(true);
-              try {
-                // Geocode any cities that are missing lat/lng so pins appear on the map.
-                // Cities selected from the countriesnow list don't carry coordinates;
-                // we resolve them here before persisting, one at a time to respect
-                // Nominatim's rate-limit.
-                const geocoded: typeof cities = [];
-                for (const c of cities) {
-                  if (typeof c.lat === "number" && typeof c.lng === "number") {
-                    geocoded.push(c);
-                  } else {
-                    const coords = await geocodeCity(c.name, c.country);
-                    geocoded.push(coords ? { ...c, ...coords } : c);
-                  }
-                }
-                await onSave({
-                  title: title.trim() || initialTitle,
-                  cities: geocoded,
-                  countries,
-                  destination: cities[0]?.name ?? null,
-                  trip_type: type,
-                  cover_emoji: emoji || "✈️",
-                  start_date: startDate || initialStartDate,
-                  end_date: endDate || initialEndDate,
-                });
-              } finally {
-                setSaving(false);
-              }
-            }}
+            onClick={() =>
+              onSave({
+                title: title.trim() || initialTitle,
+                cities,
+                countries,
+                destination: cities[0]?.name ?? null,
+                trip_type: type,
+                cover_emoji: emoji || "✈️",
+                start_date: startDate || initialStartDate,
+                end_date: endDate || initialEndDate,
+              })
+            }
           >
-            {saving ? "…" : t("save")}
+            {t("save")}
           </Button>
         </DialogFooter>
       </DialogContent>
