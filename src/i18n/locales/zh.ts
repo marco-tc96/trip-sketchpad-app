@@ -146,6 +146,7 @@ const translations: Record<string, string> = {
   notifications: "通知",
   no_notifications: "暂无通知。",
   mark_all_read: "全部标为已读",
+  favorites: "收藏",
   wishlist: "愿望清单",
   trip: "旅行",
   dream_trip: "梦想之旅",

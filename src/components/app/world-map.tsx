@@ -54,6 +54,14 @@ const wishlistPinIcon = L.divIcon({
   iconAnchor: [7, 7],
 });
 
+// Slightly larger red pin so favorites stand out clearly above other pin types.
+const favoritePinIcon = L.divIcon({
+  className: "voyager-pin-favorite",
+  html: `<span style="display:block;width:16px;height:16px;border-radius:9999px;background:oklch(0.58 0.22 25);border:2.5px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.45)"></span>`,
+  iconSize: [16, 16],
+  iconAnchor: [8, 8],
+});
+
 // ── Country-level GeoJSON ────────────────────────────────────────────────────
 let _worldCache: GeoCollection | null = null;
 let _worldLoading: Promise<GeoCollection> | null = null;
@@ -204,6 +212,8 @@ export function WorldMap({
   ongoingCities = [],
   wishlistCountries = [],
   wishlistCities = [],
+  favoriteCountries = [],
+  favoriteCities = [],
   homeCountry = null,
   showPins = true,
   lang = "en",
@@ -217,6 +227,8 @@ export function WorldMap({
   ongoingCities?: WorldMapCity[];
   wishlistCountries?: string[];
   wishlistCities?: WorldMapCity[];
+  favoriteCountries?: string[];
+  favoriteCities?: WorldMapCity[];
   homeCountry?: string | null;
   showPins?: boolean;
   lang?: string;
@@ -291,6 +303,14 @@ export function WorldMap({
     );
   }, [wishlistCities, pins, ongoingPins, plannedPins]);
 
+  // Favorite pins are rendered last (on top) and include all cities of favorite
+  // trips regardless of whether they appear in other pin sets — the red pin
+  // intentionally overrides whatever was underneath.
+  const favoritePins = useMemo(
+    () => dedupePins(enrichCoords(favoriteCities)),
+    [favoriteCities],
+  );
+
   const visitedBounds = useMemo<L.LatLngBoundsExpression | null>(() => {
     if (!world) return null;
     const pts: [number, number][] = [];
@@ -315,8 +335,9 @@ export function WorldMap({
     for (const p of ongoingPins) pts.push([p.lat, p.lng]);
     for (const p of plannedPins) pts.push([p.lat, p.lng]);
     for (const p of wishlistPins) pts.push([p.lat, p.lng]);
+    for (const p of favoritePins) pts.push([p.lat, p.lng]);
     return pts.length > 0 ? L.latLngBounds(pts) : null;
-  }, [world, visitedSet, ongoingSet, plannedSet, wishlistSet, pins, ongoingPins, plannedPins, wishlistPins]);
+  }, [world, visitedSet, ongoingSet, plannedSet, wishlistSet, pins, ongoingPins, plannedPins, wishlistPins, favoritePins]);
 
   const countryStyle = (feature?: GeoFeature) => {
     const iso = feature ? isoOf(feature) : null;
@@ -357,7 +378,7 @@ export function WorldMap({
     );
   }
 
-  const geoKey = `country-v${visitedSet.size}-o${ongoingSet.size}-p${plannedSet.size}-w${wishlistSet.size}-h${homeIso}`;
+  const geoKey = `country-v${visitedSet.size}-o${ongoingSet.size}-p${plannedSet.size}-w${wishlistSet.size}-h${homeIso}-f${favoritePins.length}`;
 
   return (
     <div className={`relative ${className ?? ""}`}>
@@ -404,6 +425,13 @@ export function WorldMap({
           wishlistPins.map((c, i) => (
             <Marker key={`w-${c.country}-${c.name}-${i}`} position={[c.lat, c.lng]} icon={wishlistPinIcon}>
               <Tooltip direction="top" offset={[0, -6]}>{cityNameLocalized(c.name, lang)}</Tooltip>
+            </Marker>
+          ))}
+        {/* Favorite pins rendered last so they sit on top of any overlapping pin */}
+        {showPins &&
+          favoritePins.map((c, i) => (
+            <Marker key={`fav-${c.country}-${c.name}-${i}`} position={[c.lat, c.lng]} icon={favoritePinIcon}>
+              <Tooltip direction="top" offset={[0, -7]}>❤ {cityNameLocalized(c.name, lang)}</Tooltip>
             </Marker>
           ))}
 

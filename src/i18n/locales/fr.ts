@@ -146,6 +146,7 @@ const translations: Record<string, string> = {
   notifications: "Notifications",
   no_notifications: "Aucune notification pour l'instant.",
   mark_all_read: "Marquer tout comme lu",
+  favorites: "Favoris",
   wishlist: "Liste de souhaits",
   trip: "Voyage",
   dream_trip: "Voyage de rêve",

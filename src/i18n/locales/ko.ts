@@ -146,6 +146,7 @@ const translations: Record<string, string> = {
   notifications: "알림",
   no_notifications: "알림이 없습니다.",
   mark_all_read: "모두 읽음 표시",
+  favorites: "즐겨찾기",
   wishlist: "위시리스트",
   trip: "여행",
   dream_trip: "꿈의 여행",

@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { MapPin, Calendar, Briefcase, Palmtree, Footprints, Globe2, Pin, PinOff, Cloud, Compass } from "lucide-react";
+import { MapPin, Calendar, Briefcase, Palmtree, Footprints, Globe2, Pin, PinOff, Cloud, Compass, Heart } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { listTrips, getTodayInboundItems } from "@/lib/trips.functions";
@@ -18,7 +18,7 @@ export const Route = createFileRoute("/_authenticated/trips/")({
 });
 
 type Trip = Awaited<ReturnType<typeof listTrips>>[number];
-type TripAccent = "ongoing" | "planned" | "past" | "wishlist";
+type TripAccent = "ongoing" | "planned" | "past" | "wishlist" | "favorites";
 
 function naiveLocalToUtcMs(naiveDateStr: string, utcPlusMinutes: number): number {
   return new Date(naiveDateStr).getTime() - utcPlusMinutes * 60_000;
@@ -39,14 +39,38 @@ function TripsList() {
   const utcOffsetMinutes = -new Date().getTimezoneOffset();
   const trips = q.data ?? [];
 
-  // ── Scroll to top on mount ───────────────────────────────────────────────
-  // useLayoutEffect fires before paint (overrides synchronous scroll restoration).
-  useLayoutEffect(() => { window.scrollTo(0, 0); }, []);
-  // setTimeout covers async scroll restoration that fires after effects.
-  useEffect(() => {
-    const id = setTimeout(() => window.scrollTo(0, 0), 60);
-    return () => clearTimeout(id);
+  // ── Scroll-to-top on mount ───────────────────────────────────────────────
+  // 1. Disable browser/router scroll-restoration so it can't fight us.
+  // 2. useLayoutEffect scrolls synchronously before the first paint.
+  // 3. rAF + 200 ms timeout catch any async restoration that fires later.
+  useLayoutEffect(() => {
+    const prev = history.scrollRestoration;
+    history.scrollRestoration = "manual";
+    window.scrollTo(0, 0);
+    return () => { history.scrollRestoration = prev; };
   }, []);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => window.scrollTo(0, 0));
+    const id = setTimeout(() => window.scrollTo(0, 0), 200);
+    return () => { cancelAnimationFrame(frame); clearTimeout(id); };
+  }, []);
+
+  // ── Favorites (localStorage) ─────────────────────────────────────────────
+  const [favorites, setFavorites] = useState<Set<string>>(() => {
+    try {
+      const stored = localStorage.getItem("trip_favorites");
+      return stored ? new Set<string>(JSON.parse(stored) as string[]) : new Set<string>();
+    } catch { return new Set<string>(); }
+  });
+
+  function toggleFavorite(id: string) {
+    setFavorites((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      try { localStorage.setItem("trip_favorites", JSON.stringify([...next])); } catch { /* ignore */ }
+      return next;
+    });
+  }
 
   const todayInboundMap = useMemo(() => {
     const map = new Map<string, string | null>();
@@ -79,6 +103,35 @@ function TripsList() {
     () => realTrips.filter((tr) => isConcluded(tr)).sort((a, b) => b.start_date.localeCompare(a.start_date)),
     [realTrips, isConcluded],
   );
+
+  // Favorites: include any trip (past / planned / ongoing / wishlist) that is favorited
+  const favoriteTrips = useMemo(
+    () => trips.filter((tr) => favorites.has(tr.id)),
+    [trips, favorites],
+  );
+
+  const favoriteCountries = useMemo(() => {
+    const set = new Set<string>();
+    for (const tr of favoriteTrips) {
+      const cs = (tr as unknown as { countries?: string[] }).countries;
+      if (Array.isArray(cs)) cs.forEach((c) => set.add(c));
+    }
+    return Array.from(set);
+  }, [favoriteTrips]);
+
+  const favoriteCities = useMemo<WorldMapCity[]>(() => {
+    const seen = new Set<string>();
+    const out: WorldMapCity[] = [];
+    for (const tr of favoriteTrips) {
+      for (const c of getCities(tr)) {
+        const key = `${c.country}|${c.name.toLowerCase()}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(c);
+      }
+    }
+    return out;
+  }, [favoriteTrips]);
 
   const visitedCountries = useMemo(() => {
     const set = new Set<string>();
@@ -217,6 +270,8 @@ function TripsList() {
             plannedCities={plannedCities}
             wishlistCountries={wishlistCountries}
             wishlistCities={wishlistCities}
+            favoriteCountries={favoriteCountries}
+            favoriteCities={favoriteCities}
             homeCountry={homeCountry}
             showPins={showPins}
             showSubdivisions={false}
@@ -232,10 +287,52 @@ function TripsList() {
         <EmptyState />
       ) : (
         <div className="mt-8 space-y-8">
-          {ongoing.length > 0 && <Section title={t("ongoing")} trips={ongoing} accent="ongoing" />}
-          {planned.length > 0 && <Section title={t("planned")} trips={planned} accent="planned" />}
-          {past.length > 0 && <Section title={t("past")} trips={past} accent="past" withYearSelector />}
-          {wishlistTrips.length > 0 && <Section title={t("wishlist")} trips={wishlistTrips} accent="wishlist" />}
+          {ongoing.length > 0 && (
+            <Section
+              title={t("ongoing")}
+              trips={ongoing}
+              accent="ongoing"
+              favorites={favorites}
+              onToggleFavorite={toggleFavorite}
+            />
+          )}
+          {planned.length > 0 && (
+            <Section
+              title={t("planned")}
+              trips={planned}
+              accent="planned"
+              favorites={favorites}
+              onToggleFavorite={toggleFavorite}
+            />
+          )}
+          {past.length > 0 && (
+            <Section
+              title={t("past")}
+              trips={past}
+              accent="past"
+              withYearSelector
+              favorites={favorites}
+              onToggleFavorite={toggleFavorite}
+            />
+          )}
+          {favoriteTrips.length > 0 && (
+            <Section
+              title={t("favorites")}
+              trips={favoriteTrips}
+              accent="favorites"
+              favorites={favorites}
+              onToggleFavorite={toggleFavorite}
+            />
+          )}
+          {wishlistTrips.length > 0 && (
+            <Section
+              title={t("wishlist")}
+              trips={wishlistTrips}
+              accent="wishlist"
+              favorites={favorites}
+              onToggleFavorite={toggleFavorite}
+            />
+          )}
         </div>
       )}
     </main>
@@ -268,16 +365,18 @@ function EmptyState() {
 }
 
 const ACCENT_COLORS: Record<TripAccent, string> = {
-  ongoing:  "oklch(0.78 0.16 85)",
-  planned:  "oklch(0.65 0 0)",
-  past:     "oklch(0.55 0.14 38)",
-  wishlist: "oklch(0.55 0.13 255)",
+  favorites: "oklch(0.58 0.22 25)",
+  ongoing:   "oklch(0.78 0.16 85)",
+  planned:   "oklch(0.65 0 0)",
+  past:      "oklch(0.55 0.14 38)",
+  wishlist:  "oklch(0.55 0.13 255)",
 };
 const ACCENT_LIGHT: Record<TripAccent, string> = {
-  ongoing:  "oklch(0.95 0.04 85)",
-  planned:  "oklch(0.95 0 0)",
-  past:     "oklch(0.95 0.03 38)",
-  wishlist: "oklch(0.95 0.02 255)",
+  favorites: "oklch(0.95 0.05 25)",
+  ongoing:   "oklch(0.95 0.04 85)",
+  planned:   "oklch(0.95 0 0)",
+  past:      "oklch(0.95 0.03 38)",
+  wishlist:  "oklch(0.95 0.02 255)",
 };
 
 function Section({
@@ -285,17 +384,19 @@ function Section({
   trips,
   accent,
   withYearSelector = false,
+  favorites,
+  onToggleFavorite,
 }: {
   title: string;
   trips: Trip[];
   accent: TripAccent;
   withYearSelector?: boolean;
+  favorites?: Set<string>;
+  onToggleFavorite?: (id: string) => void;
 }) {
   const { t } = useTranslation();
 
-  // Current snapped index (updated on touch end / dot click)
   const [idx, setIdx] = useState(0);
-  // Raw pixel drag offset from the initial touch point (reset to 0 on release)
   const [dragX, setDragX] = useState(0);
   const [dragging, setDragging] = useState(false);
 
@@ -304,7 +405,6 @@ function Section({
   const carouselRef = useRef<HTMLDivElement>(null);
   const dotsRef = useRef<HTMLDivElement>(null);
   const dotRefs = useRef<(HTMLButtonElement | null)[]>([]);
-  // Prevents scrollIntoView from scrolling the page on the very first render.
   const isFirstDotMount = useRef(true);
 
   const years = useMemo(() => {
@@ -332,8 +432,6 @@ function Section({
     setIdx((i) => Math.max(0, Math.min(filtered.length - 1, i + dir)));
   }
 
-  // Native touchmove listener with passive:false — needed to call e.preventDefault()
-  // and block vertical page scroll during horizontal swipes.
   useEffect(() => {
     const el = carouselRef.current;
     if (!el) return;
@@ -354,8 +452,6 @@ function Section({
     setDragX(0);
   }
 
-  // Simplified: set dragX directly from the raw touch offset.
-  // Rubber-band clamping is handled in the render using scrollOffset bounds.
   function handleTouchMove(e: React.TouchEvent) {
     if (touchStartX.current === null) return;
     setDragX(e.touches[0].clientX - touchStartX.current);
@@ -365,24 +461,22 @@ function Section({
     if (touchStartX.current === null) return;
     const dx = e.changedTouches[0].clientX - touchStartX.current;
     const peekPx = (PEEK_VW / 100) * (carouselRef.current?.offsetWidth ?? 400);
-
-    // Fractional scroll offset after this gesture
     const rawScrollOffset = idx - dx / peekPx;
-    // Snap to nearest card index, clamped to valid range
     const newIdx = Math.max(0, Math.min(filtered.length - 1, Math.round(rawScrollOffset)));
-
     setIdx(newIdx);
     setDragX(0);
     setDragging(false);
     touchStartX.current = null;
   }
 
-  // Distance in vw between adjacent card centres
   const PEEK_VW = 22;
 
   return (
     <section>
       <div className="mb-3 flex items-center gap-2">
+        {accent === "favorites" && (
+          <Heart className="h-3.5 w-3.5 fill-current" style={{ color: dotColor }} />
+        )}
         <h2 className="text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground sm:text-left">
           {title}
         </h2>
@@ -408,7 +502,12 @@ function Section({
       <div className="sm:hidden">
         {filtered.length === 0 ? null : filtered.length === 1 ? (
           <div className="flex justify-center">
-            <TripCard trip={filtered[0]} carousel />
+            <TripCard
+              trip={filtered[0]}
+              carousel
+              isFavorite={favorites?.has(filtered[0].id) ?? false}
+              onToggleFavorite={() => onToggleFavorite?.(filtered[0].id)}
+            />
           </div>
         ) : (
           <>
@@ -422,13 +521,7 @@ function Section({
             >
               {(() => {
                 const peekPx = (PEEK_VW / 100) * (carouselRef.current?.offsetWidth ?? 400);
-
-                // ── Continuous fractional scroll position ──────────────────
-                // dragX is the raw pixel offset; dividing by peekPx gives the
-                // fractional displacement in "card slot" units (no clamp).
                 const rawScrollOffset = idx - dragX / peekPx;
-
-                // Rubber-band at the hard edges (first and last card).
                 const scrollOffset =
                   rawScrollOffset < 0
                     ? rawScrollOffset * 0.18
@@ -437,21 +530,13 @@ function Section({
                     : rawScrollOffset;
 
                 return filtered.map((tr, i) => {
-                  // Fractional distance of card i from the visual centre.
                   const eff = i - scrollOffset;
-
-                  // Only render cards within ±2 slots of centre.
-                  // This pre-loads neighbours so a continuous swipe through
-                  // multiple cards never shows a blank slot.
                   if (Math.abs(eff) > 2) return null;
 
                   const rotate     = eff * 5;
                   const scale      = Math.max(0.84, 1 - Math.abs(eff) * 0.16);
                   const brightness = Math.max(0.55, 1 - Math.abs(eff) * 0.45);
                   const translateVw = eff * PEEK_VW;
-
-                  // The card closest to centre (smallest |eff|) goes on top,
-                  // so the approaching card rises above the departing one.
                   const zIndex =
                     Math.abs(eff) < 0.5 ? 10 :
                     Math.abs(eff) < 1.5 ? 5  : 3;
@@ -474,7 +559,12 @@ function Section({
                         pointerEvents: Math.abs(eff) < 0.5 ? "auto" : "none",
                       }}
                     >
-                      <TripCard trip={tr} carousel />
+                      <TripCard
+                        trip={tr}
+                        carousel
+                        isFavorite={favorites?.has(tr.id) ?? false}
+                        onToggleFavorite={() => onToggleFavorite?.(tr.id)}
+                      />
                     </div>
                   );
                 });
@@ -521,7 +611,12 @@ function Section({
       {/* ─── Desktop grid ─── */}
       <div className="hidden sm:grid sm:grid-cols-3 sm:gap-3 lg:grid-cols-4">
         {filtered.map((tr) => (
-          <TripCard key={tr.id} trip={tr} />
+          <TripCard
+            key={tr.id}
+            trip={tr}
+            isFavorite={favorites?.has(tr.id) ?? false}
+            onToggleFavorite={() => onToggleFavorite?.(tr.id)}
+          />
         ))}
       </div>
     </section>
@@ -544,7 +639,17 @@ function getCities(trip: Trip): CityObj[] {
     .filter((c) => c.name.length > 0);
 }
 
-function TripCard({ trip, carousel = false }: { trip: Trip; carousel?: boolean }) {
+function TripCard({
+  trip,
+  carousel = false,
+  isFavorite = false,
+  onToggleFavorite,
+}: {
+  trip: Trip;
+  carousel?: boolean;
+  isFavorite?: boolean;
+  onToggleFavorite?: () => void;
+}) {
   const { i18n } = useTranslation();
   const lang = i18n.language ?? "en";
   const cities = getCities(trip);
@@ -580,12 +685,34 @@ function TripCard({ trip, carousel = false }: { trip: Trip; carousel?: boolean }
     >
       <CityCover src={inlineSrc} gradient={gradient} eager={carousel} className="transition duration-700 group-hover:scale-[1.06]" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/85 via-black/40 to-transparent" />
+
+      {/* Top-left: trip type pill */}
       <div className="absolute left-3 top-3 flex items-center gap-1.5">
         <TripTypePill tripType={tripType} />
       </div>
-      {flagStr && (
-        <div className="absolute right-3 top-3 rounded-full bg-black/45 px-2 py-0.5 text-sm leading-none backdrop-blur">{flagStr}</div>
-      )}
+
+      {/* Top-right: heart + flag */}
+      <div className="absolute right-3 top-3 flex flex-col items-end gap-1.5 z-20">
+        <button
+          type="button"
+          aria-label={isFavorite ? "Rimuovi dai preferiti" : "Aggiungi ai preferiti"}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onToggleFavorite?.();
+          }}
+          className="flex h-7 w-7 items-center justify-center rounded-full bg-black/45 backdrop-blur transition hover:bg-black/65 active:scale-90"
+        >
+          <Heart
+            className="h-3.5 w-3.5 transition-colors"
+            style={isFavorite ? { fill: "oklch(0.60 0.22 25)", color: "oklch(0.60 0.22 25)" } : { color: "white" }}
+          />
+        </button>
+        {flagStr && (
+          <div className="rounded-full bg-black/45 px-2 py-0.5 text-sm leading-none backdrop-blur">{flagStr}</div>
+        )}
+      </div>
+
       <div className="relative z-10 flex flex-col gap-1.5 p-4 text-white">
         <h3 className="font-serif text-lg font-semibold leading-tight tracking-tight line-clamp-2">
           {trip.cover_emoji ? <span className="mr-1.5">{trip.cover_emoji}</span> : null}

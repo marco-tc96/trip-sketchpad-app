@@ -164,7 +164,7 @@ function NewTrip() {
   }
 
   return (
-    <main className="mx-auto max-w-2xl px-4 py-6 sm:py-8">
+    <main className="mx-auto max-w-2xl overflow-x-hidden px-4 py-6 sm:py-8">
       {/* ── Header: titolo + toggle modalità ── */}
       <div className="flex items-start justify-between gap-3">
         {/* Titolo */}
@@ -326,6 +326,7 @@ function NewTrip() {
                 required
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
+                className="w-full min-w-0"
               />
             </div>
             <div className="space-y-1.5">
@@ -335,6 +336,7 @@ function NewTrip() {
                 required
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
+                className="w-full min-w-0"
               />
             </div>
           </>
