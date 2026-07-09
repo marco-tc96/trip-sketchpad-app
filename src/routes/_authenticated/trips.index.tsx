@@ -434,38 +434,51 @@ function Section({
               onTouchMove={handleTouchMove}
               onTouchEnd={handleTouchEnd}
             >
-              {filtered.map((tr, i) => {
-                const offset = i - idx;
-                if (Math.abs(offset) > 1) return null;
+              {(() => {
+                // Compute drag fraction once for all cards:
+                // peekPx = pixels between adjacent cards (PEEK_VW % of container width)
+                const peekPx = (PEEK_VW / 100) * (carouselRef.current?.offsetWidth ?? 400);
+                // dragFrac [-1,1]: how far through one full card-width we've dragged
+                const dragFrac = dragging ? Math.max(-1, Math.min(1, dragX / peekPx)) : 0;
 
-                const isCurrent = offset === 0;
-                const rotate = offset * 8;
-                const scale = isCurrent ? 1 : 0.8;
-                const brightness = isCurrent ? 1 : 0.48;
-                const translateVw = offset * PEEK_VW;
+                return filtered.map((tr, i) => {
+                  const offset = i - idx;
+                  if (Math.abs(offset) > 1) return null;
 
-                return (
-                  <div
-                    key={tr.id}
-                    style={{
-                      position: "absolute",
-                      top: "50%",
-                      left: "50%",
-                      transform: `translate(calc(-50% + ${translateVw}vw + ${dragging ? dragX : 0}px), -50%) rotate(${rotate}deg) scale(${scale})`,
-                      zIndex: isCurrent ? 10 : 5,
-                      filter: brightness < 1 ? `brightness(${brightness})` : undefined,
-                      transition: dragging
-                        ? "none"
-                        : "transform 0.4s cubic-bezier(0.25,0.46,0.45,0.94), filter 0.35s ease",
-                      transformOrigin: "center center",
-                      willChange: "transform",
-                      pointerEvents: isCurrent ? "auto" : "none",
-                    }}
-                  >
-                    <TripCard trip={tr} carousel />
-                  </div>
-                );
-              })}
+                  // Effective fractional position: interpolates during drag so
+                  // rotation/scale/brightness all animate smoothly while swiping
+                  const eff = offset + dragFrac;
+
+                  const isCurrent = offset === 0;
+                  const rotate    = eff * 5;                                     // ±5deg max (was 8)
+                  const scale     = Math.max(0.84, 1 - Math.abs(eff) * 0.16);   // 0.84 min (was 0.80)
+                  const brightness = Math.max(0.55, 1 - Math.abs(eff) * 0.45);  // 0.55 min (was 0.48)
+                  const translateVw = offset * PEEK_VW;
+
+                  return (
+                    <div
+                      key={tr.id}
+                      style={{
+                        position: "absolute",
+                        top: "50%",
+                        left: "50%",
+                        transform: `translate(calc(-50% + ${translateVw}vw + ${dragging ? dragX : 0}px), -50%) rotate(${rotate}deg) scale(${scale})`,
+                        zIndex: isCurrent ? 10 : 5,
+                        filter: brightness < 1 ? `brightness(${brightness})` : undefined,
+                        // expo-out easing → starts fast, decelerates naturally
+                        transition: dragging
+                          ? "none"
+                          : "transform 0.45s cubic-bezier(0.16, 1, 0.3, 1), filter 0.4s ease",
+                        transformOrigin: "center center",
+                        willChange: "transform",
+                        pointerEvents: isCurrent ? "auto" : "none",
+                      }}
+                    >
+                      <TripCard trip={tr} carousel />
+                    </div>
+                  );
+                });
+              })()}
             </div>
 
             {/* Emoji / flag dots */}
@@ -565,7 +578,7 @@ function TripCard({ trip, carousel = false }: { trip: Trip; carousel?: boolean }
         carousel ? "w-[72vw] max-w-[260px]" : "w-[58vw] max-w-[240px] sm:w-auto sm:max-w-none"
       }`}
     >
-      <CityCover src={inlineSrc} gradient={gradient} className="transition duration-700 group-hover:scale-[1.06]" />
+      <CityCover src={inlineSrc} gradient={gradient} eager={carousel} className="transition duration-700 group-hover:scale-[1.06]" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/85 via-black/40 to-transparent" />
       <div className="absolute left-3 top-3 flex items-center gap-1.5">
         <TripTypePill tripType={tripType} />

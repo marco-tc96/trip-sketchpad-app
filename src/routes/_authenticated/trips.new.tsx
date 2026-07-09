@@ -236,7 +236,7 @@ function NewTrip() {
               required
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder={wishlist ? "Bali, Patagonia, Kyoto…" : "Croazia 2017, Tokyo capodanno…"}
+              placeholder={wishlist ? "Bali, Patagonia, Kyoto…" : "Tokyo capodanno, Barcellona estate…"}
             />
           </div>
         </div>
@@ -318,7 +318,7 @@ function NewTrip() {
 
         {/* Dates — hidden in wishlist mode */}
         {!wishlist && (
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>{t("start_date")}</Label>
               <Input

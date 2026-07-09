@@ -89,12 +89,45 @@ function isPaleWhite(hex: string): boolean {
 }
 
 export function flagGradient(isoCodes: string[] | undefined | null): string {
-  const iso = ((isoCodes && isoCodes[0]) || "").toUpperCase();
-  const raw = FLAG_COLORS[iso] ?? fallbackColors(iso);
-  // Prefer non-white colors; if we end up with <2 stops, allow whites.
-  let stops = raw.filter((c) => !isPaleWhite(c));
-  if (stops.length < 2) stops = raw.slice();
-  stops = stops.slice(0, 3);
-  if (stops.length === 1) stops.push(stops[0]);
-  return `linear-gradient(135deg, ${stops.join(", ")})`;
+  const codes = (isoCodes ?? [])
+    .map((c) => c.toUpperCase())
+    .filter(Boolean);
+
+  if (codes.length === 0) {
+    return `linear-gradient(135deg, ${fallbackColors("??").join(", ")})`;
+  }
+
+  // Single-country: preserve original behavior exactly
+  if (codes.length === 1) {
+    const iso = codes[0];
+    const raw = FLAG_COLORS[iso] ?? fallbackColors(iso);
+    let stops = raw.filter((c) => !isPaleWhite(c));
+    if (stops.length < 2) stops = raw.slice();
+    stops = stops.slice(0, 3);
+    if (stops.length === 1) stops.push(stops[0]);
+    return `linear-gradient(135deg, ${stops.join(", ")})`;
+  }
+
+  // Multi-country: blend up to 2 representative colors per flag.
+  // White is excluded per-country (doesn't blend well between flags);
+  // if a country has no non-white colors, we fall back to its first raw color.
+  const stops: string[] = [];
+  for (const iso of codes) {
+    const raw = FLAG_COLORS[iso] ?? fallbackColors(iso);
+    const nonWhite = raw.filter((c) => !isPaleWhite(c));
+    const picks = nonWhite.length > 0 ? nonWhite.slice(0, 2) : raw.slice(0, 1);
+    stops.push(...picks);
+  }
+
+  // Cap total stops at 6 to avoid an overwhelming number of color bands.
+  const capped = stops.slice(0, 6);
+
+  if (capped.length === 0) {
+    return `linear-gradient(135deg, ${fallbackColors(codes[0]).join(", ")})`;
+  }
+  if (capped.length === 1) {
+    capped.push(capped[0]);
+  }
+
+  return `linear-gradient(135deg, ${capped.join(", ")})`;
 }
