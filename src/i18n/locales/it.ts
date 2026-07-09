@@ -163,6 +163,20 @@ const translations: Record<string, string> = {
   no_cities: "Nessuna città",
   add: "Aggiungi",
   add_city: "Aggiungi \"{{name}}\"",
+  // ── Notification templates ──────────────────────────────────────────────
+  notif_trip_start: "Un nuovo viaggio sta per iniziare",
+  notif_departure: "Manca un'ora alla partenza",
+  notif_arrival_new: "Benvenuto in {{country}}",
+  notif_arrival_return: "Bentornato in {{country}}",
+  notif_arrival_new_body: "Paese n.{{n}} visitato!",
+  notif_arrival_return_body: "Già {{n}} volte in questo paese",
+  notif_arrival_generic: "Benvenuto!",
+  // ── Time ago ───────────────────────────────────────────────────────────
+  time_just_now: "adesso",
+  time_min_ago: "{{n}}m fa",
+  time_hour_ago: "{{n}}h fa",
+  time_day_ago: "{{n}}g fa",
+  clear_all: "Elimina tutto",
 };
 
 export default translations;

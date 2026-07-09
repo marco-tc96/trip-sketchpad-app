@@ -163,6 +163,18 @@ const translations: Record<string, string> = {
   no_cities: "도시 없음",
   add: "추가",
   add_city: "\"{{name}}\" 추가",
+  notif_trip_start: "새 여행이 곧 시작됩니다",
+  notif_departure: "출발 1시간 전입니다",
+  notif_arrival_new: "{{country}}에 오신 것을 환영합니다",
+  notif_arrival_return: "{{country}}에 다시 오신 것을 환영합니다",
+  notif_arrival_new_body: "{{n}}번째 방문 국가입니다!",
+  notif_arrival_return_body: "이 나라를 {{n}}번 방문했습니다",
+  notif_arrival_generic: "환영합니다!",
+  time_just_now: "방금 전",
+  time_min_ago: "{{n}}분 전",
+  time_hour_ago: "{{n}}시간 전",
+  time_day_ago: "{{n}}일 전",
+  clear_all: "모두 삭제",
 };
 
 export default translations;

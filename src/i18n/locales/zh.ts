@@ -163,6 +163,18 @@ const translations: Record<string, string> = {
   no_cities: "无城市",
   add: "添加",
   add_city: "添加\"{{name}}\"",
+  notif_trip_start: "新旅程即将开始",
+  notif_departure: "距出发还有1小时",
+  notif_arrival_new: "欢迎来到{{country}}",
+  notif_arrival_return: "欢迎再次来到{{country}}",
+  notif_arrival_new_body: "第{{n}}个到访国家！",
+  notif_arrival_return_body: "已是第{{n}}次到访此国",
+  notif_arrival_generic: "欢迎！",
+  time_just_now: "刚刚",
+  time_min_ago: "{{n}}分钟前",
+  time_hour_ago: "{{n}}小时前",
+  time_day_ago: "{{n}}天前",
+  clear_all: "清除全部",
 };
 
 export default translations;

@@ -163,6 +163,18 @@ const translations: Record<string, string> = {
   no_cities: "No cities",
   add: "Add",
   add_city: "Add \"{{name}}\"",
+  notif_trip_start: "A new trip is about to begin",
+  notif_departure: "Departure in 1 hour",
+  notif_arrival_new: "Welcome to {{country}}",
+  notif_arrival_return: "Welcome back to {{country}}",
+  notif_arrival_new_body: "Country #{{n}} visited!",
+  notif_arrival_return_body: "Visit #{{n}} to this country",
+  notif_arrival_generic: "Welcome!",
+  time_just_now: "just now",
+  time_min_ago: "{{n}}m ago",
+  time_hour_ago: "{{n}}h ago",
+  time_day_ago: "{{n}}d ago",
+  clear_all: "Clear all",
 };
 
 export default translations;

@@ -11,6 +11,7 @@ export type AppNotification = {
   link: string | null;
   read: boolean;
   created_at: string;
+  meta: Record<string, unknown> | null;
 };
 
 // ── Timezone helpers ──────────────────────────────────────────────────────────
@@ -55,7 +56,7 @@ export const listNotifications = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     const { data, error } = await context.supabase
       .from("notifications")
-      .select("id, type, title, body, link, read, created_at")
+      .select("id, type, title, body, link, read, created_at, meta")
       .order("created_at", { ascending: false })
       .limit(50);
     if (error) throw new Error(error.message);
@@ -318,4 +319,27 @@ export const checkTripNotifications = createServerFn({ method: "POST" })
         meta,
       });
     }
+  });
+
+/** Delete a single notification by id. */
+export const deleteNotification = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ id: z.string().uuid() }).parse(d))
+  .handler(async ({ data, context }) => {
+    const { error } = await context.supabase
+      .from("notifications")
+      .delete()
+      .eq("id", data.id);
+    if (error) throw new Error(error.message);
+  });
+
+/** Delete ALL notifications for the current user (RLS filters to own rows). */
+export const deleteAllNotifications = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { error } = await context.supabase
+      .from("notifications")
+      .delete()
+      .not("id", "is", null);
+    if (error) throw new Error(error.message);
   });

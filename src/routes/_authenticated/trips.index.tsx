@@ -319,6 +319,8 @@ function Section({
   const [dragX, setDragX] = useState(0);
   const [dragging, setDragging] = useState(false);
   const touchStartX = useRef<number | null>(null);
+  const touchStartY = useRef<number | null>(null);
+  const carouselRef = useRef<HTMLDivElement>(null);
   const dotsRef = useRef<HTMLDivElement>(null);
   const dotRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
@@ -346,8 +348,27 @@ function Section({
     setIdx((i) => Math.max(0, Math.min(filtered.length - 1, i + dir)));
   }
 
+  // Native touchmove listener (passive:false) to block vertical scroll
+  // during horizontal carousel swipes on mobile.
+  useEffect(() => {
+    const el = carouselRef.current;
+    if (!el) return;
+    const onMove = (e: TouchEvent) => {
+      if (touchStartX.current === null || touchStartY.current === null) return;
+      const dx = e.touches[0].clientX - touchStartX.current;
+      const dy = e.touches[0].clientY - touchStartY.current;
+      // Only block scroll once the gesture is clearly horizontal (>5 px and dx dominates)
+      if (Math.abs(dx) > 5 && Math.abs(dx) > Math.abs(dy)) {
+        e.preventDefault();
+      }
+    };
+    el.addEventListener("touchmove", onMove, { passive: false });
+    return () => el.removeEventListener("touchmove", onMove);
+  }, []); // carouselRef is stable after mount
+
   function handleTouchStart(e: React.TouchEvent) {
     touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
     setDragging(true);
     setDragX(0);
   }
@@ -406,6 +427,7 @@ function Section({
         ) : (
           <>
             <div
+              ref={carouselRef}
               className="-mx-4 relative overflow-hidden"
               style={{ height: "clamp(280px, calc(72vw * 16 / 9), 480px)" }}
               onTouchStart={handleTouchStart}
