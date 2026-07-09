@@ -39,7 +39,7 @@ function AuthPage() {
           redirectTo: `${window.location.origin}/reset-password`,
         });
         if (error) throw error;
-        toast.success(t("reset_email_sent") ?? "Email inviata");
+        toast.success(t("reset_email_sent"));
         setMode("signin");
       } else if (mode === "signup") {
         const { error } = await supabase.auth.signUp({
@@ -81,7 +81,7 @@ function AuthPage() {
               ? t("welcome_back")
               : mode === "signup"
                 ? t("create_account")
-                : t("reset_password") ?? "Recupera password"}
+                : t("reset_password")}
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">{t("tagline")}</p>
         </div>
@@ -117,7 +117,7 @@ function AuthPage() {
               ? t("sign_in")
               : mode === "signup"
                 ? t("sign_up")
-                : t("send_reset_link") ?? "Invia link di recupero"}
+                : t("send_reset_link")}
           </Button>
           {mode === "signin" && (
             <button
@@ -125,7 +125,7 @@ function AuthPage() {
               className="block w-full text-center text-sm font-medium text-primary hover:underline"
               onClick={() => setMode("reset")}
             >
-              {t("forgot_password") ?? "Password dimenticata?"}
+              {t("forgot_password")}
             </button>
           )}
           <p className="text-center text-sm text-muted-foreground">
@@ -135,7 +135,7 @@ function AuthPage() {
                 className="font-medium text-primary hover:underline"
                 onClick={() => setMode("signin")}
               >
-                {t("back_to_sign_in") ?? "Torna al login"}
+                {t("back_to_sign_in")}
               </button>
             ) : (
               <>

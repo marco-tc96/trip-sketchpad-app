@@ -175,6 +175,15 @@ const translations: Record<string, string> = {
   time_hour_ago: "{{n}}시간 전",
   time_day_ago: "{{n}}일 전",
   clear_all: "모두 삭제",
+  reset_password: "비밀번호 재설정",
+  forgot_password: "비밀번호를 잊으셨나요?",
+  send_reset_link: "재설정 링크 보내기",
+  back_to_sign_in: "로그인으로 돌아가기",
+  reset_email_sent: "이메일이 전송되었습니다! 받은 편지함을 확인하세요.",
+  new_password: "새 비밀번호",
+  update_password: "비밀번호 업데이트",
+  password_updated: "비밀번호가 업데이트되었습니다!",
+  open_from_email_link: "이메일로 받은 링크를 통해 이 페이지를 여세요.",
 };
 
 export default translations;

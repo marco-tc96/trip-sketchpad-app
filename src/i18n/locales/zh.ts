@@ -175,6 +175,15 @@ const translations: Record<string, string> = {
   time_hour_ago: "{{n}}小时前",
   time_day_ago: "{{n}}天前",
   clear_all: "清除全部",
+  reset_password: "重置密码",
+  forgot_password: "忘记密码？",
+  send_reset_link: "发送重置链接",
+  back_to_sign_in: "返回登录",
+  reset_email_sent: "邮件已发送！请查收。",
+  new_password: "新密码",
+  update_password: "更新密码",
+  password_updated: "密码已更新！",
+  open_from_email_link: "请通过邮件中的链接打开此页面。",
 };
 
 export default translations;

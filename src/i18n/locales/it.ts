@@ -177,6 +177,15 @@ const translations: Record<string, string> = {
   time_hour_ago: "{{n}}h fa",
   time_day_ago: "{{n}}g fa",
   clear_all: "Elimina tutto",
+  reset_password: "Recupera password",
+  forgot_password: "Password dimenticata?",
+  send_reset_link: "Invia link di recupero",
+  back_to_sign_in: "Torna al login",
+  reset_email_sent: "Email inviata! Controlla la posta.",
+  new_password: "Nuova password",
+  update_password: "Aggiorna password",
+  password_updated: "Password aggiornata!",
+  open_from_email_link: "Apri questa pagina dal link ricevuto via email.",
 };
 
 export default translations;
