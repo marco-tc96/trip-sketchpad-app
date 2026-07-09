@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { MapPin, Calendar, Briefcase, Palmtree, Footprints, Globe2, Pin, PinOff, Cloud, Compass } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { listTrips, getTodayInboundItems } from "@/lib/trips.functions";
 import { getProfile } from "@/lib/profile.functions";
 import { flagOf, cityNameLocalized } from "@/lib/country-data";
@@ -20,10 +20,6 @@ export const Route = createFileRoute("/_authenticated/trips/")({
 type Trip = Awaited<ReturnType<typeof listTrips>>[number];
 type TripAccent = "ongoing" | "planned" | "past" | "wishlist";
 
-/**
- * Converts a naive local-time ISO string to UTC milliseconds
- * given the UTC+ offset in minutes of the source timezone.
- */
 function naiveLocalToUtcMs(naiveDateStr: string, utcPlusMinutes: number): number {
   return new Date(naiveDateStr).getTime() - utcPlusMinutes * 60_000;
 }
@@ -40,53 +36,36 @@ function TripsList() {
   const homeCountry = (profileQ.data as { home_country?: string | null } | undefined)?.home_country ?? null;
 
   const today = new Date().toISOString().slice(0, 10);
-  // User's UTC+ offset in minutes (e.g. +120 for UTC+2)
   const utcOffsetMinutes = -new Date().getTimezoneOffset();
   const trips = q.data ?? [];
 
-  // Scroll to top on mount — requestAnimationFrame ensures it runs after any
-  // router scroll-restoration that may fire asynchronously (fixes "page starts
-  // at the bottom" on app open).
+  // ── Scroll to top on mount ───────────────────────────────────────────────
+  // useLayoutEffect fires before paint (overrides synchronous scroll restoration).
+  useLayoutEffect(() => { window.scrollTo(0, 0); }, []);
+  // setTimeout covers async scroll restoration that fires after effects.
   useEffect(() => {
-    requestAnimationFrame(() => window.scrollTo(0, 0));
+    const id = setTimeout(() => window.scrollTo(0, 0), 60);
+    return () => clearTimeout(id);
   }, []);
 
-  // Map of trip_id → inbound end_at for trips ending today
   const todayInboundMap = useMemo(() => {
     const map = new Map<string, string | null>();
-    for (const item of inboundQ.data ?? []) {
-      map.set(item.trip_id, item.end_at);
-    }
+    for (const item of inboundQ.data ?? []) map.set(item.trip_id, item.end_at);
     return map;
   }, [inboundQ.data]);
 
-  /**
-   * A trip is "concluded" (past) if:
-   * - end_date < today, OR
-   * - end_date === today AND the inbound (return) flight's end_at has passed
-   *   (if no inbound item is stored, keep as ongoing until midnight)
-   */
   const isConcluded = useMemo(() => (tr: Trip): boolean => {
     if (tr.end_date < today) return true;
     if (tr.end_date > today) return false;
-    // end_date === today: check return flight
-    if (!todayInboundMap.has(tr.id)) return false; // no inbound item → stays ongoing
+    if (!todayInboundMap.has(tr.id)) return false;
     const endAt = todayInboundMap.get(tr.id);
-    if (!endAt) return false; // inbound item exists but end_at is null
-    const inboundUtcMs = naiveLocalToUtcMs(endAt, utcOffsetMinutes);
-    return inboundUtcMs <= Date.now();
+    if (!endAt) return false;
+    return naiveLocalToUtcMs(endAt, utcOffsetMinutes) <= Date.now();
   }, [today, todayInboundMap, utcOffsetMinutes]);
 
-  // Wishlist trips are identified by sentinel start_date "2099-01-01"
   const WISHLIST_SENTINEL = "2099-01-01";
-  const wishlistTrips = useMemo(
-    () => trips.filter((tr) => tr.start_date >= WISHLIST_SENTINEL),
-    [trips],
-  );
-  const realTrips = useMemo(
-    () => trips.filter((tr) => tr.start_date < WISHLIST_SENTINEL),
-    [trips],
-  );
+  const wishlistTrips = useMemo(() => trips.filter((tr) => tr.start_date >= WISHLIST_SENTINEL), [trips]);
+  const realTrips = useMemo(() => trips.filter((tr) => tr.start_date < WISHLIST_SENTINEL), [trips]);
 
   const ongoing = useMemo(
     () => realTrips.filter((tr) => tr.start_date <= today && !isConcluded(tr)).sort((a, b) => b.start_date.localeCompare(a.start_date)),
@@ -101,7 +80,6 @@ function TripsList() {
     [realTrips, isConcluded],
   );
 
-  // Map data — past = orange, ongoing = yellow, planned = gray, wishlist = blue dashed
   const visitedCountries = useMemo(() => {
     const set = new Set<string>();
     for (const tr of past) {
@@ -203,7 +181,6 @@ function TripsList() {
   const [showPins, setShowPins] = useState(() => {
     try { return localStorage.getItem("map_showPins") !== "false"; } catch { return true; }
   });
-
   useEffect(() => {
     try { localStorage.setItem("map_showPins", String(showPins)); } catch { /* ignore */ }
   }, [showPins]);
@@ -212,7 +189,6 @@ function TripsList() {
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-6 sm:py-8">
-      {/* ── Page title ── */}
       <div className="flex items-center justify-between pb-2">
         <div className="flex items-center gap-2">
           <Compass className="h-5 w-5 text-primary" />
@@ -291,7 +267,6 @@ function EmptyState() {
   );
 }
 
-// Color per accent type matching map colors
 const ACCENT_COLORS: Record<TripAccent, string> = {
   ongoing:  "oklch(0.78 0.16 85)",
   planned:  "oklch(0.65 0 0)",
@@ -317,16 +292,19 @@ function Section({
   withYearSelector?: boolean;
 }) {
   const { t } = useTranslation();
+
+  // Current snapped index (updated on touch end / dot click)
   const [idx, setIdx] = useState(0);
+  // Raw pixel drag offset from the initial touch point (reset to 0 on release)
   const [dragX, setDragX] = useState(0);
   const [dragging, setDragging] = useState(false);
+
   const touchStartX = useRef<number | null>(null);
   const touchStartY = useRef<number | null>(null);
   const carouselRef = useRef<HTMLDivElement>(null);
   const dotsRef = useRef<HTMLDivElement>(null);
   const dotRefs = useRef<(HTMLButtonElement | null)[]>([]);
-  // Prevents scrollIntoView from firing on first mount (which would scroll the
-  // whole page down to the dots row).
+  // Prevents scrollIntoView from scrolling the page on the very first render.
   const isFirstDotMount = useRef(true);
 
   const years = useMemo(() => {
@@ -343,11 +321,7 @@ function Section({
   useEffect(() => { setIdx(0); setDragX(0); }, [selectedYear]);
 
   useEffect(() => {
-    // Skip on first render to avoid scrolling the page to the dots on load.
-    if (isFirstDotMount.current) {
-      isFirstDotMount.current = false;
-      return;
-    }
+    if (isFirstDotMount.current) { isFirstDotMount.current = false; return; }
     dotRefs.current[idx]?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
   }, [idx]);
 
@@ -358,8 +332,8 @@ function Section({
     setIdx((i) => Math.max(0, Math.min(filtered.length - 1, i + dir)));
   }
 
-  // Native touchmove listener (passive:false) to block vertical scroll
-  // during horizontal carousel swipes on mobile.
+  // Native touchmove listener with passive:false — needed to call e.preventDefault()
+  // and block vertical page scroll during horizontal swipes.
   useEffect(() => {
     const el = carouselRef.current;
     if (!el) return;
@@ -367,14 +341,11 @@ function Section({
       if (touchStartX.current === null || touchStartY.current === null) return;
       const dx = e.touches[0].clientX - touchStartX.current;
       const dy = e.touches[0].clientY - touchStartY.current;
-      // Only block scroll once the gesture is clearly horizontal (>5 px and dx dominates)
-      if (Math.abs(dx) > 5 && Math.abs(dx) > Math.abs(dy)) {
-        e.preventDefault();
-      }
+      if (Math.abs(dx) > 5 && Math.abs(dx) > Math.abs(dy)) e.preventDefault();
     };
     el.addEventListener("touchmove", onMove, { passive: false });
     return () => el.removeEventListener("touchmove", onMove);
-  }, []); // carouselRef is stable after mount
+  }, []);
 
   function handleTouchStart(e: React.TouchEvent) {
     touchStartX.current = e.touches[0].clientX;
@@ -383,29 +354,34 @@ function Section({
     setDragX(0);
   }
 
+  // Simplified: set dragX directly from the raw touch offset.
+  // Rubber-band clamping is handled in the render using scrollOffset bounds.
   function handleTouchMove(e: React.TouchEvent) {
     if (touchStartX.current === null) return;
-    const dx = e.touches[0].clientX - touchStartX.current;
-    const atStart = idx === 0 && dx > 0;
-    const atEnd = idx === filtered.length - 1 && dx < 0;
-    setDragX(atStart || atEnd ? dx * 0.18 : dx);
+    setDragX(e.touches[0].clientX - touchStartX.current);
   }
 
   function handleTouchEnd(e: React.TouchEvent) {
     if (touchStartX.current === null) return;
     const dx = e.changedTouches[0].clientX - touchStartX.current;
-    setDragging(false);
+    const peekPx = (PEEK_VW / 100) * (carouselRef.current?.offsetWidth ?? 400);
+
+    // Fractional scroll offset after this gesture
+    const rawScrollOffset = idx - dx / peekPx;
+    // Snap to nearest card index, clamped to valid range
+    const newIdx = Math.max(0, Math.min(filtered.length - 1, Math.round(rawScrollOffset)));
+
+    setIdx(newIdx);
     setDragX(0);
-    if (dx < -60 && idx < filtered.length - 1) go(1);
-    else if (dx > 60 && idx > 0) go(-1);
+    setDragging(false);
     touchStartX.current = null;
   }
 
+  // Distance in vw between adjacent card centres
   const PEEK_VW = 22;
 
   return (
     <section>
-      {/* Header row */}
       <div className="mb-3 flex items-center gap-2">
         <h2 className="text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground sm:text-left">
           {title}
@@ -445,32 +421,40 @@ function Section({
               onTouchEnd={handleTouchEnd}
             >
               {(() => {
-                // Compute drag fraction once for all cards:
-                // peekPx = pixels between adjacent cards (PEEK_VW % of container width)
                 const peekPx = (PEEK_VW / 100) * (carouselRef.current?.offsetWidth ?? 400);
-                // dragFrac [-1,1]: how far through one full card-width we've dragged
-                const dragFrac = dragging ? Math.max(-1, Math.min(1, dragX / peekPx)) : 0;
+
+                // ── Continuous fractional scroll position ──────────────────
+                // dragX is the raw pixel offset; dividing by peekPx gives the
+                // fractional displacement in "card slot" units (no clamp).
+                const rawScrollOffset = idx - dragX / peekPx;
+
+                // Rubber-band at the hard edges (first and last card).
+                const scrollOffset =
+                  rawScrollOffset < 0
+                    ? rawScrollOffset * 0.18
+                    : rawScrollOffset > filtered.length - 1
+                    ? (filtered.length - 1) + (rawScrollOffset - (filtered.length - 1)) * 0.18
+                    : rawScrollOffset;
 
                 return filtered.map((tr, i) => {
-                  const offset = i - idx;
-                  if (Math.abs(offset) > 1) return null;
+                  // Fractional distance of card i from the visual centre.
+                  const eff = i - scrollOffset;
 
-                  // Effective fractional position: interpolates during drag so
-                  // rotation/scale/brightness all animate smoothly while swiping
-                  const eff = offset + dragFrac;
+                  // Only render cards within ±2 slots of centre.
+                  // This pre-loads neighbours so a continuous swipe through
+                  // multiple cards never shows a blank slot.
+                  if (Math.abs(eff) > 2) return null;
 
-                  const isCurrent = offset === 0;
-                  const rotate    = eff * 5;                                     // ±5deg max
-                  const scale     = Math.max(0.84, 1 - Math.abs(eff) * 0.16);   // 0.84 min
-                  const brightness = Math.max(0.55, 1 - Math.abs(eff) * 0.45);  // 0.55 min
-                  const translateVw = offset * PEEK_VW;
+                  const rotate     = eff * 5;
+                  const scale      = Math.max(0.84, 1 - Math.abs(eff) * 0.16);
+                  const brightness = Math.max(0.55, 1 - Math.abs(eff) * 0.45);
+                  const translateVw = eff * PEEK_VW;
 
-                  // During drag, the card whose |eff| is smaller (closest to centre)
-                  // rises to the front. This makes the approaching card naturally slide
-                  // ON TOP of the departing card as you swipe past the halfway point.
-                  const zIndex = dragging
-                    ? (Math.abs(eff) < 0.5 ? 10 : 5)
-                    : (isCurrent ? 10 : 5);
+                  // The card closest to centre (smallest |eff|) goes on top,
+                  // so the approaching card rises above the departing one.
+                  const zIndex =
+                    Math.abs(eff) < 0.5 ? 10 :
+                    Math.abs(eff) < 1.5 ? 5  : 3;
 
                   return (
                     <div
@@ -479,16 +463,15 @@ function Section({
                         position: "absolute",
                         top: "50%",
                         left: "50%",
-                        transform: `translate(calc(-50% + ${translateVw}vw + ${dragging ? dragX : 0}px), -50%) rotate(${rotate}deg) scale(${scale})`,
+                        transform: `translate(calc(-50% + ${translateVw}vw), -50%) rotate(${rotate}deg) scale(${scale})`,
                         zIndex,
                         filter: brightness < 1 ? `brightness(${brightness})` : undefined,
-                        // expo-out easing → starts fast, decelerates naturally
                         transition: dragging
                           ? "none"
                           : "transform 0.45s cubic-bezier(0.16, 1, 0.3, 1), filter 0.4s ease",
                         transformOrigin: "center center",
                         willChange: "transform",
-                        pointerEvents: isCurrent ? "auto" : "none",
+                        pointerEvents: Math.abs(eff) < 0.5 ? "auto" : "none",
                       }}
                     >
                       <TripCard trip={tr} carousel />
@@ -504,7 +487,7 @@ function Section({
               className="mt-4 flex items-center gap-2 overflow-x-auto px-4 py-2"
               style={{ scrollbarWidth: "none" }}
             >
-              <div className="flex items-center gap-2 mx-auto">
+              <div className="mx-auto flex items-center gap-2">
                 {filtered.map((tr, i) => {
                   const emoji = (tr as unknown as { cover_emoji?: string | null }).cover_emoji;
                   const countries = (tr as unknown as { countries?: string[] }).countries ?? [];
