@@ -1163,12 +1163,13 @@ function AddItemDialog({
           <Button className="rounded-full"><Plus className="mr-1.5 h-4 w-4" />{t("add_item")}</Button>
         )}
       </DialogTrigger>
-      <DialogContent className="flex max-h-[90dvh] flex-col overflow-hidden p-0">
-        <DialogHeader className="shrink-0 border-b border-border px-4 pb-3 pt-4">
+      <DialogContent className="flex max-h-[90dvh] flex-col gap-0 overflow-hidden p-0">
+        <DialogHeader className="shrink-0 border-b border-border px-5 pb-3 pt-5">
           <DialogTitle>{existing ? t("edit_trip") : t("add_item")}</DialogTitle>
         </DialogHeader>
         <form
-          className="flex-1 space-y-4 overflow-y-auto px-4 pb-4 pt-2"
+          id="add-item-form"
+          className="flex-1 space-y-4 overflow-y-auto px-5 pb-5 pt-4"
           onSubmit={async (e) => {
             e.preventDefault();
             try {
@@ -1357,7 +1358,7 @@ function AddItemDialog({
             </Popover>
           </div>
           {form.selectedTransit.length === 1 && (
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 gap-2">
               <div className="space-y-1.5">
                 <Label>{t("boarding_stop")}</Label>
                 <Input
@@ -1418,8 +1419,8 @@ function AddItemDialog({
                     onChange={(e) => updateMixedLeg(i, { vehicle: e.target.value })}
                     placeholder={t("vehicle_name").split("(")[0].trim()}
                   />
-                  {/* Stops — combobox with city-filtered suggestions */}
-                  <div className="grid grid-cols-2 gap-2">
+                  {/* Stops — full width stacked, combobox with city-filtered suggestions */}
+                  <div className="space-y-2">
                     <StopCombobox
                       mode={leg.mode}
                       city={form.location}
@@ -1436,18 +1437,25 @@ function AddItemDialog({
                       onChange={(v) => updateMixedLeg(i, { to_stop: v })}
                       placeholder={t("alighting_stop")}
                     />
-                    <Input
-                      type="time"
-                      placeholder={t("depart_time")}
-                      value={leg.depart_at}
-                      onChange={(e) => updateMixedLeg(i, { depart_at: e.target.value })}
-                    />
-                    <Input
-                      type="time"
-                      placeholder={t("arrive_time")}
-                      value={leg.arrive_at}
-                      onChange={(e) => updateMixedLeg(i, { arrive_at: e.target.value })}
-                    />
+                  </div>
+                  {/* Times — 2 columns are fine since time inputs are compact */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <p className="text-[11px] text-muted-foreground">{t("depart_time")}</p>
+                      <Input
+                        type="time"
+                        value={leg.depart_at}
+                        onChange={(e) => updateMixedLeg(i, { depart_at: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-[11px] text-muted-foreground">{t("arrive_time")}</p>
+                      <Input
+                        type="time"
+                        value={leg.arrive_at}
+                        onChange={(e) => updateMixedLeg(i, { arrive_at: e.target.value })}
+                      />
+                    </div>
                   </div>
                 </div>
               ))}
@@ -1536,6 +1544,9 @@ function AddItemDialog({
             <Label>{t("notes")}</Label>
             <Textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
           </div>
+        </form>
+        {/* Sticky footer — always visible regardless of scroll position */}
+        <div className="shrink-0 border-t border-border px-5 py-3">
           <div className="flex items-center justify-between gap-2">
             {existing ? (
               <Button
@@ -1553,10 +1564,13 @@ function AddItemDialog({
             ) : <span />}
             <div className="flex gap-2">
               <Button type="button" variant="ghost" onClick={() => setOpen(false)}>{t("cancel")}</Button>
-              <Button type="submit">{t("save")}</Button>
+              <Button
+                type="submit"
+                form="add-item-form"
+              >{t("save")}</Button>
             </div>
           </div>
-        </form>
+        </div>
       </DialogContent>
     </Dialog>
   );
