@@ -259,17 +259,20 @@ function TripLayout() {
           <ArrowLeft className="h-4 w-4" />
         </Link>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={toggleFavorite}
-            aria-label={isFavorite ? "Rimuovi dai preferiti" : "Aggiungi ai preferiti"}
-            className="inline-flex items-center justify-center rounded-full bg-background/60 p-2.5 text-foreground backdrop-blur hover:bg-background/80"
-          >
-            <Heart
-              className="h-4 w-4 transition-colors"
-              style={isFavorite ? { fill: "oklch(0.58 0.22 25)", color: "oklch(0.58 0.22 25)" } : undefined}
-            />
-          </button>
+          {/* Heart visible in top bar only when the compact island is NOT showing */}
+          {!scrolled && (
+            <button
+              type="button"
+              onClick={toggleFavorite}
+              aria-label={isFavorite ? "Rimuovi dai preferiti" : "Aggiungi ai preferiti"}
+              className="inline-flex items-center justify-center rounded-full bg-background/60 p-2.5 text-foreground backdrop-blur hover:bg-background/80"
+            >
+              <Heart
+                className="h-4 w-4 transition-colors"
+                style={isFavorite ? { fill: "oklch(0.58 0.22 25)", color: "oklch(0.58 0.22 25)" } : undefined}
+              />
+            </button>
+          )}
         {/* Hamburger trigger. Options stack top-to-bottom in a vertical
             menu to the left of the trigger button, not as a row of pills. */}
         <Popover open={coverMenuOpen} onOpenChange={setCoverMenuOpen}>
@@ -284,6 +287,23 @@ function TripLayout() {
           </PopoverTrigger>
           <PopoverContent align="end" className="w-48 p-1.5">
             <div className="flex flex-col items-stretch gap-0.5 text-sm">
+              {/* Heart option moves into the menu when the compact island is visible */}
+              {scrolled && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => { toggleFavorite(); setCoverMenuOpen(false); }}
+                    className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-left transition text-foreground/80 hover:bg-foreground/10"
+                  >
+                    <Heart
+                      className="h-3.5 w-3.5 shrink-0 transition-colors"
+                      style={isFavorite ? { fill: "oklch(0.58 0.22 25)", color: "oklch(0.58 0.22 25)" } : undefined}
+                    />
+                    <span className="truncate">{isFavorite ? "Rimuovi dai preferiti" : "Aggiungi ai preferiti"}</span>
+                  </button>
+                  <div className="my-1 h-px bg-border/60" aria-hidden />
+                </>
+              )}
               <CoverMenuRow active={coverType === "auto"} onClick={() => setCoverType("auto")} icon={Sparkles} label={t("cover_auto")} />
               <CoverMenuRow active={coverType === "map"} onClick={() => setCoverType("map")} icon={MapIcon} label={t("cover_map")} />
               <CoverMenuRow
@@ -354,13 +374,17 @@ function TripLayout() {
       {/* Compact pinned title pill — fades in once the title-card sentinel
           scrolls out of view, vertically aligned with the fixed top bar
           above so they read as one cohesive header once the swipe happens. */}
+      {/* Compact pinned island — padded horizontally so it NEVER overlaps
+          the fixed back button (left ~52 px) or menu button (right ~52 px).
+          px-16 (64 px each side) gives a comfortable 12 px buffer.
+          top matches the top-bar so both sit on the same visual row. */}
       <div
         aria-hidden={!scrolled}
         className={cn(
-          "pointer-events-none fixed inset-x-0 z-30 mx-auto flex max-w-5xl justify-center px-4 transition-all duration-300 ease-out",
+          "pointer-events-none fixed inset-x-0 z-30 mx-auto flex max-w-5xl justify-center px-16 transition-all duration-300 ease-out",
           scrolled ? "translate-y-0 opacity-100" : "-translate-y-3 opacity-0",
         )}
-        style={{ top: "calc(0.5rem + env(safe-area-inset-top, 0px))" }}
+        style={{ top: "calc(0.75rem + env(safe-area-inset-top, 0px))" }}
       >
         <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-border/60 bg-background/85 px-3 py-1.5 shadow-soft backdrop-blur">
           <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-secondary text-base">
@@ -385,7 +409,10 @@ function TripLayout() {
             height. */}
         <section
           className="relative flex flex-col snap-start"
-          style={hasReservedSpace ? { minHeight: "100svh" } : undefined}
+          style={{
+            ...(hasReservedSpace ? { minHeight: "100svh" } : {}),
+            viewTransitionName: `card-${tripId}`,
+          } as React.CSSProperties}
         >
         {/* Spacer reserving room for the fixed top bar above, so cover
             content never sits underneath it. */}

@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { MapPin, Calendar, Briefcase, Palmtree, Footprints, Globe2, Pin, PinOff, Cloud, Compass } from "lucide-react";
@@ -59,6 +59,19 @@ function TripsList() {
     }
     window.addEventListener("scroll", guard);
     return () => window.removeEventListener("scroll", guard);
+  }, []);
+
+  // Inject View Transitions CSS once per session for smooth hero animations
+  useEffect(() => {
+    if (document.getElementById("vt-trips-style")) return;
+    const s = document.createElement("style");
+    s.id = "vt-trips-style";
+    s.textContent = [
+      "::view-transition-group(*){animation-duration:420ms;animation-timing-function:cubic-bezier(.4,0,.2,1)}",
+      "::view-transition-image-pair(*){isolation:isolate}",
+      "::view-transition-old(root),::view-transition-new(root){animation-duration:300ms}",
+    ].join("");
+    document.head.appendChild(s);
   }, []);
 
   // ── Favorites (localStorage) ─────────────────────────────────────────────
@@ -572,6 +585,7 @@ function TripCard({
   carousel?: boolean;
 }) {
   const { i18n } = useTranslation();
+  const navigate = useNavigate();
   const lang = i18n.language ?? "en";
   const cities = getCities(trip);
   const countries: string[] = Array.isArray((trip as unknown as { countries?: string[] }).countries)
@@ -596,10 +610,22 @@ function TripCard({
   const gradient = coverType === "color" && coverBg ? coverBg : flagGradient(countries);
   const flagStr = countries.length > 0 ? countries.slice(0, 4).map(flagOf).join(" ") : "";
 
+  function handleClick(e: React.MouseEvent) {
+    e.preventDefault();
+    const doNav = () => { void navigate({ to: "/trips/$tripId", params: { tripId: trip.id } }); };
+    if (typeof document.startViewTransition === "function") {
+      document.startViewTransition(doNav);
+    } else {
+      doNav();
+    }
+  }
+
   return (
     <Link
       to="/trips/$tripId"
       params={{ tripId: trip.id }}
+      onClick={handleClick}
+      style={{ viewTransitionName: `card-${trip.id}` } as React.CSSProperties}
       className={`group relative flex aspect-[9/16] shrink-0 flex-col justify-end overflow-hidden rounded-2xl border border-border shadow-soft transition hover:-translate-y-1 hover:shadow-xl ${
         carousel ? "w-[72vw] max-w-[260px]" : "w-[58vw] max-w-[240px] sm:w-auto sm:max-w-none"
       }`}
