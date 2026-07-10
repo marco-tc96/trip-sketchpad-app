@@ -246,6 +246,8 @@ const translations: Record<string, string> = {
   search_airport: "Cerca aeroporto o IATA…",
   planned_label: "Pianificato",
   add_activity: "Aggiungi attività",
+  boarding_stop: "Fermata di salita",
+  alighting_stop: "Fermata di discesa",
   // ── Trip page ──────────────────────────────────────────────────────────
   add_to_favorites: "Aggiungi ai preferiti",
   remove_from_favorites: "Rimuovi dai preferiti",

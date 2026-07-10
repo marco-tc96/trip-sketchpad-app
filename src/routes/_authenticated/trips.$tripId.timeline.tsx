@@ -87,6 +87,7 @@ const KIND_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
 const TRANSPORT_KINDS = new Set([
   "outbound", "return", "flight", "train", "bus", "car", "moto", "ferry", "transfer", "metro", "tram",
 ]);
+const STOP_KINDS = new Set(["train", "bus", "metro", "tram"]);
 function kindClasses(kind: string) {
   if (TRANSPORT_KINDS.has(kind)) {
     return {
@@ -237,10 +238,11 @@ function TimelineView() {
                     const cls = kindClasses(it.kind);
                     const dark = TRANSPORT_KINDS.has(it.kind) || it.kind === "activity";
                     const done = completedIds.has(it.id);
+                    const stopMeta = it.meta as { from_stop?: string; to_stop?: string } | null;
                     return (
                       <li key={it.id}>
                         <div className={cn("overflow-hidden rounded-xl", cls.card)}>
-                          <div className="flex items-start gap-3 p-3">
+                          <div className="flex items-start gap-2 p-3">
                             <Icon className="mt-0.5 h-5 w-5 shrink-0" />
                             <div className={cn("min-w-0 flex-1 transition-opacity", done && "opacity-40")}>
                               <p className={cn("text-[10px] uppercase tracking-widest", cls.sub)}>{t(it.kind)}</p>
@@ -250,62 +252,68 @@ function TimelineView() {
                                 {it.start_at && fmtDT(it.start_at, lang)}
                                 {it.end_at && ` → ${fmtDT(it.end_at, lang)}`}
                               </p>
+                              {STOP_KINDS.has(it.kind) && stopMeta?.from_stop && (
+                                <p className={cn("text-xs", cls.sub)}>
+                                  {stopMeta.from_stop}{stopMeta.to_stop ? ` → ${stopMeta.to_stop}` : ""}
+                                </p>
+                              )}
                               {it.notes && <p className={cn("mt-1 text-xs", cls.sub)}>{it.notes}</p>}
                               <TransportLegs meta={it.meta as TransportMeta | null} />
                             </div>
-                          </div>
-                          <div className={cn(
-                            "flex items-center border-t px-2 py-1.5",
-                            dark ? "border-white/15" : "border-border/50",
-                          )}>
-                            <button
-                              type="button"
-                              onClick={() => toggleCompleted(it.id)}
-                              className={cn(
-                                "flex flex-1 items-center justify-center gap-1 rounded-lg py-1.5 text-[11px] font-medium transition",
-                                done
-                                  ? dark
-                                    ? "bg-white/20 text-white"
-                                    : "bg-emerald-500/15 text-emerald-600"
-                                  : dark
-                                    ? "text-white/75 hover:bg-white/10"
-                                    : "text-foreground/60 hover:bg-foreground/8",
-                              )}
-                            >
-                              <Check className="h-3.5 w-3.5" />
-                              <span>{t("completed")}</span>
-                            </button>
-                            <AddItemDialog
-                              tripId={tripId}
-                              tripCities={tripCities}
-                              tripCountries={tripCountries}
-                              existing={it as ItemRow}
-                              isWishlist={isWishlist}
-                              maxDayIndex={maxDayIndex}
-                              trigger={
-                                <button
-                                  type="button"
-                                  className={cn(
-                                    "flex flex-1 items-center justify-center gap-1 rounded-lg py-1.5 text-[11px] font-medium transition",
-                                    dark ? "text-white/75 hover:bg-white/10" : "text-foreground/60 hover:bg-foreground/8",
-                                  )}
-                                >
-                                  <Pencil className="h-3.5 w-3.5" />
-                                  <span>{t("edit")}</span>
-                                </button>
-                              }
-                            />
-                            <button
-                              type="button"
-                              onClick={() => del(it.id)}
-                              className={cn(
-                                "flex flex-1 items-center justify-center gap-1 rounded-lg py-1.5 text-[11px] font-medium transition",
-                                dark ? "text-white/75 hover:bg-white/10" : "text-foreground/60 hover:bg-foreground/8",
-                              )}
-                            >
-                              <X className="h-3.5 w-3.5" />
-                              <span>{t("delete")}</span>
-                            </button>
+                            <div className="flex shrink-0 flex-col items-center gap-1.5 pl-1">
+                              <button
+                                type="button"
+                                onClick={() => toggleCompleted(it.id)}
+                                aria-label={t("completed")}
+                                className={cn(
+                                  "flex h-7 w-7 items-center justify-center rounded-full transition",
+                                  done
+                                    ? dark
+                                      ? "bg-white/25 text-white"
+                                      : "bg-emerald-500/20 text-emerald-600"
+                                    : dark
+                                      ? "bg-white/10 text-white/70 hover:bg-white/20"
+                                      : "bg-foreground/8 text-foreground/60 hover:bg-foreground/15",
+                                )}
+                              >
+                                <Check className="h-3.5 w-3.5" />
+                              </button>
+                              <AddItemDialog
+                                tripId={tripId}
+                                tripCities={tripCities}
+                                tripCountries={tripCountries}
+                                existing={it as ItemRow}
+                                isWishlist={isWishlist}
+                                maxDayIndex={maxDayIndex}
+                                trigger={
+                                  <button
+                                    type="button"
+                                    aria-label={t("edit")}
+                                    className={cn(
+                                      "flex h-7 w-7 items-center justify-center rounded-full transition",
+                                      dark
+                                        ? "bg-white/10 text-white/70 hover:bg-white/20"
+                                        : "bg-foreground/8 text-foreground/60 hover:bg-foreground/15",
+                                    )}
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </button>
+                                }
+                              />
+                              <button
+                                type="button"
+                                onClick={() => del(it.id)}
+                                aria-label={t("delete")}
+                                className={cn(
+                                  "flex h-7 w-7 items-center justify-center rounded-full transition",
+                                  dark
+                                    ? "bg-white/10 text-white/70 hover:bg-white/20"
+                                    : "bg-foreground/8 text-foreground/60 hover:bg-foreground/15",
+                                )}
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
                           </div>
                         </div>
                       </li>
@@ -1023,15 +1031,20 @@ function AddItemDialog({
   const updateFn = useServerFn(updateItem);
   const delFn = useServerFn(deleteItem);
   const [open, setOpen] = useState(false);
-  const seedForm = () => ({
-    kind: (existing?.kind as (typeof ITEM_KINDS)[number]) ?? defaultKind,
-    title: existing?.title ?? "",
-    location: existing?.location ?? "",
-    start_at: existing?.start_at ? existing.start_at.slice(0, 16) : "",
-    end_at: existing?.end_at ? existing.end_at.slice(0, 16) : "",
-    notes: existing?.notes ?? "",
-    day_index: existing?.day_index ?? defaultDayIndex ?? null as number | null,
-  });
+  const seedForm = () => {
+    const exMeta = existing?.meta as { from_stop?: string; to_stop?: string } | null;
+    return {
+      kind: (existing?.kind as (typeof ITEM_KINDS)[number]) ?? defaultKind,
+      title: existing?.title ?? "",
+      location: existing?.location ?? "",
+      start_at: existing?.start_at ? existing.start_at.slice(0, 16) : "",
+      end_at: existing?.end_at ? existing.end_at.slice(0, 16) : "",
+      notes: existing?.notes ?? "",
+      day_index: existing?.day_index ?? defaultDayIndex ?? null as number | null,
+      from_stop: exMeta?.from_stop ?? "",
+      to_stop: exMeta?.to_stop ?? "",
+    };
+  };
   const [form, setForm] = useState(seedForm);
   function handleOpenChange(v: boolean) {
     if (v) setForm(seedForm());
@@ -1078,6 +1091,9 @@ function AddItemDialog({
           onSubmit={async (e) => {
             e.preventDefault();
             try {
+              const stopMeta = STOP_KINDS.has(form.kind)
+                ? { from_stop: form.from_stop || null, to_stop: form.to_stop || null }
+                : undefined;
               if (existing) {
                 await updateFn({
                   data: {
@@ -1090,6 +1106,7 @@ function AddItemDialog({
                       end_at: isWishlist ? null : (form.end_at || null),
                       notes: form.notes || null,
                       ...(isWishlist ? { day_index: form.day_index } : {}),
+                      ...(stopMeta !== undefined ? { meta: stopMeta } : {}),
                     },
                   },
                 });
@@ -1105,6 +1122,7 @@ function AddItemDialog({
                     notes: form.notes || null,
                     position: 0,
                     day_index: form.day_index ?? null,
+                    ...(stopMeta !== undefined ? { meta: stopMeta } : {}),
                   },
                 });
               }
@@ -1222,6 +1240,26 @@ function AddItemDialog({
               </PopoverContent>
             </Popover>
           </div>
+          {STOP_KINDS.has(form.kind) && (
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1.5">
+                <Label>{t("boarding_stop")}</Label>
+                <Input
+                  value={form.from_stop}
+                  onChange={(e) => setForm({ ...form, from_stop: e.target.value })}
+                  placeholder={t("boarding_stop")}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>{t("alighting_stop")}</Label>
+                <Input
+                  value={form.to_stop}
+                  onChange={(e) => setForm({ ...form, to_stop: e.target.value })}
+                  placeholder={t("alighting_stop")}
+                />
+              </div>
+            </div>
+          )}
           {isWishlist ? (
             <div className="space-y-1.5">
               <Label>{t("day")}</Label>
