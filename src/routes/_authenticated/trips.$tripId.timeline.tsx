@@ -99,6 +99,26 @@ const TRANSPORT_KINDS = new Set([
   "outbound", "return", "flight", "train", "bus", "car", "moto", "ferry", "transfer", "metro", "tram",
 ]);
 const STOP_KINDS = new Set(["train", "bus", "metro", "tram"]);
+
+const TRANSIT_COLOR_ACTIVE: Record<string, string> = {
+  train: "border-amber-500 bg-amber-500 text-white",
+  bus:   "border-sky-500 bg-sky-500 text-white",
+  metro: "border-violet-500 bg-violet-500 text-white",
+  tram:  "border-emerald-500 bg-emerald-500 text-white",
+};
+const TRANSIT_COLOR_INACTIVE: Record<string, string> = {
+  train: "border-amber-400/40 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/20",
+  bus:   "border-sky-400/40 text-sky-600 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/20",
+  metro: "border-violet-400/40 text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/20",
+  tram:  "border-emerald-400/40 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/20",
+};
+const TRANSIT_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
+  train: TrainFront,
+  bus:   Bus,
+  metro: Train,
+  tram:  TramFront,
+};
+
 function kindClasses(kind: string) {
   if (TRANSPORT_KINDS.has(kind)) {
     return {
@@ -275,7 +295,7 @@ function TimelineView() {
                                   return (
                                     <div className="mt-0.5 space-y-0.5">
                                       {mixedLegs.map((leg, i) => {
-                                        const LIcon = leg.mode === "train" ? TrainFront : leg.mode === "bus" ? Bus : leg.mode === "metro" ? Train : TramFront;
+                                        const LIcon = TRANSIT_ICON[leg.mode] ?? Bus;
                                         return (
                                           <p key={i} className={cn("flex items-center gap-1 text-xs", cls.sub)}>
                                             <LIcon className="h-3 w-3 shrink-0 opacity-75" />
@@ -1121,7 +1141,10 @@ function AddItemDialog({
   ];
 
   const isMultiModal = form.selectedTransit.length >= 2;
-  const addMixedLeg = () => setForm((f) => ({ ...f, mixedLegs: [...f.mixedLegs, emptyMixedLeg()] }));
+  const addMixedLeg = () => setForm((f) => ({
+    ...f,
+    mixedLegs: [...f.mixedLegs, { ...emptyMixedLeg(), mode: (f.selectedTransit[0] ?? "bus") as MixedLeg["mode"] }],
+  }));
   const removeMixedLeg = (i: number) => setForm((f) => ({ ...f, mixedLegs: f.mixedLegs.filter((_, idx) => idx !== i) }));
   const updateMixedLeg = (i: number, patch: Partial<MixedLeg>) =>
     setForm((f) => ({ ...f, mixedLegs: f.mixedLegs.map((l, idx) => (idx === i ? { ...l, ...patch } : l)) }));
@@ -1140,12 +1163,12 @@ function AddItemDialog({
           <Button className="rounded-full"><Plus className="mr-1.5 h-4 w-4" />{t("add_item")}</Button>
         )}
       </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
+      <DialogContent className="flex max-h-[90dvh] flex-col overflow-hidden p-0">
+        <DialogHeader className="shrink-0 border-b border-border px-4 pb-3 pt-4">
           <DialogTitle>{existing ? t("edit_trip") : t("add_item")}</DialogTitle>
         </DialogHeader>
         <form
-          className="space-y-4"
+          className="flex-1 space-y-4 overflow-y-auto px-4 pb-4 pt-2"
           onSubmit={async (e) => {
             e.preventDefault();
             try {
@@ -1230,7 +1253,7 @@ function AddItemDialog({
                             : nextTransit.length === 0 ? "activity" : f.kind,
                           selectedTransit: nextTransit,
                           mixedLegs: nextMulti && f.mixedLegs.length < 2
-                            ? [emptyMixedLeg(), emptyMixedLeg()]
+                            ? nextTransit.slice(0, 2).map((m) => ({ ...emptyMixedLeg(), mode: m as MixedLeg["mode"] }))
                             : !nextMulti ? [] : f.mixedLegs,
                         }));
                       } else {
@@ -1240,8 +1263,8 @@ function AddItemDialog({
                     className={cn(
                       "flex flex-col items-center gap-1 rounded-xl border p-2 text-[11px] transition",
                       active
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border bg-card hover:bg-muted",
+                        ? (isTransit ? TRANSIT_COLOR_ACTIVE[kind] : "border-primary bg-primary text-primary-foreground")
+                        : (isTransit ? TRANSIT_COLOR_INACTIVE[kind] : "border-border bg-card hover:bg-muted"),
                     )}
                   >
                     <Icon className="h-4 w-4" />
@@ -1358,23 +1381,23 @@ function AddItemDialog({
               <Label>{t("legs_label")}</Label>
               {form.mixedLegs.map((leg, i) => (
                 <div key={i} className="space-y-2 rounded-xl border border-border bg-muted/30 p-3">
+                  {/* Mode picker — only shows the modes selected in categories */}
                   <div className="flex items-center justify-between">
-                    <div className="flex gap-1">
-                      {(["train", "bus", "metro", "tram"] as const).map((m) => {
-                        const LIcon = m === "train" ? TrainFront : m === "bus" ? Bus : m === "metro" ? Train : TramFront;
+                    <div className="flex gap-1.5">
+                      {(form.selectedTransit as ("train" | "bus" | "metro" | "tram")[]).map((m) => {
+                        const LIcon = TRANSIT_ICON[m];
+                        const isActive = leg.mode === m;
                         return (
                           <button
                             key={m}
                             type="button"
                             onClick={() => updateMixedLeg(i, { mode: m })}
                             className={cn(
-                              "flex h-7 w-7 items-center justify-center rounded-full transition",
-                              leg.mode === m
-                                ? "bg-primary text-primary-foreground"
-                                : "bg-background text-foreground/60 hover:bg-muted",
+                              "flex h-8 w-8 items-center justify-center rounded-xl border transition",
+                              isActive ? TRANSIT_COLOR_ACTIVE[m] : TRANSIT_COLOR_INACTIVE[m],
                             )}
                           >
-                            <LIcon className="h-3.5 w-3.5" />
+                            <LIcon className="h-4 w-4" />
                           </button>
                         );
                       })}
@@ -1389,21 +1412,29 @@ function AddItemDialog({
                       </button>
                     )}
                   </div>
+                  {/* Vehicle name — no example placeholder */}
                   <Input
-                    placeholder={t("vehicle_name")}
                     value={leg.vehicle}
                     onChange={(e) => updateMixedLeg(i, { vehicle: e.target.value })}
+                    placeholder={t("vehicle_name").split("(")[0].trim()}
                   />
+                  {/* Stops — combobox with city-filtered suggestions */}
                   <div className="grid grid-cols-2 gap-2">
-                    <Input
-                      placeholder={t("boarding_stop")}
+                    <StopCombobox
+                      mode={leg.mode}
+                      city={form.location}
+                      countries={tripCountries}
                       value={leg.from_stop}
-                      onChange={(e) => updateMixedLeg(i, { from_stop: e.target.value })}
+                      onChange={(v) => updateMixedLeg(i, { from_stop: v })}
+                      placeholder={t("boarding_stop")}
                     />
-                    <Input
-                      placeholder={t("alighting_stop")}
+                    <StopCombobox
+                      mode={leg.mode}
+                      city={form.location}
+                      countries={tripCountries}
                       value={leg.to_stop}
-                      onChange={(e) => updateMixedLeg(i, { to_stop: e.target.value })}
+                      onChange={(v) => updateMixedLeg(i, { to_stop: v })}
+                      placeholder={t("alighting_stop")}
                     />
                     <Input
                       type="time"
@@ -1540,6 +1571,100 @@ function fmtDT(s: string, lang?: string) {
   const dateStr = new Date(`${datePart}T12:00:00`).toLocaleDateString(lang, { day: "2-digit", month: "short" });
   const showTime = timePart && timePart !== "00:00";
   return showTime ? `${dateStr} ${timePart}` : dateStr;
+}
+
+// Autocomplete for transit stops filtered by city + mode
+function StopCombobox({
+  mode, city, countries, value, onChange, placeholder,
+}: {
+  mode: MixedLeg["mode"];
+  city: string;
+  countries: string[];
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  // When value is empty, seed the remote search with the city name so that
+  // results appear immediately on focus (e.g. all Budapest metro stations)
+  const searchQuery = value.trim() || city.trim();
+  const remote = useRemoteHubs(modeToKind(mode as TransportMode), searchQuery);
+
+  const allHubs = useMemo(
+    () => hubsForMode(mode as TransportMode, countries, true),
+    [mode, countries],
+  );
+  const cityLower = city.trim().toLowerCase();
+  const cityHubs = useMemo(
+    () =>
+      cityLower
+        ? allHubs.filter(
+            (h) =>
+              (h.city ?? "").toLowerCase().includes(cityLower) ||
+              h.name.toLowerCase().includes(cityLower),
+          )
+        : [],
+    [allHubs, cityLower],
+  );
+
+  const q = value.trim().toLowerCase();
+  const localFiltered = useMemo(
+    () =>
+      q && q !== cityLower
+        ? cityHubs.filter(
+            (h) =>
+              h.name.toLowerCase().includes(q) ||
+              (h.city ?? "").toLowerCase().includes(q),
+          )
+        : cityHubs.slice(0, 40),
+    [cityHubs, q, cityLower],
+  );
+
+  const remoteFiltered = useMemo(
+    () =>
+      (remote.data ?? []).filter(
+        (r) => !localFiltered.some((f) => f.name.toLowerCase() === r.name.toLowerCase()),
+      ),
+    [remote.data, localFiltered],
+  );
+
+  const suggestions = [...localFiltered, ...remoteFiltered].slice(0, 50);
+
+  return (
+    <div className="relative">
+      <Input
+        value={value}
+        placeholder={placeholder}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+        autoComplete="off"
+      />
+      {open && (suggestions.length > 0 || remote.isFetching) && (
+        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-52 overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+          {suggestions.map((h, idx) => (
+            <button
+              type="button"
+              key={`${h.name}-${idx}`}
+              onMouseDown={(e) => { e.preventDefault(); onChange(h.name); setOpen(false); }}
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+            >
+              <span className="min-w-0 flex-1 truncate">
+                <span className="font-medium">{h.name}</span>
+                {h.city && h.city !== h.name && (
+                  <span className="ml-1.5 text-xs opacity-55">· {h.city}</span>
+                )}
+              </span>
+            </button>
+          ))}
+          {remote.isFetching && suggestions.length === 0 && (
+            <div className="px-2 py-1.5 text-xs text-muted-foreground">{t("global_search")}</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function HubCombobox({
