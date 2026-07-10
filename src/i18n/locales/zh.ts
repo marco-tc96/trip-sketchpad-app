@@ -246,6 +246,10 @@ const translations: Record<string, string> = {
   add_activity: "Add activity",
   boarding_stop: "上车站",
   alighting_stop: "下车站",
+  vehicle_name: "交通工具（如220路公交）",
+  add_leg: "添加段落",
+  legs_label: "段落",
+  multi_modal: "多式联运",
   // ── Trip page ──────────────────────────────────────────────────────────
   add_to_favorites: "Add to favorites",
   remove_from_favorites: "Remove from favorites",

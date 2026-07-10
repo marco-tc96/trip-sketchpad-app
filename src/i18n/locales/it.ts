@@ -248,6 +248,10 @@ const translations: Record<string, string> = {
   add_activity: "Aggiungi attività",
   boarding_stop: "Fermata di salita",
   alighting_stop: "Fermata di discesa",
+  vehicle_name: "Mezzo (es. Bus 220)",
+  add_leg: "Aggiungi tratta",
+  legs_label: "Tratte",
+  multi_modal: "multi mezzo",
   // ── Trip page ──────────────────────────────────────────────────────────
   add_to_favorites: "Aggiungi ai preferiti",
   remove_from_favorites: "Rimuovi dai preferiti",

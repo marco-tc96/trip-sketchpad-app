@@ -256,13 +256,21 @@ function TripLayout() {
         style={{ top: "calc(0.75rem + env(safe-area-inset-top, 0px))" }}
       >
         {/* LEFT – back button */}
-        <Link
-          to="/trips"
+        <button
+          type="button"
           aria-label={t("back")}
+          onClick={() => {
+            const doNav = () => { void nav({ to: "/trips" }); };
+            if (typeof document.startViewTransition === "function") {
+              document.startViewTransition(doNav);
+            } else {
+              doNav();
+            }
+          }}
           className="shrink-0 inline-flex h-9 w-9 items-center justify-center rounded-full bg-background/60 text-foreground backdrop-blur hover:bg-background/80"
         >
           <ArrowLeft className="h-4 w-4" />
-        </Link>
+        </button>
 
         {/* CENTER – compact island, takes all remaining horizontal space */}
         <div className={cn(
@@ -277,7 +285,7 @@ function TripLayout() {
               <p className="truncate font-serif text-sm font-semibold leading-tight">{trip.data.title}</p>
               <p className="truncate text-[10px] text-muted-foreground leading-tight">
                 {citiesLabel || ""}
-                {!isWishlist && `${citiesLabel ? " · " : ""}${fmt(trip.data.start_date, lang)} → ${fmt(trip.data.end_date, lang)}`}
+                {!isWishlist && `${citiesLabel ? " · " : ""}${fmtRange(trip.data.start_date, trip.data.end_date, lang)}`}
               </p>
             </div>
           </div>
@@ -493,7 +501,7 @@ function TripLayout() {
             </p>
             {!isWishlist && (
               <p className="text-xs text-muted-foreground/80">
-                {fmt(trip.data.start_date, lang)} → {fmt(trip.data.end_date, lang)}
+                {fmtRange(trip.data.start_date, trip.data.end_date, lang)}
               </p>
             )}
           </div>
@@ -1033,7 +1041,21 @@ function ColorCoverMenuRow({
 }
 
 function fmt(d: string, lang?: string) {
-  return new Date(d).toLocaleDateString(lang, { day: "2-digit", month: "short", year: "numeric" });
+  return new Date(`${d.slice(0, 10)}T12:00:00`).toLocaleDateString(lang, { day: "2-digit", month: "short", year: "numeric" });
+}
+
+// If start and end share the same month+year, compact to "02-07 lug 2026"
+// instead of "02 lug 2026 → 07 lug 2026".
+function fmtRange(start: string, end: string, lang?: string): string {
+  const s = new Date(`${start.slice(0, 10)}T12:00:00`);
+  const e = new Date(`${end.slice(0, 10)}T12:00:00`);
+  if (s.getFullYear() === e.getFullYear() && s.getMonth() === e.getMonth()) {
+    const d1 = s.toLocaleDateString(lang, { day: "2-digit" });
+    const d2 = e.toLocaleDateString(lang, { day: "2-digit" });
+    const my = e.toLocaleDateString(lang, { month: "short", year: "numeric" });
+    return `${d1}-${d2} ${my}`;
+  }
+  return `${fmt(start, lang)} → ${fmt(end, lang)}`;
 }
 
 // TZ_ABBR: IANA timezone → [stdAbbr, dstAbbr | null]

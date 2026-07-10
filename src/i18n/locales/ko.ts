@@ -246,6 +246,10 @@ const translations: Record<string, string> = {
   add_activity: "Add activity",
   boarding_stop: "승차 정류장",
   alighting_stop: "하차 정류장",
+  vehicle_name: "교통수단 (예: 버스 220)",
+  add_leg: "구간 추가",
+  legs_label: "구간",
+  multi_modal: "복합 교통",
   // ── Trip page ──────────────────────────────────────────────────────────
   add_to_favorites: "Add to favorites",
   remove_from_favorites: "Remove from favorites",

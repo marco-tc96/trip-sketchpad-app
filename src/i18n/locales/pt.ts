@@ -246,6 +246,10 @@ const translations: Record<string, string> = {
   add_activity: "Add activity",
   boarding_stop: "Paragem de embarque",
   alighting_stop: "Paragem de desembarque",
+  vehicle_name: "Veículo (ex. Autocarro 220)",
+  add_leg: "Adicionar troço",
+  legs_label: "Troços",
+  multi_modal: "multimodal",
   // ── Trip page ──────────────────────────────────────────────────────────
   add_to_favorites: "Add to favorites",
   remove_from_favorites: "Remove from favorites",

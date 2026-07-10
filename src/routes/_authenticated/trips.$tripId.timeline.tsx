@@ -58,8 +58,19 @@ type Leg = {
 const emptyLeg = (): Leg => ({
   from: "", to: "", depart_at: "", arrive_at: "", carrier: "", number: "",
 });
+type MixedLeg = {
+  mode: "train" | "bus" | "metro" | "tram";
+  vehicle: string;
+  from_stop: string;
+  to_stop: string;
+  depart_at: string;
+  arrive_at: string;
+};
+const emptyMixedLeg = (): MixedLeg => ({
+  mode: "bus", vehicle: "", from_stop: "", to_stop: "", depart_at: "", arrive_at: "",
+});
 const MODE_ICON: Record<TransportMode, React.ComponentType<{ className?: string }>> = {
-  car: Car, moto: Bike, train: Train, plane: Plane, ferry: Ship, bus: Bus, metro: TrainFront, tram: TramFront,
+  car: Car, moto: Bike, train: TrainFront, plane: Plane, ferry: Ship, bus: Bus, metro: Train, tram: TramFront,
 };
 
 export const Route = createFileRoute("/_authenticated/trips/$tripId/timeline")({
@@ -70,7 +81,7 @@ const KIND_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   outbound: PlaneTakeoff,
   return: PlaneLanding,
   flight: Plane,
-  train: Train,
+  train: TrainFront,
   bus: Bus,
   car: Car,
   moto: Bike,
@@ -80,7 +91,7 @@ const KIND_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   activity: Sparkles,
   zone: MapPin,
   other: MapPin,
-  metro: TrainFront,
+  metro: Train,
   tram: TramFront,
 };
 
@@ -258,11 +269,37 @@ function TimelineView() {
                                   {fmtTime(it.end_at) && <span className="font-normal"> → {fmtTime(it.end_at)}</span>}
                                 </p>
                               )}
-                              {STOP_KINDS.has(it.kind) && stopMeta?.from_stop && (
-                                <p className={cn("text-xs", cls.sub)}>
-                                  {stopMeta.from_stop}{stopMeta.to_stop ? ` → ${stopMeta.to_stop}` : ""}
-                                </p>
-                              )}
+                              {(() => {
+                                const mixedLegs = (it.meta as { mixed_legs?: MixedLeg[] } | null)?.mixed_legs;
+                                if (mixedLegs?.length) {
+                                  return (
+                                    <div className="mt-0.5 space-y-0.5">
+                                      {mixedLegs.map((leg, i) => {
+                                        const LIcon = leg.mode === "train" ? TrainFront : leg.mode === "bus" ? Bus : leg.mode === "metro" ? Train : TramFront;
+                                        return (
+                                          <p key={i} className={cn("flex items-center gap-1 text-xs", cls.sub)}>
+                                            <LIcon className="h-3 w-3 shrink-0 opacity-75" />
+                                            <span className="truncate">
+                                              {leg.vehicle && <span className="font-medium">{leg.vehicle}</span>}
+                                              {leg.from_stop && <span> · {leg.from_stop}</span>}
+                                              {leg.to_stop && <span> → {leg.to_stop}</span>}
+                                              {leg.depart_at && <span className="opacity-75"> {leg.depart_at}</span>}
+                                            </span>
+                                          </p>
+                                        );
+                                      })}
+                                    </div>
+                                  );
+                                }
+                                if (STOP_KINDS.has(it.kind) && stopMeta?.from_stop) {
+                                  return (
+                                    <p className={cn("text-xs", cls.sub)}>
+                                      {stopMeta.from_stop}{stopMeta.to_stop ? ` → ${stopMeta.to_stop}` : ""}
+                                    </p>
+                                  );
+                                }
+                                return null;
+                              })()}
                               {it.notes && <p className={cn("mt-1 text-xs", cls.sub)}>{it.notes}</p>}
                               <TransportLegs meta={it.meta as TransportMeta | null} />
                             </div>
@@ -1040,17 +1077,24 @@ function AddItemDialog({
   const delFn = useServerFn(deleteItem);
   const [open, setOpen] = useState(false);
   const seedForm = () => {
-    const exMeta = existing?.meta as { from_stop?: string; to_stop?: string } | null;
+    const exMeta = existing?.meta as { from_stop?: string; to_stop?: string; mixed_legs?: MixedLeg[] } | null;
+    const exLegs = exMeta?.mixed_legs;
+    const isMulti = !!exLegs && exLegs.length > 0;
+    const exKind = (existing?.kind as (typeof ITEM_KINDS)[number]) ?? defaultKind;
     return {
-      kind: (existing?.kind as (typeof ITEM_KINDS)[number]) ?? defaultKind,
+      kind: exKind,
       title: existing?.title ?? "",
       location: existing?.location ?? "",
       start_at: existing?.start_at ? existing.start_at.slice(0, 16) : (defaultStartDate ? `${defaultStartDate}T00:00` : ""),
       end_at: existing?.end_at ? existing.end_at.slice(0, 16) : "",
       notes: existing?.notes ?? "",
       day_index: existing?.day_index ?? defaultDayIndex ?? null as number | null,
-      from_stop: exMeta?.from_stop ?? "",
-      to_stop: exMeta?.to_stop ?? "",
+      from_stop: !isMulti ? (exMeta?.from_stop ?? "") : "",
+      to_stop: !isMulti ? (exMeta?.to_stop ?? "") : "",
+      selectedTransit: (isMulti
+        ? [...new Set(exLegs.map((l) => l.mode))]
+        : STOP_KINDS.has(exKind) ? [exKind] : []) as string[],
+      mixedLegs: isMulti ? [...exLegs] : [] as MixedLeg[],
     };
   };
   const [form, setForm] = useState(seedForm);
@@ -1065,9 +1109,9 @@ function AddItemDialog({
     { kind: "activity", icon: Sparkles, label: t("activity") },
     { kind: "lodging", icon: Hotel, label: t("lodging") },
     { kind: "flight", icon: Plane, label: t("flight") },
-    { kind: "train", icon: Train, label: t("train") },
+    { kind: "train", icon: TrainFront, label: t("train") },
     { kind: "bus", icon: Bus, label: t("bus") },
-    { kind: "metro" as (typeof ITEM_KINDS)[number], icon: TrainFront, label: t("metro") },
+    { kind: "metro" as (typeof ITEM_KINDS)[number], icon: Train, label: t("metro") },
     { kind: "tram" as (typeof ITEM_KINDS)[number], icon: TramFront, label: t("tram") },
     { kind: "car", icon: Car, label: t("car") },
     { kind: "ferry", icon: Ship, label: t("ferry") },
@@ -1075,6 +1119,12 @@ function AddItemDialog({
     { kind: "zone", icon: MapPin, label: t("zone") },
     { kind: "other", icon: MapPin, label: t("other") },
   ];
+
+  const isMultiModal = form.selectedTransit.length >= 2;
+  const addMixedLeg = () => setForm((f) => ({ ...f, mixedLegs: [...f.mixedLegs, emptyMixedLeg()] }));
+  const removeMixedLeg = (i: number) => setForm((f) => ({ ...f, mixedLegs: f.mixedLegs.filter((_, idx) => idx !== i) }));
+  const updateMixedLeg = (i: number, patch: Partial<MixedLeg>) =>
+    setForm((f) => ({ ...f, mixedLegs: f.mixedLegs.map((l, idx) => (idx === i ? { ...l, ...patch } : l)) }));
 
   const tripKeys = new Set(tripCities.map((c) => `${c.country}|${c.name}`));
   const countryCities = tripCountries.flatMap((iso) => citiesOfCountry(iso));
@@ -1099,22 +1149,29 @@ function AddItemDialog({
           onSubmit={async (e) => {
             e.preventDefault();
             try {
-              const stopMeta = STOP_KINDS.has(form.kind)
-                ? { from_stop: form.from_stop || null, to_stop: form.to_stop || null }
-                : undefined;
+              const submitKind = (isMultiModal
+                ? "transfer"
+                : form.selectedTransit.length === 1
+                  ? form.selectedTransit[0]
+                  : form.kind) as (typeof ITEM_KINDS)[number];
+              const meta = isMultiModal
+                ? { mixed_legs: form.mixedLegs }
+                : STOP_KINDS.has(submitKind)
+                  ? { from_stop: form.from_stop || null, to_stop: form.to_stop || null }
+                  : undefined;
               if (existing) {
                 await updateFn({
                   data: {
                     id: existing.id,
                     patch: {
-                      kind: form.kind,
+                      kind: submitKind,
                       title: form.title,
                       location: form.location || null,
                       start_at: isWishlist ? null : (form.start_at || null),
                       end_at: isWishlist ? null : (form.end_at || null),
                       notes: form.notes || null,
                       ...(isWishlist ? { day_index: form.day_index } : {}),
-                      ...(stopMeta !== undefined ? { meta: stopMeta } : {}),
+                      ...(meta !== undefined ? { meta } : {}),
                     },
                   },
                 });
@@ -1122,7 +1179,7 @@ function AddItemDialog({
                 await createFn({
                   data: {
                     trip_id: tripId,
-                    kind: form.kind,
+                    kind: submitKind,
                     title: form.title,
                     location: form.location || null,
                     start_at: isWishlist ? null : (form.start_at || null),
@@ -1130,7 +1187,7 @@ function AddItemDialog({
                     notes: form.notes || null,
                     position: 0,
                     day_index: form.day_index ?? null,
-                    ...(stopMeta !== undefined ? { meta: stopMeta } : {}),
+                    ...(meta !== undefined ? { meta } : {}),
                   },
                 });
               }
@@ -1143,15 +1200,43 @@ function AddItemDialog({
           }}
         >
           <div className="space-y-1.5">
-            <Label>{t("category")}</Label>
+            <Label>
+              {t("category")}
+              {isMultiModal && (
+                <span className="ml-2 text-[10px] font-normal text-primary opacity-80">✕ {t("multi_modal")}</span>
+              )}
+            </Label>
             <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-5">
               {CATEGORY_BUTTONS.map(({ kind, icon: Icon, label }) => {
-                const active = form.kind === kind;
+                const isTransit = STOP_KINDS.has(kind);
+                const active = isTransit
+                  ? form.selectedTransit.includes(kind)
+                  : (form.kind === kind && form.selectedTransit.length === 0);
                 return (
                   <button
                     type="button"
                     key={kind}
-                    onClick={() => setForm({ ...form, kind })}
+                    onClick={() => {
+                      if (isTransit) {
+                        const already = form.selectedTransit.includes(kind);
+                        const nextTransit = already
+                          ? form.selectedTransit.filter((m) => m !== kind)
+                          : [...form.selectedTransit, kind];
+                        const nextMulti = nextTransit.length >= 2;
+                        setForm((f) => ({
+                          ...f,
+                          kind: nextTransit.length === 1
+                            ? nextTransit[0] as (typeof ITEM_KINDS)[number]
+                            : nextTransit.length === 0 ? "activity" : f.kind,
+                          selectedTransit: nextTransit,
+                          mixedLegs: nextMulti && f.mixedLegs.length < 2
+                            ? [emptyMixedLeg(), emptyMixedLeg()]
+                            : !nextMulti ? [] : f.mixedLegs,
+                        }));
+                      } else {
+                        setForm((f) => ({ ...f, kind, selectedTransit: [], mixedLegs: [] }));
+                      }
+                    }}
                     className={cn(
                       "flex flex-col items-center gap-1 rounded-xl border p-2 text-[11px] transition",
                       active
@@ -1248,7 +1333,7 @@ function AddItemDialog({
               </PopoverContent>
             </Popover>
           </div>
-          {STOP_KINDS.has(form.kind) && (
+          {form.selectedTransit.length === 1 && (
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1.5">
                 <Label>{t("boarding_stop")}</Label>
@@ -1266,6 +1351,82 @@ function AddItemDialog({
                   placeholder={t("alighting_stop")}
                 />
               </div>
+            </div>
+          )}
+          {isMultiModal && (
+            <div className="space-y-2">
+              <Label>{t("legs_label")}</Label>
+              {form.mixedLegs.map((leg, i) => (
+                <div key={i} className="space-y-2 rounded-xl border border-border bg-muted/30 p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex gap-1">
+                      {(["train", "bus", "metro", "tram"] as const).map((m) => {
+                        const LIcon = m === "train" ? TrainFront : m === "bus" ? Bus : m === "metro" ? Train : TramFront;
+                        return (
+                          <button
+                            key={m}
+                            type="button"
+                            onClick={() => updateMixedLeg(i, { mode: m })}
+                            className={cn(
+                              "flex h-7 w-7 items-center justify-center rounded-full transition",
+                              leg.mode === m
+                                ? "bg-primary text-primary-foreground"
+                                : "bg-background text-foreground/60 hover:bg-muted",
+                            )}
+                          >
+                            <LIcon className="h-3.5 w-3.5" />
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {form.mixedLegs.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeMixedLeg(i)}
+                        className="flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                  <Input
+                    placeholder={t("vehicle_name")}
+                    value={leg.vehicle}
+                    onChange={(e) => updateMixedLeg(i, { vehicle: e.target.value })}
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input
+                      placeholder={t("boarding_stop")}
+                      value={leg.from_stop}
+                      onChange={(e) => updateMixedLeg(i, { from_stop: e.target.value })}
+                    />
+                    <Input
+                      placeholder={t("alighting_stop")}
+                      value={leg.to_stop}
+                      onChange={(e) => updateMixedLeg(i, { to_stop: e.target.value })}
+                    />
+                    <Input
+                      type="time"
+                      placeholder={t("depart_time")}
+                      value={leg.depart_at}
+                      onChange={(e) => updateMixedLeg(i, { depart_at: e.target.value })}
+                    />
+                    <Input
+                      type="time"
+                      placeholder={t("arrive_time")}
+                      value={leg.arrive_at}
+                      onChange={(e) => updateMixedLeg(i, { arrive_at: e.target.value })}
+                    />
+                  </div>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={addMixedLeg}
+                className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-border py-2 text-xs text-muted-foreground transition hover:border-primary hover:text-primary"
+              >
+                <Plus className="h-3.5 w-3.5" /> {t("add_leg")}
+              </button>
             </div>
           )}
           {isWishlist ? (
