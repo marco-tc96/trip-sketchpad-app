@@ -4,7 +4,7 @@ import { z } from "zod";
 
 export const ITEM_KINDS = [
   "outbound","return","flight","train","bus","car","moto","ferry","transfer",
-  "lodging","activity","zone","other",
+  "lodging","activity","zone","other","metro","tram",
 ] as const;
 
 const legSchema = z.object({
@@ -19,7 +19,7 @@ const legSchema = z.object({
 
 const metaSchema = z
   .object({
-    mode: z.enum(["car", "moto", "train", "plane", "ferry", "bus"]).optional(),
+    mode: z.enum(["car", "moto", "train", "plane", "ferry", "bus", "metro", "tram"]).optional(),
     legs: z.array(legSchema).max(20).optional(),
   })
   .passthrough();

@@ -247,25 +247,50 @@ function TripLayout() {
           it once the user has scrolled past the title card, so the two
           end up visually aligned on the same row. Own stacking context
           well above the map/photo cover and the BottomDock. */}
+      {/* Single top bar: [back] [island flex-1] [heart? + hamburger]
+          All three in one flex row so the island is naturally sandwiched
+          between the side buttons with automatic equal margins, and all
+          elements share the same h-9 height. */}
       <div
-        className="fixed inset-x-0 z-[55] isolate mx-auto flex max-w-5xl items-center justify-between gap-2 px-4"
+        className="fixed inset-x-0 z-[55] isolate mx-auto flex max-w-5xl items-center gap-2 px-4"
         style={{ top: "calc(0.75rem + env(safe-area-inset-top, 0px))" }}
       >
+        {/* LEFT – back button */}
         <Link
           to="/trips"
           aria-label={t("back")}
-          className="inline-flex items-center justify-center rounded-full bg-background/60 p-2.5 text-foreground backdrop-blur hover:bg-background/80"
+          className="shrink-0 inline-flex h-9 w-9 items-center justify-center rounded-full bg-background/60 text-foreground backdrop-blur hover:bg-background/80"
         >
           <ArrowLeft className="h-4 w-4" />
         </Link>
-        <div className="flex items-center gap-2">
-          {/* Heart visible in top bar only when the compact island is NOT showing */}
+
+        {/* CENTER – compact island, takes all remaining horizontal space */}
+        <div className={cn(
+          "flex min-w-0 flex-1 justify-center transition-all duration-300 ease-out",
+          scrolled ? "translate-y-0 opacity-100 pointer-events-auto" : "-translate-y-2 opacity-0 pointer-events-none",
+        )}>
+          <div className="flex min-w-0 max-w-[min(100%,18rem)] items-center gap-2 rounded-full border border-border/60 bg-background/85 px-3 py-1 shadow-soft backdrop-blur">
+            <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-secondary text-base">
+              {trip.data.cover_emoji ?? "✈️"}
+            </span>
+            <div className="min-w-0">
+              <p className="truncate font-serif text-sm font-semibold leading-tight">{trip.data.title}</p>
+              <p className="truncate text-[10px] text-muted-foreground leading-tight">
+                {citiesLabel || ""}
+                {!isWishlist && `${citiesLabel ? " · " : ""}${fmt(trip.data.start_date, lang)} → ${fmt(trip.data.end_date, lang)}`}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* RIGHT – heart (only when island is hidden) + hamburger */}
+        <div className="shrink-0 flex items-center gap-2">
           {!scrolled && (
             <button
               type="button"
               onClick={toggleFavorite}
               aria-label={isFavorite ? t("remove_from_favorites") : t("add_to_favorites")}
-              className="inline-flex items-center justify-center rounded-full bg-background/60 p-2.5 text-foreground backdrop-blur hover:bg-background/80"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-background/60 text-foreground backdrop-blur hover:bg-background/80"
             >
               <Heart
                 className="h-4 w-4 transition-colors"
@@ -273,130 +298,98 @@ function TripLayout() {
               />
             </button>
           )}
-        {/* Hamburger trigger. Options stack top-to-bottom in a vertical
-            menu to the left of the trigger button, not as a row of pills. */}
-        <Popover open={coverMenuOpen} onOpenChange={setCoverMenuOpen}>
-          <PopoverTrigger asChild>
-            <button
-              type="button"
-              aria-label={t("cover_auto")}
-              className="inline-flex items-center justify-center rounded-full border border-border/60 bg-background/70 p-2.5 text-foreground shadow-soft backdrop-blur hover:bg-background/90"
-            >
-              <Menu className="h-4 w-4" />
-            </button>
-          </PopoverTrigger>
-          <PopoverContent align="end" className="w-48 p-1.5">
-            <div className="flex flex-col items-stretch gap-0.5 text-sm">
-              {/* Heart option moves into the menu when the compact island is visible */}
-              {scrolled && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => { toggleFavorite(); setCoverMenuOpen(false); }}
-                    className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-left transition text-foreground/80 hover:bg-foreground/10"
-                  >
-                    <Heart
-                      className="h-3.5 w-3.5 shrink-0 transition-colors"
-                      style={isFavorite ? { fill: "oklch(0.58 0.22 25)", color: "oklch(0.58 0.22 25)" } : undefined}
+          <Popover open={coverMenuOpen} onOpenChange={setCoverMenuOpen}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                aria-label={t("cover_auto")}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-background/70 text-foreground shadow-soft backdrop-blur hover:bg-background/90"
+              >
+                <Menu className="h-4 w-4" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-48 p-1.5">
+              <div className="flex flex-col items-stretch gap-0.5 text-sm">
+                {scrolled && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => { toggleFavorite(); setCoverMenuOpen(false); }}
+                      className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-left transition text-foreground/80 hover:bg-foreground/10"
+                    >
+                      <Heart
+                        className="h-3.5 w-3.5 shrink-0 transition-colors"
+                        style={isFavorite ? { fill: "oklch(0.58 0.22 25)", color: "oklch(0.58 0.22 25)" } : undefined}
+                      />
+                      <span className="truncate">{isFavorite ? t("remove_from_favorites") : t("add_to_favorites")}</span>
+                    </button>
+                    <div className="my-1 h-px bg-border/60" aria-hidden />
+                  </>
+                )}
+                <CoverMenuRow active={coverType === "auto"} onClick={() => setCoverType("auto")} icon={Sparkles} label={t("cover_auto")} />
+                <CoverMenuRow active={coverType === "map"} onClick={() => setCoverType("map")} icon={MapIcon} label={t("cover_map")} />
+                <CoverMenuRow
+                  active={coverType === "photo"}
+                  onClick={() => {
+                    if (tripRow.cover_url) setCoverType("photo");
+                    else fileRef.current?.click();
+                  }}
+                  icon={ImageIcon}
+                  label={t("cover_photo")}
+                />
+                {coverType === "photo" && tripRow.cover_url && (
+                  <>
+                    <CoverMenuRow
+                      active={repositioning}
+                      onClick={() => {
+                        setRepositioning((v) => !v);
+                        setCoverMenuOpen(false);
+                      }}
+                      icon={Move}
+                      label={t("move_photo")}
                     />
-                    <span className="truncate">{isFavorite ? t("remove_from_favorites") : t("add_to_favorites")}</span>
-                  </button>
-                  <div className="my-1 h-px bg-border/60" aria-hidden />
-                </>
-              )}
-              <CoverMenuRow active={coverType === "auto"} onClick={() => setCoverType("auto")} icon={Sparkles} label={t("cover_auto")} />
-              <CoverMenuRow active={coverType === "map"} onClick={() => setCoverType("map")} icon={MapIcon} label={t("cover_map")} />
-              <CoverMenuRow
-                active={coverType === "photo"}
-                onClick={() => {
-                  if (tripRow.cover_url) setCoverType("photo");
-                  else fileRef.current?.click();
-                }}
-                icon={ImageIcon}
-                label={t("cover_photo")}
-              />
-              {coverType === "photo" && tripRow.cover_url && (
-                <>
-                  <CoverMenuRow
-                    active={repositioning}
-                    onClick={() => {
-                      setRepositioning((v) => !v);
-                      setCoverMenuOpen(false);
-                    }}
-                    icon={Move}
-                    label={t("move_photo")}
-                  />
-                  <CoverMenuRow
-                    active={false}
-                    onClick={() => fileRef.current?.click()}
-                    icon={Upload}
-                    label={t("change_photo")}
-                  />
-                </>
-              )}
-              <ColorCoverMenuRow
-                active={coverType === "color"}
-                current={tripRow.cover_bg}
-                onPick={(bg) => setCoverBg(bg)}
-              />
-              <div className="my-1 h-px bg-border/60" aria-hidden />
-              <CoverMenuRow
-                active={false}
-                onClick={() => {
-                  setCoverMenuOpen(false);
-                  setEditOpen(true);
-                }}
-                icon={Pencil}
-                label={t("edit_trip")}
-              />
-              <CoverMenuRow
-                active={false}
-                onClick={async () => {
-                  setCoverMenuOpen(false);
-                  if (!confirm(t("delete_confirm"))) return;
-                  try {
-                    await delFn({ data: { id: tripId } });
-                    qc.invalidateQueries({ queryKey: ["trips"] });
-                    nav({ to: "/trips" });
-                  } catch (e) {
-                    toast.error(e instanceof Error ? e.message : t("error_generic"));
-                  }
-                }}
-                icon={Trash2}
-                label={t("delete_trip")}
-              />
-            </div>
-          </PopoverContent>
-        </Popover>
-        </div>
-      </div>
-
-      {/* Compact pinned title pill — fades in once the title-card sentinel
-          scrolls out of view, vertically aligned with the fixed top bar
-          above so they read as one cohesive header once the swipe happens. */}
-      {/* Compact pinned island — padded horizontally so it NEVER overlaps
-          the fixed back button (left ~52 px) or menu button (right ~52 px).
-          px-16 (64 px each side) gives a comfortable 12 px buffer.
-          top matches the top-bar so both sit on the same visual row. */}
-      <div
-        aria-hidden={!scrolled}
-        className={cn(
-          "pointer-events-none fixed inset-x-0 z-30 mx-auto flex max-w-5xl justify-center px-16 transition-all duration-300 ease-out",
-          scrolled ? "translate-y-0 opacity-100" : "-translate-y-3 opacity-0",
-        )}
-        style={{ top: "calc(0.75rem + env(safe-area-inset-top, 0px))" }}
-      >
-        <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-border/60 bg-background/85 px-3 py-1.5 shadow-soft backdrop-blur">
-          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-secondary text-base">
-            {trip.data.cover_emoji ?? "✈️"}
-          </span>
-          <div className="min-w-0">
-            <p className="truncate font-serif text-sm font-semibold leading-tight">{trip.data.title}</p>
-            <p className="truncate text-[10px] text-muted-foreground leading-tight">
-              {citiesLabel || ""}
-              {!isWishlist && `${citiesLabel ? " · " : ""}${fmt(trip.data.start_date, lang)} → ${fmt(trip.data.end_date, lang)}`}
-            </p>
-          </div>
+                    <CoverMenuRow
+                      active={false}
+                      onClick={() => fileRef.current?.click()}
+                      icon={Upload}
+                      label={t("change_photo")}
+                    />
+                  </>
+                )}
+                <ColorCoverMenuRow
+                  active={coverType === "color"}
+                  current={tripRow.cover_bg}
+                  onPick={(bg) => setCoverBg(bg)}
+                />
+                <div className="my-1 h-px bg-border/60" aria-hidden />
+                <CoverMenuRow
+                  active={false}
+                  onClick={() => {
+                    setCoverMenuOpen(false);
+                    setEditOpen(true);
+                  }}
+                  icon={Pencil}
+                  label={t("edit_trip")}
+                />
+                <CoverMenuRow
+                  active={false}
+                  onClick={async () => {
+                    setCoverMenuOpen(false);
+                    if (!confirm(t("delete_confirm"))) return;
+                    try {
+                      await delFn({ data: { id: tripId } });
+                      qc.invalidateQueries({ queryKey: ["trips"] });
+                      nav({ to: "/trips" });
+                    } catch (e) {
+                      toast.error(e instanceof Error ? e.message : t("error_generic"));
+                    }
+                  }}
+                  icon={Trash2}
+                  label={t("delete_trip")}
+                />
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
       </div>
 
