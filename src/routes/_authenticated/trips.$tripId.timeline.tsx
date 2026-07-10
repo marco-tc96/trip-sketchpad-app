@@ -152,7 +152,7 @@ function TimelineView() {
   const isWishlist = trip.data.start_date >= "2099-01-01";
   const maxDayIndex = nonLodging.reduce((m, it) => Math.max(m, it.day_index ?? 0), 0);
 
-  type DayGroup = { label: string; dayIndex: number | null; items: ItemRow[] };
+  type DayGroup = { label: string; dayIndex: number | null; isoDate?: string; items: ItemRow[] };
   const groups: DayGroup[] = isWishlist
     ? Array.from({ length: Math.max(1, maxDayIndex) }, (_, i) => ({
         label: t("day_of", { n: i + 1 }).toUpperCase(),
@@ -169,6 +169,7 @@ function TimelineView() {
           return {
             label: `${t("day_of", { n: i + 1 })} · ${d.toLocaleDateString(lang, { weekday: "short", day: "2-digit", month: "short" })}`,
             dayIndex: i + 1,
+            isoDate: iso,
             items: nonLodging.filter((it) =>
               it.start_at ? it.start_at.slice(0, 10) === iso : it.day_index === i + 1,
             ),
@@ -218,6 +219,7 @@ function TimelineView() {
                   isWishlist={isWishlist}
                   maxDayIndex={maxDayIndex}
                   defaultDayIndex={g.dayIndex}
+                  defaultStartDate={g.isoDate ?? null}
                   trigger={
                     <button
                       type="button"
@@ -247,11 +249,15 @@ function TimelineView() {
                             <div className={cn("min-w-0 flex-1 transition-opacity", done && "opacity-40")}>
                               <p className={cn("text-[10px] uppercase tracking-widest", cls.sub)}>{t(it.kind)}</p>
                               <p className={cn("truncate font-medium", done && "line-through")}>{it.title}</p>
-                              <p className={cn("text-xs", cls.sub)}>
-                                {it.location && <>{cityNameLocalized(it.location, lang)} · </>}
-                                {it.start_at && fmtDT(it.start_at, lang)}
-                                {it.end_at && ` → ${fmtDT(it.end_at, lang)}`}
-                              </p>
+                              {it.location && (
+                                <p className={cn("text-xs", cls.sub)}>{cityNameLocalized(it.location, lang)}</p>
+                              )}
+                              {(fmtTime(it.start_at) || fmtTime(it.end_at)) && (
+                                <p className={cn("mt-0.5 text-sm font-semibold tabular-nums", cls.sub)}>
+                                  {fmtTime(it.start_at)}
+                                  {fmtTime(it.end_at) && <span className="font-normal"> → {fmtTime(it.end_at)}</span>}
+                                </p>
+                              )}
                               {STOP_KINDS.has(it.kind) && stopMeta?.from_stop && (
                                 <p className={cn("text-xs", cls.sub)}>
                                   {stopMeta.from_stop}{stopMeta.to_stop ? ` → ${stopMeta.to_stop}` : ""}
@@ -1014,6 +1020,7 @@ function AddItemDialog({
   isWishlist = false,
   maxDayIndex = 0,
   defaultDayIndex = null,
+  defaultStartDate = null,
 }: {
   tripId: string;
   defaultKind?: (typeof ITEM_KINDS)[number];
@@ -1024,6 +1031,7 @@ function AddItemDialog({
   isWishlist?: boolean;
   maxDayIndex?: number;
   defaultDayIndex?: number | null;
+  defaultStartDate?: string | null;
 }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
@@ -1037,7 +1045,7 @@ function AddItemDialog({
       kind: (existing?.kind as (typeof ITEM_KINDS)[number]) ?? defaultKind,
       title: existing?.title ?? "",
       location: existing?.location ?? "",
-      start_at: existing?.start_at ? existing.start_at.slice(0, 16) : "",
+      start_at: existing?.start_at ? existing.start_at.slice(0, 16) : (defaultStartDate ? `${defaultStartDate}T00:00` : ""),
       end_at: existing?.end_at ? existing.end_at.slice(0, 16) : "",
       notes: existing?.notes ?? "",
       day_index: existing?.day_index ?? defaultDayIndex ?? null as number | null,
