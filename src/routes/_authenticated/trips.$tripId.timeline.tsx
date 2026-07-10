@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import {
   Plane, Train, Bus, Car, Bike, Ship, Hotel, MapPin, Sparkles, ArrowRightLeft,
   PlaneTakeoff, PlaneLanding, Plus, Trash2, ChevronsUpDown, Check, Clock,
-  CalendarDays, Wallet,
+  CalendarDays, Wallet, Pencil, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { listItems, createItem, updateItem, deleteItem, ITEM_KINDS } from "@/lib/itinerary.functions";
@@ -182,12 +182,25 @@ function TimelineView() {
     qc.invalidateQueries({ queryKey: ["items", tripId] });
   }
 
+  const [completedIds, setCompletedIds] = useState<Set<string>>(() => {
+    try {
+      const stored = localStorage.getItem(`completed_${tripId}`);
+      return stored ? new Set(JSON.parse(stored) as string[]) : new Set();
+    } catch { return new Set(); }
+  });
+
+  function toggleCompleted(id: string) {
+    setCompletedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) { next.delete(id); } else { next.add(id); }
+      try { localStorage.setItem(`completed_${tripId}`, JSON.stringify([...next])); } catch {}
+      return next;
+    });
+  }
+
   return (
     <div>
       <TripStats trip={trip.data} expenses={expenses.data ?? []} homeCcy={profile.data?.home_currency ?? "EUR"} isWishlist={isWishlist} wishlistDays={maxDayIndex} />
-      <div className="mb-4 flex items-center justify-end">
-          <AddItemDialog tripId={tripId} tripCities={tripCities} tripCountries={tripCountries} isWishlist={isWishlist} maxDayIndex={maxDayIndex} />
-      </div>
 
       <div className="space-y-6">
         <JourneyBlock tripId={tripId} outbound={outbound} ret={ret} tripCountries={hubCountries} />
@@ -196,7 +209,26 @@ function TimelineView() {
         <div className="space-y-3">
           {groups.map((g) => (
             <section key={g.label} className="rounded-2xl border border-border bg-card p-4 shadow-soft">
-              <h3 className="mb-3 text-xs font-semibold uppercase tracking-widest text-muted-foreground">{g.label}</h3>
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">{g.label}</h3>
+                <AddItemDialog
+                  tripId={tripId}
+                  tripCities={tripCities}
+                  tripCountries={tripCountries}
+                  isWishlist={isWishlist}
+                  maxDayIndex={maxDayIndex}
+                  defaultDayIndex={g.dayIndex}
+                  trigger={
+                    <button
+                      type="button"
+                      className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary transition hover:bg-primary/20"
+                      aria-label="Aggiungi attività"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </button>
+                  }
+                />
+              </div>
               {g.items.length === 0 ? (
                 <p className="text-sm text-muted-foreground">—</p>
               ) : (
@@ -205,43 +237,78 @@ function TimelineView() {
                     const Icon = KIND_ICON[it.kind as keyof typeof KIND_ICON] ?? MapPin;
                     const cls = kindClasses(it.kind);
                     const dark = TRANSPORT_KINDS.has(it.kind) || it.kind === "activity";
+                    const done = completedIds.has(it.id);
                     return (
                       <li key={it.id}>
-                        <AddItemDialog
-                          tripId={tripId}
-                          tripCities={tripCities}
-                          tripCountries={tripCountries}
-                          existing={it as ItemRow}
-                          isWishlist={isWishlist}
-                          maxDayIndex={maxDayIndex}
-                          trigger={
+                        <div className={cn("overflow-hidden rounded-xl", cls.card)}>
+                          <div className="flex items-start gap-3 p-3">
+                            <Icon className="mt-0.5 h-5 w-5 shrink-0" />
+                            <div className={cn("min-w-0 flex-1 transition-opacity", done && "opacity-40")}>
+                              <p className={cn("text-[10px] uppercase tracking-widest", cls.sub)}>{t(it.kind)}</p>
+                              <p className={cn("truncate font-medium", done && "line-through")}>{it.title}</p>
+                              <p className={cn("text-xs", cls.sub)}>
+                                {it.location && <>{cityNameLocalized(it.location, lang)} · </>}
+                                {it.start_at && fmtDT(it.start_at, lang)}
+                                {it.end_at && ` → ${fmtDT(it.end_at, lang)}`}
+                              </p>
+                              {it.notes && <p className={cn("mt-1 text-xs", cls.sub)}>{it.notes}</p>}
+                              <TransportLegs meta={it.meta as TransportMeta | null} />
+                            </div>
+                          </div>
+                          <div className={cn(
+                            "flex items-center border-t px-2 py-1.5",
+                            dark ? "border-white/15" : "border-border/50",
+                          )}>
                             <button
                               type="button"
-                              className={cn("flex w-full items-start gap-3 rounded-xl p-3 text-left transition hover:brightness-110", cls.card)}
+                              onClick={() => toggleCompleted(it.id)}
+                              className={cn(
+                                "flex flex-1 items-center justify-center gap-1 rounded-lg py-1.5 text-[11px] font-medium transition",
+                                done
+                                  ? dark
+                                    ? "bg-white/20 text-white"
+                                    : "bg-emerald-500/15 text-emerald-600"
+                                  : dark
+                                    ? "text-white/75 hover:bg-white/10"
+                                    : "text-foreground/60 hover:bg-foreground/8",
+                              )}
                             >
-                              <Icon className="mt-0.5 h-5 w-5 shrink-0" />
-                              <div className="min-w-0 flex-1">
-                                <p className={cn("text-[10px] uppercase tracking-widest", cls.sub)}>{t(it.kind)}</p>
-                                <p className="truncate font-medium">{it.title}</p>
-                                <p className={cn("text-xs", cls.sub)}>
-                                  {it.location && <>{cityNameLocalized(it.location, lang)} · </>}
-                                  {it.start_at && fmtDT(it.start_at, lang)}
-                                  {it.end_at && ` → ${fmtDT(it.end_at, lang)}`}
-                                </p>
-                                {it.notes && <p className={cn("mt-1 text-xs", cls.sub)}>{it.notes}</p>}
-                                <TransportLegs meta={it.meta as TransportMeta | null} />
-                              </div>
-                              <span
-                                role="button"
-                                tabIndex={0}
-                                onClick={(e) => { e.stopPropagation(); e.preventDefault(); del(it.id); }}
-                                className={cn("inline-flex h-8 w-8 items-center justify-center rounded-md", dark ? "text-white hover:bg-white/10" : "hover:bg-foreground/10")}
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </span>
+                              <Check className="h-3.5 w-3.5" />
+                              <span>Completato</span>
                             </button>
-                          }
-                        />
+                            <AddItemDialog
+                              tripId={tripId}
+                              tripCities={tripCities}
+                              tripCountries={tripCountries}
+                              existing={it as ItemRow}
+                              isWishlist={isWishlist}
+                              maxDayIndex={maxDayIndex}
+                              trigger={
+                                <button
+                                  type="button"
+                                  className={cn(
+                                    "flex flex-1 items-center justify-center gap-1 rounded-lg py-1.5 text-[11px] font-medium transition",
+                                    dark ? "text-white/75 hover:bg-white/10" : "text-foreground/60 hover:bg-foreground/8",
+                                  )}
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                  <span>Modifica</span>
+                                </button>
+                              }
+                            />
+                            <button
+                              type="button"
+                              onClick={() => del(it.id)}
+                              className={cn(
+                                "flex flex-1 items-center justify-center gap-1 rounded-lg py-1.5 text-[11px] font-medium transition",
+                                dark ? "text-white/75 hover:bg-white/10" : "text-foreground/60 hover:bg-foreground/8",
+                              )}
+                            >
+                              <X className="h-3.5 w-3.5" />
+                              <span>Rimuovi</span>
+                            </button>
+                          </div>
+                        </div>
                       </li>
                     );
                   })}
@@ -900,6 +967,7 @@ function AddItemDialog({
   existing,
   isWishlist = false,
   maxDayIndex = 0,
+  defaultDayIndex = null,
 }: {
   tripId: string;
   defaultKind?: (typeof ITEM_KINDS)[number];
@@ -909,6 +977,7 @@ function AddItemDialog({
   existing?: ItemRow;
   isWishlist?: boolean;
   maxDayIndex?: number;
+  defaultDayIndex?: number | null;
 }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
@@ -923,7 +992,7 @@ function AddItemDialog({
     start_at: existing?.start_at ? existing.start_at.slice(0, 16) : "",
     end_at: existing?.end_at ? existing.end_at.slice(0, 16) : "",
     notes: existing?.notes ?? "",
-    day_index: existing?.day_index ?? null as number | null,
+    day_index: existing?.day_index ?? defaultDayIndex ?? null as number | null,
   });
   const [form, setForm] = useState(seedForm);
   function handleOpenChange(v: boolean) {
@@ -994,7 +1063,7 @@ function AddItemDialog({
                     end_at: isWishlist ? null : (form.end_at || null),
                     notes: form.notes || null,
                     position: 0,
-                    ...(isWishlist ? { day_index: form.day_index } : {}),
+                    day_index: form.day_index ?? null,
                   },
                 });
               }
