@@ -264,7 +264,7 @@ function TripLayout() {
             <button
               type="button"
               onClick={toggleFavorite}
-              aria-label={isFavorite ? "Rimuovi dai preferiti" : "Aggiungi ai preferiti"}
+              aria-label={isFavorite ? t("remove_from_favorites") : t("add_to_favorites")}
               className="inline-flex items-center justify-center rounded-full bg-background/60 p-2.5 text-foreground backdrop-blur hover:bg-background/80"
             >
               <Heart
@@ -299,7 +299,7 @@ function TripLayout() {
                       className="h-3.5 w-3.5 shrink-0 transition-colors"
                       style={isFavorite ? { fill: "oklch(0.58 0.22 25)", color: "oklch(0.58 0.22 25)" } : undefined}
                     />
-                    <span className="truncate">{isFavorite ? "Rimuovi dai preferiti" : "Aggiungi ai preferiti"}</span>
+                    <span className="truncate">{isFavorite ? t("remove_from_favorites") : t("add_to_favorites")}</span>
                   </button>
                   <div className="my-1 h-px bg-border/60" aria-hidden />
                 </>
@@ -456,7 +456,7 @@ function TripLayout() {
         {hasReservedSpace && (
           <button
             type="button"
-            aria-label="Scorri per vedere di più"
+            aria-label={t("scroll_hint")}
             onClick={() => {
               document
                 .querySelector<HTMLElement>("[data-trip-scroller]")
@@ -536,7 +536,7 @@ function TripLayout() {
 
       <section className="flex flex-col pt-2">
       <nav
-        aria-label="Sezioni viaggio"
+        aria-label={t("trip_sections")}
         className="mx-auto flex w-fit items-center gap-1 rounded-full border border-border/60 bg-background/70 p-1 text-xs shadow-soft backdrop-blur"
       >
         {tabs.map((tab) => {
@@ -708,7 +708,7 @@ function EditTripDialog({
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-1.5">
-            <Label>Icona</Label>
+            <Label>{t("icon_label")}</Label>
             <div className="flex flex-wrap items-center gap-2">
               <Input
                 value={emoji}
@@ -847,21 +847,21 @@ function EditTripDialog({
               <PopoverTrigger asChild>
                 <Button type="button" variant="outline" className="w-full justify-between font-normal">
                   <span className="truncate text-muted-foreground">
-                    {cities.length === 0 ? "Cerca o aggiungi città…" : `${cities.length} città`}
+                    {cities.length === 0 ? t("search_add_city") : (cities.length === 1 ? t("cities_selected_one") : t("cities_selected_other", { count: cities.length }))}
                   </span>
                   <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
                 <Command shouldFilter={false}>
-                  <CommandInput placeholder="Digita per cercare…" value={query} onValueChange={setQuery} />
+                  <CommandInput placeholder={t("type_to_search")} value={query} onValueChange={setQuery} />
                   <CommandList className="max-h-72">
-                    {filtered.length === 0 && !canAddCustom && <CommandEmpty>Nessuna città</CommandEmpty>}
+                    {filtered.length === 0 && !canAddCustom && <CommandEmpty>{t("no_cities")}</CommandEmpty>}
                     {canAddCustom && (
-                      <CommandGroup heading="Aggiungi">
+                      <CommandGroup heading={t("add")}>
                         <CommandItem onSelect={addCustom}>
                           <Plus className="mr-2 h-4 w-4" />
-                          <span>Aggiungi "{query.trim()}"</span>
+                          <span>{t("add_city", { name: query.trim() })}</span>
                         </CommandItem>
                       </CommandGroup>
                     )}
@@ -997,7 +997,7 @@ function ColorCoverMenuRow({
       </PopoverTrigger>
       <PopoverContent align="end" className="w-64 p-3">
         <p className="mb-2 text-xs font-medium text-muted-foreground">
-          Sfondo del viaggio
+          {t("trip_background")}
         </p>
         <div className="grid grid-cols-3 gap-2">
           {COVER_BG_PRESETS.map((bg) => {
@@ -1022,7 +1022,7 @@ function ColorCoverMenuRow({
           })}
         </div>
         <label className="mt-3 block text-xs text-muted-foreground">
-          Custom (CSS color / gradient)
+          {t("custom_bg")}
           <input
             type="text"
             defaultValue={current ?? ""}
@@ -1030,7 +1030,7 @@ function ColorCoverMenuRow({
               const v = e.target.value.trim();
               if (v) onPick(v);
             }}
-            placeholder="#0f172a oppure linear-gradient(...)"
+            placeholder={t("custom_bg_placeholder")}
             className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1 text-xs"
           />
         </label>
@@ -1402,7 +1402,7 @@ function FullScreenPhoto({
         onPointerMove={isActive ? onPointerMove : undefined}
         onPointerUp={isActive ? onPointerUp : undefined}
         onPointerCancel={isActive ? onPointerUp : undefined}
-        title="Trascina per centrare"
+        title={t("drag_photo_hint")}
       >
         <img
           src={src}
@@ -1442,7 +1442,7 @@ function FullScreenPhoto({
             type="button"
             onClick={() => adjustZoom(-ZOOM_STEP)}
             disabled={zoom <= ZOOM_MIN}
-            aria-label="Rimpicciolisci"
+            aria-label={t("zoom_out")}
             className="grid h-6 w-6 place-items-center rounded-full bg-white/15 text-sm font-semibold hover:bg-white/25 disabled:opacity-30"
           >
             −
@@ -1451,7 +1451,7 @@ function FullScreenPhoto({
             type="button"
             onClick={() => adjustZoom(ZOOM_STEP)}
             disabled={zoom >= ZOOM_MAX}
-            aria-label="Ingrandisci"
+            aria-label={t("zoom_in")}
             className="grid h-6 w-6 place-items-center rounded-full bg-white/15 text-sm font-semibold hover:bg-white/25 disabled:opacity-30"
           >
             +

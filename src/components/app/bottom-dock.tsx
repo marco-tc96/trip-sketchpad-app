@@ -66,7 +66,7 @@ export function BottomDock() {
       <button
         type="button"
         onClick={() => nav({ to: "/trips/new" })}
-        aria-label="Nuovo viaggio o wishlist"
+        aria-label={t("new_trip")}
         className={cn(
           "flex items-center gap-1.5 rounded-full px-3.5 py-2 sm:px-4 sm:py-3 text-xs font-medium transition",
           isNewTripPage
@@ -75,7 +75,7 @@ export function BottomDock() {
         )}
       >
         <Plus className="h-4 w-4 sm:h-5 sm:w-5" />
-        <span className="hidden sm:inline">Nuovo</span>
+        <span className="hidden sm:inline">{t("new")}</span>
       </button>
 
       {/* Profile nav */}

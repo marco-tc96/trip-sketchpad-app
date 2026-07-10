@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import {
   Plane, Train, Bus, Car, Bike, Ship, Hotel, MapPin, Sparkles, ArrowRightLeft,
   PlaneTakeoff, PlaneLanding, Plus, Trash2, ChevronsUpDown, Check, Clock,
-  CalendarDays, Wallet, Pencil, X,
+  CalendarDays, Wallet, Pencil, X, TramFront, TrainFront,
 } from "lucide-react";
 import { toast } from "sonner";
 import { listItems, createItem, updateItem, deleteItem, ITEM_KINDS } from "@/lib/itinerary.functions";
@@ -46,7 +46,7 @@ type ItemRow = {
   meta?: unknown;
 };
 
-type TransportMode = "car" | "moto" | "train" | "plane" | "ferry" | "bus";
+type TransportMode = "car" | "moto" | "train" | "plane" | "ferry" | "bus" | "metro" | "tram";
 type Leg = {
   from: string;
   to: string;
@@ -58,18 +58,15 @@ type Leg = {
 const emptyLeg = (): Leg => ({
   from: "", to: "", depart_at: "", arrive_at: "", carrier: "", number: "",
 });
-const MODE_LABEL: Record<TransportMode, string> = {
-  car: "Auto", moto: "Moto", train: "Treno", plane: "Aereo", ferry: "Traghetto", bus: "Bus",
-};
 const MODE_ICON: Record<TransportMode, React.ComponentType<{ className?: string }>> = {
-  car: Car, moto: Bike, train: Train, plane: Plane, ferry: Ship, bus: Bus,
+  car: Car, moto: Bike, train: Train, plane: Plane, ferry: Ship, bus: Bus, metro: TrainFront, tram: TramFront,
 };
 
 export const Route = createFileRoute("/_authenticated/trips/$tripId/timeline")({
   component: TimelineView,
 });
 
-const KIND_ICON: Record<(typeof ITEM_KINDS)[number], React.ComponentType<{ className?: string }>> = {
+const KIND_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   outbound: PlaneTakeoff,
   return: PlaneLanding,
   flight: Plane,
@@ -83,10 +80,12 @@ const KIND_ICON: Record<(typeof ITEM_KINDS)[number], React.ComponentType<{ class
   activity: Sparkles,
   zone: MapPin,
   other: MapPin,
+  metro: TrainFront,
+  tram: TramFront,
 };
 
 const TRANSPORT_KINDS = new Set([
-  "outbound", "return", "flight", "train", "car", "moto", "ferry", "transfer",
+  "outbound", "return", "flight", "train", "bus", "car", "moto", "ferry", "transfer", "metro", "tram",
 ]);
 function kindClasses(kind: string) {
   if (TRANSPORT_KINDS.has(kind)) {
@@ -155,7 +154,7 @@ function TimelineView() {
   type DayGroup = { label: string; dayIndex: number | null; items: ItemRow[] };
   const groups: DayGroup[] = isWishlist
     ? Array.from({ length: Math.max(1, maxDayIndex) }, (_, i) => ({
-        label: `GIORNO ${i + 1}`,
+        label: t("day_of", { n: i + 1 }).toUpperCase(),
         dayIndex: i + 1,
         items: nonLodging.filter((it) => it.day_index === i + 1),
       }))
@@ -222,7 +221,7 @@ function TimelineView() {
                     <button
                       type="button"
                       className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary transition hover:bg-primary/20"
-                      aria-label="Aggiungi attività"
+                      aria-label={t("add_activity")}
                     >
                       <Plus className="h-4 w-4" />
                     </button>
@@ -274,7 +273,7 @@ function TimelineView() {
                               )}
                             >
                               <Check className="h-3.5 w-3.5" />
-                              <span>Completato</span>
+                              <span>{t("completed")}</span>
                             </button>
                             <AddItemDialog
                               tripId={tripId}
@@ -292,7 +291,7 @@ function TimelineView() {
                                   )}
                                 >
                                   <Pencil className="h-3.5 w-3.5" />
-                                  <span>Modifica</span>
+                                  <span>{t("edit")}</span>
                                 </button>
                               }
                             />
@@ -305,7 +304,7 @@ function TimelineView() {
                               )}
                             >
                               <X className="h-3.5 w-3.5" />
-                              <span>Rimuovi</span>
+                              <span>{t("delete")}</span>
                             </button>
                           </div>
                         </div>
@@ -350,9 +349,9 @@ function TripStats({
     <div className="mb-4 grid gap-3 sm:grid-cols-2">
       <div className="rounded-2xl border border-border bg-card p-4 shadow-soft">
         <CalendarDays className="h-5 w-5 text-primary" />
-        <p className="mt-2 text-[10px] uppercase tracking-wider text-muted-foreground">{isWishlist ? "Pianificato" : t("duration")}</p>
+        <p className="mt-2 text-[10px] uppercase tracking-wider text-muted-foreground">{isWishlist ? t("planned_label") : t("duration")}</p>
         <p className="mt-0.5 font-serif text-2xl font-semibold tabular-nums">
-          {isWishlist ? (days > 0 ? `${days} giorni` : "—") : `${days} ${t("nights")}`}
+          {isWishlist ? (days > 0 ? `${days} ${t("nights")}` : "—") : `${days} ${t("nights")}`}
         </p>
       </div>
       <div className="rounded-2xl border border-border bg-card p-4 shadow-soft">
@@ -767,7 +766,7 @@ function TransportDialog({
       : [emptyLeg()],
   );
 
-  const isStopBased = mode === "train" || mode === "plane";
+  const isStopBased = mode === "train" || mode === "plane" || mode === "metro" || mode === "tram";
 
   function updateLeg(i: number, patch: Partial<Leg>) {
     setLegs((arr) => arr.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
@@ -778,7 +777,7 @@ function TransportDialog({
     try {
       const first = legs[0];
       const last = legs[legs.length - 1];
-      const title = `${MODE_LABEL[mode]} ${[first?.from, last?.to].filter(Boolean).join(" → ") || ""}`.trim();
+      const title = `${t(`mode_${mode}`)} ${[first?.from, last?.to].filter(Boolean).join(" → ") || ""}`.trim();
       if (existing) {
         await delFn({ data: { id: existing.id } });
       }
@@ -802,14 +801,14 @@ function TransportDialog({
     }
   }
 
-  const fromLabel = mode === "train" ? "Stazione di partenza"
-    : mode === "plane" ? "Aeroporto di partenza"
-    : mode === "ferry" ? "Porto di partenza"
-    : "Punto di partenza";
-  const toLabel = mode === "train" ? "Stazione di arrivo"
-    : mode === "plane" ? "Aeroporto di arrivo"
-    : mode === "ferry" ? "Porto di arrivo"
-    : "Punto di arrivo";
+  const fromLabel = (mode === "train" || mode === "metro" || mode === "tram") ? t("from_station")
+    : mode === "plane" ? t("from_airport")
+    : mode === "ferry" ? t("from_port")
+    : t("from_point");
+  const toLabel = (mode === "train" || mode === "metro" || mode === "tram") ? t("to_station")
+    : mode === "plane" ? t("to_airport")
+    : mode === "ferry" ? t("to_port")
+    : t("to_point");
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -820,9 +819,9 @@ function TransportDialog({
         </DialogHeader>
         <form className="space-y-4" onSubmit={submit}>
           <div className="space-y-1.5">
-            <Label>Mezzo di trasporto</Label>
-            <div className="grid grid-cols-5 gap-1.5">
-              {(Object.keys(MODE_LABEL) as TransportMode[]).map((m) => {
+            <Label>{t("transport_mode")}</Label>
+            <div className="grid grid-cols-4 gap-1.5">
+              {(Object.keys(MODE_ICON) as TransportMode[]).map((m) => {
                 const Icon = MODE_ICON[m];
                 const active = m === mode;
                 return (
@@ -837,7 +836,7 @@ function TransportDialog({
                     }`}
                   >
                     <Icon className="h-4 w-4" />
-                    {MODE_LABEL[m]}
+                    {t(`mode_${m}`)}
                   </button>
                 );
               })}
@@ -849,7 +848,7 @@ function TransportDialog({
               <div key={i} className="rounded-xl border border-border bg-muted/30 p-3">
                 <div className="mb-2 flex items-center justify-between">
                   <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    {isStopBased ? (legs.length === 1 ? "Tratta" : `Tratta ${i + 1}`) : "Percorso"}
+                    {isStopBased ? (legs.length === 1 ? t("leg") : `${t("leg")} ${i + 1}`) : t("route")}
                   </p>
                   {legs.length > 1 && (
                     <Button
@@ -884,7 +883,7 @@ function TransportDialog({
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs">Data partenza <span className="opacity-60">(opzionale)</span></Label>
+                    <Label className="text-xs">{t("depart_date")} <span className="opacity-60">{t("optional")}</span></Label>
                     <Input
                       type="date"
                       value={leg.depart_at ? leg.depart_at.slice(0, 10) : ""}
@@ -896,7 +895,7 @@ function TransportDialog({
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs">Orario partenza <span className="opacity-60">(opzionale)</span></Label>
+                    <Label className="text-xs">{t("depart_time")} <span className="opacity-60">{t("optional")}</span></Label>
                     <Input
                       type="time"
                       value={leg.depart_at && leg.depart_at.slice(11, 16) !== "00:00" ? leg.depart_at.slice(11, 16) : ""}
@@ -908,7 +907,7 @@ function TransportDialog({
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs">Data arrivo <span className="opacity-60">(opzionale)</span></Label>
+                    <Label className="text-xs">{t("arrive_date")} <span className="opacity-60">{t("optional")}</span></Label>
                     <Input
                       type="date"
                       value={leg.arrive_at ? leg.arrive_at.slice(0, 10) : ""}
@@ -920,7 +919,7 @@ function TransportDialog({
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs">Orario arrivo <span className="opacity-60">(opzionale)</span></Label>
+                    <Label className="text-xs">{t("arrive_time")} <span className="opacity-60">{t("optional")}</span></Label>
                     <Input
                       type="time"
                       value={leg.arrive_at && leg.arrive_at.slice(11, 16) !== "00:00" ? leg.arrive_at.slice(11, 16) : ""}
@@ -935,7 +934,7 @@ function TransportDialog({
                     <>
                       <div className="space-y-1">
                         <Label className="text-xs">
-                          {mode === "plane" ? "Compagnia aerea" : mode === "train" ? "Operatore" : "Compagnia"}
+                          {mode === "plane" ? t("airline") : mode === "train" ? t("operator_label") : t("company")}
                         </Label>
                         <Input
                           value={leg.carrier}
@@ -944,7 +943,7 @@ function TransportDialog({
                       </div>
                       <div className="space-y-1">
                         <Label className="text-xs">
-                          {mode === "plane" ? "Numero volo" : mode === "train" ? "Numero treno" : "Numero corsa"}
+                          {mode === "plane" ? t("flight_number") : mode === "train" ? t("train_number") : t("service_number")}
                         </Label>
                         <Input
                           value={leg.number}
@@ -965,7 +964,7 @@ function TransportDialog({
                 onClick={() => setLegs((arr) => [...arr, emptyLeg()])}
                 className="w-full"
               >
-                <Plus className="mr-1.5 h-3.5 w-3.5" /> Aggiungi scalo
+                <Plus className="mr-1.5 h-3.5 w-3.5" /> {t("add_layover")}
               </Button>
             )}
           </div>
@@ -981,7 +980,7 @@ function TransportDialog({
                   setOpen(false);
                 }}
               >
-                <Trash2 className="mr-1.5 h-3.5 w-3.5" /> {t("delete_confirm") ? "Elimina" : "Delete"}
+                <Trash2 className="mr-1.5 h-3.5 w-3.5" /> {t("delete")}
               </Button>
             ) : <span />}
             <div className="flex gap-2">
@@ -1046,6 +1045,9 @@ function AddItemDialog({
     { kind: "lodging", icon: Hotel, label: t("lodging") },
     { kind: "flight", icon: Plane, label: t("flight") },
     { kind: "train", icon: Train, label: t("train") },
+    { kind: "bus", icon: Bus, label: t("bus") },
+    { kind: "metro" as (typeof ITEM_KINDS)[number], icon: TrainFront, label: t("metro") },
+    { kind: "tram" as (typeof ITEM_KINDS)[number], icon: TramFront, label: t("tram") },
     { kind: "car", icon: Car, label: t("car") },
     { kind: "ferry", icon: Ship, label: t("ferry") },
     { kind: "transfer", icon: ArrowRightLeft, label: t("transfer") },
@@ -1155,13 +1157,13 @@ function AddItemDialog({
               </PopoverTrigger>
               <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
                 <Command shouldFilter={false}>
-                  <CommandInput placeholder="Cerca o digita…" value={locQuery} onValueChange={setLocQuery} />
+                  <CommandInput placeholder={t("search_type")} value={locQuery} onValueChange={setLocQuery} />
                   <CommandList className="max-h-72">
                     {matchTrip.length === 0 && matchExtras.length === 0 && !locQuery && (
-                      <CommandEmpty>Nessuna città</CommandEmpty>
+                      <CommandEmpty>{t("no_cities")}</CommandEmpty>
                     )}
                     {locQuery && (
-                      <CommandGroup heading="Personalizzato">
+                      <CommandGroup heading={t("custom")}>
                         <CommandItem
                           onSelect={() => {
                             setForm({ ...form, location: locQuery.trim() });
@@ -1169,12 +1171,12 @@ function AddItemDialog({
                           }}
                         >
                           <Plus className="mr-2 h-4 w-4" />
-                          <span>Usa "{locQuery.trim()}"</span>
+                          <span>{t("use_value", { name: locQuery.trim() })}</span>
                         </CommandItem>
                       </CommandGroup>
                     )}
                     {matchTrip.length > 0 && (
-                      <CommandGroup heading="Tappe del viaggio">
+                      <CommandGroup heading={t("trip_stops")}>
                         {matchTrip.map((c) => {
                           const sel = form.location === c.name;
                           return (
@@ -1195,7 +1197,7 @@ function AddItemDialog({
                       </CommandGroup>
                     )}
                     {matchExtras.length > 0 && (
-                      <CommandGroup heading="Altre città">
+                      <CommandGroup heading={t("other_cities_label")}>
                         {matchExtras.map((c) => {
                           const sel = form.location === c.name;
                           return (
@@ -1222,15 +1224,16 @@ function AddItemDialog({
           </div>
           {isWishlist ? (
             <div className="space-y-1.5">
-              <Label>Giorno <span className="text-xs opacity-70">(opzionale)</span></Label>
+              <Label>{t("day")}</Label>
               <select
+                required
                 value={form.day_index ?? ""}
                 onChange={(e) => setForm({ ...form, day_index: e.target.value ? Number(e.target.value) : null })}
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <option value="">Senza giorno assegnato</option>
+                <option value="" disabled>{t("select_day")}</option>
                 {Array.from({ length: Math.max(1, maxDayIndex + 1) }, (_, i) => (
-                  <option key={i + 1} value={i + 1}>Giorno {i + 1}</option>
+                  <option key={i + 1} value={i + 1}>{t("day_of", { n: i + 1 })}</option>
                 ))}
               </select>
             </div>
@@ -1238,9 +1241,10 @@ function AddItemDialog({
             <div className="space-y-3">
               <div className="grid gap-2 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <Label className="text-muted-foreground">{t("starts_at")} <span className="text-xs opacity-70">(opzionale)</span></Label>
+                  <Label>{t("starts_at")}</Label>
                   <Input
                     type="date"
+                    required
                     value={form.start_at ? form.start_at.slice(0, 10) : ""}
                     onChange={(e) => {
                       const date = e.target.value;
@@ -1250,7 +1254,7 @@ function AddItemDialog({
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-muted-foreground">Orario inizio <span className="text-xs opacity-70">(opzionale)</span></Label>
+                  <Label className="text-muted-foreground">{t("start_time")} <span className="text-xs opacity-70">{t("optional")}</span></Label>
                   <Input
                     type="time"
                     value={form.start_at && form.start_at.slice(11, 16) !== "00:00" ? form.start_at.slice(11, 16) : ""}
@@ -1264,7 +1268,7 @@ function AddItemDialog({
               </div>
               <div className="grid gap-2 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <Label className="text-muted-foreground">{t("ends_at")} <span className="text-xs opacity-70">(opzionale)</span></Label>
+                  <Label className="text-muted-foreground">{t("ends_at")} <span className="text-xs opacity-70">{t("optional")}</span></Label>
                   <Input
                     type="date"
                     value={form.end_at ? form.end_at.slice(0, 10) : ""}
@@ -1276,7 +1280,7 @@ function AddItemDialog({
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-muted-foreground">Orario fine <span className="text-xs opacity-70">(opzionale)</span></Label>
+                  <Label className="text-muted-foreground">{t("end_time")} <span className="text-xs opacity-70">{t("optional")}</span></Label>
                   <Input
                     type="time"
                     value={form.end_at && form.end_at.slice(11, 16) !== "00:00" ? form.end_at.slice(11, 16) : ""}
@@ -1306,7 +1310,7 @@ function AddItemDialog({
                   setOpen(false);
                 }}
               >
-                <Trash2 className="mr-1.5 h-3.5 w-3.5" /> {t("delete_confirm") ? "Elimina" : "Delete"}
+                <Trash2 className="mr-1.5 h-3.5 w-3.5" /> {t("delete")}
               </Button>
             ) : <span />}
             <div className="flex gap-2">
@@ -1340,10 +1344,11 @@ function HubCombobox({
   onChange: (v: string) => void;
   placeholder?: string;
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const isPlane = mode === "plane";
-  const isHub = mode === "train" || mode === "bus" || mode === "ferry";
+  const isHub = mode === "train" || mode === "bus" || mode === "ferry" || mode === "metro" || mode === "tram";
   const isCityMode = mode === "car" || mode === "moto";
   const airportsData = useAirports(true);
   const remote = useRemoteHubs(isHub ? modeToKind(mode) : null, isHub ? value : "");
@@ -1360,7 +1365,7 @@ function HubCombobox({
       <div className="relative">
         <Input
           value={value}
-          placeholder={placeholder || "Cerca città…"}
+          placeholder={placeholder || t("search_city")}
           onFocus={() => setOpen(true)}
           onBlur={() => setTimeout(() => setOpen(false), 150)}
           onChange={(e) => { onChange(e.target.value); setOpen(true); }}
@@ -1413,7 +1418,7 @@ function HubCombobox({
       <div className="relative">
         <Input
           value={value}
-          placeholder={placeholder || "Cerca aeroporto o IATA…"}
+          placeholder={placeholder || t("search_airport")}
           onFocus={() => setOpen(true)}
           onBlur={() => setTimeout(() => setOpen(false), 150)}
           onChange={(e) => { onChange(e.target.value); setOpen(true); }}
@@ -1422,12 +1427,12 @@ function HubCombobox({
         {open && (filtered.length > 0 || hiddenCount > 0) && (
           <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-72 overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
             {filtered.length === 0 && !q && (
-              <div className="px-2 py-1.5 text-xs text-muted-foreground">Nessuna opzione</div>
+              <div className="px-2 py-1.5 text-xs text-muted-foreground">{t("no_option")}</div>
             )}
             {filtered.length > 0 && (
               <div className="py-1">
                 <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                  {showAll || q ? "Tutte le opzioni" : "Principali"}
+                  {showAll || q ? t("all_options") : t("main_options")}
                 </p>
                 {filtered.map((h, i) => {
                   const label = formatAirport(h);
@@ -1453,7 +1458,7 @@ function HubCombobox({
                 className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-muted-foreground hover:bg-accent"
               >
                 <ChevronsUpDown className="h-4 w-4" />
-                <span>Visualizza altri ({hiddenCount})</span>
+                <span>{t("show_more", { count: hiddenCount })}</span>
               </button>
             )}
           </div>
@@ -1494,7 +1499,7 @@ function HubCombobox({
     <div className="relative">
       <Input
         value={value}
-        placeholder={placeholder || "Cerca o digita…"}
+        placeholder={placeholder || t("search_type")}
         onFocus={() => setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
         onChange={(e) => { onChange(e.target.value); setOpen(true); }}
@@ -1503,12 +1508,12 @@ function HubCombobox({
       {open && (filtered.length > 0 || hiddenCount > 0 || (q && (remoteHubs.length > 0 || remote.isFetching))) && (
         <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-72 overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
           {filtered.length === 0 && !q && (
-            <div className="px-2 py-1.5 text-xs text-muted-foreground">Nessuna opzione</div>
+            <div className="px-2 py-1.5 text-xs text-muted-foreground">{t("no_option")}</div>
           )}
           {filtered.length > 0 && (
             <div className="py-1">
               <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                {showAll || q ? "Tutte le opzioni" : "Principali"}
+                {showAll || q ? t("all_options") : t("main_options")}
               </p>
               {filtered.map((h, i) => {
                 const label = formatHub(h);
@@ -1533,7 +1538,7 @@ function HubCombobox({
           {q && remoteHubs.length > 0 && (
             <div className="border-t border-border/60 py-1">
               <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                Risultati globali
+                {t("global_results")}
               </p>
               {remoteHubs.map((h, i) => {
                 const label = formatHub(h);
@@ -1555,7 +1560,7 @@ function HubCombobox({
             </div>
           )}
           {q && remote.isFetching && remoteHubs.length === 0 && (
-            <div className="px-2 py-1.5 text-xs text-muted-foreground">Ricerca globale…</div>
+            <div className="px-2 py-1.5 text-xs text-muted-foreground">{t("global_search")}</div>
           )}
           {!q && !showAll && hiddenCount > 0 && (
             <button
@@ -1564,7 +1569,7 @@ function HubCombobox({
               className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-muted-foreground hover:bg-accent"
             >
               <ChevronsUpDown className="h-4 w-4" />
-              <span>Visualizza altri ({hiddenCount})</span>
+              <span>{t("show_more", { count: hiddenCount })}</span>
             </button>
           )}
         </div>
