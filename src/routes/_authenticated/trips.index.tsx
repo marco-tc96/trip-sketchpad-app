@@ -40,9 +40,9 @@ function TripsList() {
   const trips = q.data ?? [];
 
   // ── Scroll-to-top on mount ───────────────────────────────────────────────
-  // 1. Disable browser/router scroll-restoration so it can't fight us.
-  // 2. useLayoutEffect scrolls synchronously before the first paint.
-  // 3. rAF + 200 ms timeout catch any async restoration that fires later.
+  // Strategy: disable router scroll-restoration, scroll sync in layout effect,
+  // then install a scroll-guard listener for the first 800ms that intercepts
+  // any programmatic scroll-restoration fired by the router after mount.
   useLayoutEffect(() => {
     const prev = history.scrollRestoration;
     history.scrollRestoration = "manual";
@@ -50,9 +50,15 @@ function TripsList() {
     return () => { history.scrollRestoration = prev; };
   }, []);
   useEffect(() => {
-    const frame = requestAnimationFrame(() => window.scrollTo(0, 0));
-    const id = setTimeout(() => window.scrollTo(0, 0), 200);
-    return () => { cancelAnimationFrame(frame); clearTimeout(id); };
+    window.scrollTo(0, 0);
+    const mountTime = Date.now();
+    function guard() {
+      if (Date.now() - mountTime < 800 && window.scrollY > 50) {
+        window.scrollTo({ top: 0, behavior: "instant" });
+      }
+    }
+    window.addEventListener("scroll", guard);
+    return () => window.removeEventListener("scroll", guard);
   }, []);
 
   // ── Favorites (localStorage) ─────────────────────────────────────────────
@@ -460,7 +466,7 @@ function Section({
                   if (Math.abs(eff) > 2) return null;
 
                   const rotate     = eff * 5;
-                  const scale      = Math.max(0.84, 1 - Math.abs(eff) * 0.16);
+                  const scale      = Math.max(0.50, 1 - Math.abs(eff) * 0.22);
                   const brightness = Math.max(0.55, 1 - Math.abs(eff) * 0.45);
                   const translateVw = eff * PEEK_VW;
                   const zIndex =

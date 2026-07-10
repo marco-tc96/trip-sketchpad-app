@@ -364,7 +364,7 @@ export function WorldMap({
       <MapContainer
         center={[20, 10]}
         zoom={2}
-        minZoom={2}
+        minZoom={1}
         maxZoom={9}
         worldCopyJump
         attributionControl={false}
