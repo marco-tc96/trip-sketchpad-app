@@ -160,12 +160,12 @@ function TimelineView() {
         items: nonLodging.filter((it) => it.day_index === i + 1),
       }))
     : (() => {
-        const start = new Date(trip.data.start_date);
-        const end = new Date(trip.data.end_date);
+        const start = new Date(trip.data.start_date + "T12:00:00");
+        const end = new Date(trip.data.end_date + "T12:00:00");
         const dayCount = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000) + 1);
         return Array.from({ length: dayCount }, (_, i) => {
           const d = new Date(start.getTime() + i * 86400000);
-          const iso = d.toISOString().slice(0, 10);
+          const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
           return {
             label: `${t("day_of", { n: i + 1 })} · ${d.toLocaleDateString(lang, { weekday: "short", day: "2-digit", month: "short" })}`,
             dayIndex: i + 1,
@@ -666,13 +666,20 @@ function nameOf(label: string, lang?: string): string {
   const city = lang ? cityNameLocalized(parts[0] ?? rest, lang) : (parts[0] ?? rest);
   return parts.length > 1 ? `${city} ${parts.slice(1).join(" ")}` : city;
 }
-function fmtTime(iso: string | null, lang?: string): string {
+// Extract HH:MM directly from ISO string — avoids browser timezone conversion
+// so the time shown is exactly what the user entered (destination-local time).
+// Returns "" if no time was set (stored as 00:00).
+function fmtTime(iso: string | null, _lang?: string): string {
   if (!iso) return "";
-  const d = new Date(iso);
-  return d.toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit", hour12: false });
+  const t = iso.slice(11, 16);
+  if (!t || t === "00:00") return "";
+  return t;
 }
 function fmtDate(iso: string, lang?: string): string {
-  return new Date(iso).toLocaleDateString(lang, { weekday: "short", day: "2-digit", month: "short" });
+  const datePart = iso.slice(0, 10);
+  if (!datePart) return "";
+  // Use noon to avoid DST-related date shifts when converting to local calendar
+  return new Date(`${datePart}T12:00:00`).toLocaleDateString(lang, { weekday: "short", day: "2-digit", month: "short" });
 }
 function durationLabel(a: string | null, b: string | null): string {
   if (!a || !b) return "";
@@ -684,14 +691,14 @@ function durationLabel(a: string | null, b: string | null): string {
 }
 function plusDays(a: string | null, b: string | null): string {
   if (!a || !b) return "";
-  const da = new Date(a); da.setHours(0, 0, 0, 0);
-  const db = new Date(b); db.setHours(0, 0, 0, 0);
+  const da = new Date(`${a.slice(0, 10)}T12:00:00`); da.setHours(0, 0, 0, 0);
+  const db = new Date(`${b.slice(0, 10)}T12:00:00`); db.setHours(0, 0, 0, 0);
   const diff = Math.round((db.getTime() - da.getTime()) / 86_400_000);
   return diff > 0 ? `+${diff}` : "";
 }
 function daysUntil(iso: string): number {
   const now = new Date(); now.setHours(0, 0, 0, 0);
-  const d = new Date(iso); d.setHours(0, 0, 0, 0);
+  const d = new Date(`${iso.slice(0, 10)}T12:00:00`); d.setHours(0, 0, 0, 0);
   return Math.round((d.getTime() - now.getTime()) / 86_400_000);
 }
 
@@ -877,19 +884,51 @@ function TransportDialog({
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs">Partenza <span className="opacity-60">(opzionale)</span></Label>
+                    <Label className="text-xs">Data partenza <span className="opacity-60">(opzionale)</span></Label>
                     <Input
-                      type="datetime-local"
-                      value={leg.depart_at}
-                      onChange={(e) => updateLeg(i, { depart_at: e.target.value })}
+                      type="date"
+                      value={leg.depart_at ? leg.depart_at.slice(0, 10) : ""}
+                      onChange={(e) => {
+                        const date = e.target.value;
+                        const time = leg.depart_at ? leg.depart_at.slice(11, 16) : "";
+                        updateLeg(i, { depart_at: date ? `${date}T${time || "00:00"}` : "" });
+                      }}
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs">Arrivo <span className="opacity-60">(opzionale)</span></Label>
+                    <Label className="text-xs">Orario partenza <span className="opacity-60">(opzionale)</span></Label>
                     <Input
-                      type="datetime-local"
-                      value={leg.arrive_at}
-                      onChange={(e) => updateLeg(i, { arrive_at: e.target.value })}
+                      type="time"
+                      value={leg.depart_at && leg.depart_at.slice(11, 16) !== "00:00" ? leg.depart_at.slice(11, 16) : ""}
+                      onChange={(e) => {
+                        const time = e.target.value;
+                        const date = leg.depart_at ? leg.depart_at.slice(0, 10) : "";
+                        updateLeg(i, { depart_at: date ? `${date}T${time || "00:00"}` : "" });
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Data arrivo <span className="opacity-60">(opzionale)</span></Label>
+                    <Input
+                      type="date"
+                      value={leg.arrive_at ? leg.arrive_at.slice(0, 10) : ""}
+                      onChange={(e) => {
+                        const date = e.target.value;
+                        const time = leg.arrive_at ? leg.arrive_at.slice(11, 16) : "";
+                        updateLeg(i, { arrive_at: date ? `${date}T${time || "00:00"}` : "" });
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Orario arrivo <span className="opacity-60">(opzionale)</span></Label>
+                    <Input
+                      type="time"
+                      value={leg.arrive_at && leg.arrive_at.slice(11, 16) !== "00:00" ? leg.arrive_at.slice(11, 16) : ""}
+                      onChange={(e) => {
+                        const time = e.target.value;
+                        const date = leg.arrive_at ? leg.arrive_at.slice(0, 10) : "";
+                        updateLeg(i, { arrive_at: date ? `${date}T${time || "00:00"}` : "" });
+                      }}
                     />
                   </div>
                   {(mode === "train" || mode === "plane" || mode === "ferry") && (
@@ -1196,14 +1235,58 @@ function AddItemDialog({
               </select>
             </div>
           ) : (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label className="text-muted-foreground">{t("starts_at")} <span className="text-xs opacity-70">(opzionale)</span></Label>
-                <Input type="datetime-local" value={form.start_at} onChange={(e) => setForm({ ...form, start_at: e.target.value })} />
+            <div className="space-y-3">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label className="text-muted-foreground">{t("starts_at")} <span className="text-xs opacity-70">(opzionale)</span></Label>
+                  <Input
+                    type="date"
+                    value={form.start_at ? form.start_at.slice(0, 10) : ""}
+                    onChange={(e) => {
+                      const date = e.target.value;
+                      const time = form.start_at ? form.start_at.slice(11, 16) : "";
+                      setForm({ ...form, start_at: date ? `${date}T${time || "00:00"}` : "" });
+                    }}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-muted-foreground">Orario inizio <span className="text-xs opacity-70">(opzionale)</span></Label>
+                  <Input
+                    type="time"
+                    value={form.start_at && form.start_at.slice(11, 16) !== "00:00" ? form.start_at.slice(11, 16) : ""}
+                    onChange={(e) => {
+                      const time = e.target.value;
+                      const date = form.start_at ? form.start_at.slice(0, 10) : "";
+                      setForm({ ...form, start_at: date ? `${date}T${time || "00:00"}` : "" });
+                    }}
+                  />
+                </div>
               </div>
-              <div className="space-y-1.5">
-                <Label className="text-muted-foreground">{t("ends_at")} <span className="text-xs opacity-70">(opzionale)</span></Label>
-                <Input type="datetime-local" value={form.end_at} onChange={(e) => setForm({ ...form, end_at: e.target.value })} />
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label className="text-muted-foreground">{t("ends_at")} <span className="text-xs opacity-70">(opzionale)</span></Label>
+                  <Input
+                    type="date"
+                    value={form.end_at ? form.end_at.slice(0, 10) : ""}
+                    onChange={(e) => {
+                      const date = e.target.value;
+                      const time = form.end_at ? form.end_at.slice(11, 16) : "";
+                      setForm({ ...form, end_at: date ? `${date}T${time || "00:00"}` : "" });
+                    }}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-muted-foreground">Orario fine <span className="text-xs opacity-70">(opzionale)</span></Label>
+                  <Input
+                    type="time"
+                    value={form.end_at && form.end_at.slice(11, 16) !== "00:00" ? form.end_at.slice(11, 16) : ""}
+                    onChange={(e) => {
+                      const time = e.target.value;
+                      const date = form.end_at ? form.end_at.slice(0, 10) : "";
+                      setForm({ ...form, end_at: date ? `${date}T${time || "00:00"}` : "" });
+                    }}
+                  />
+                </div>
               </div>
             </div>
           )}
@@ -1237,9 +1320,15 @@ function AddItemDialog({
   );
 }
 
+// Extract date + time directly from ISO string to show destination-local time.
+// Time is omitted if 00:00 (= not explicitly set by user).
 function fmtDT(s: string, lang?: string) {
-  const d = new Date(s);
-  return d.toLocaleString(lang, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+  const datePart = s.slice(0, 10);
+  const timePart = s.slice(11, 16);
+  if (!datePart) return "";
+  const dateStr = new Date(`${datePart}T12:00:00`).toLocaleDateString(lang, { day: "2-digit", month: "short" });
+  const showTime = timePart && timePart !== "00:00";
+  return showTime ? `${dateStr} ${timePart}` : dateStr;
 }
 
 function HubCombobox({
