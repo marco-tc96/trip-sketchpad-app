@@ -67,9 +67,18 @@ function TripsList() {
     const s = document.createElement("style");
     s.id = "vt-trips-style";
     s.textContent = [
-      "::view-transition-group(*){animation-duration:420ms;animation-timing-function:cubic-bezier(.4,0,.2,1)}",
+      // Shared element (card) – spring overshoot on open
+      "::view-transition-group(*){animation-duration:560ms;animation-timing-function:cubic-bezier(0.22,1.45,0.36,1)}",
       "::view-transition-image-pair(*){isolation:isolate}",
-      "::view-transition-old(root),::view-transition-new(root){animation-duration:300ms}",
+      // Root cross-fade keyframes (forward)
+      "::view-transition-old(root){animation:vt-fade-out 300ms ease forwards}",
+      "::view-transition-new(root){animation:vt-fade-in 300ms ease forwards}",
+      // Back direction: smooth decelerate, no overshoot
+      "[data-vt-dir='back']::view-transition-group(*){animation-duration:380ms;animation-timing-function:cubic-bezier(0.4,0,0.2,1)}",
+      "[data-vt-dir='back']::view-transition-old(root){animation:vt-fade-out 220ms ease forwards}",
+      "[data-vt-dir='back']::view-transition-new(root){animation:vt-fade-in 220ms ease forwards}",
+      "@keyframes vt-fade-out{from{opacity:1}to{opacity:0}}",
+      "@keyframes vt-fade-in{from{opacity:0}to{opacity:1}}",
     ].join("");
     document.head.appendChild(s);
   }, []);
@@ -272,6 +281,9 @@ function TripsList() {
         <EmptyState />
       ) : (
         <div className="mt-8 space-y-8">
+          {favoriteTrips.length > 0 && (
+            <Section title={t("favorites")} trips={favoriteTrips} accent="favorites" />
+          )}
           {ongoing.length > 0 && (
             <Section title={t("ongoing")} trips={ongoing} accent="ongoing" />
           )}
@@ -280,9 +292,6 @@ function TripsList() {
           )}
           {past.length > 0 && (
             <Section title={t("past")} trips={past} accent="past" withYearSelector />
-          )}
-          {favoriteTrips.length > 0 && (
-            <Section title={t("favorites")} trips={favoriteTrips} accent="favorites" />
           )}
           {wishlistTrips.length > 0 && (
             <Section title={t("wishlist")} trips={wishlistTrips} accent="wishlist" />
@@ -614,7 +623,9 @@ function TripCard({
     e.preventDefault();
     const doNav = () => { void navigate({ to: "/trips/$tripId", params: { tripId: trip.id } }); };
     if (typeof document.startViewTransition === "function") {
-      document.startViewTransition(doNav);
+      document.documentElement.dataset.vtDir = "forward";
+      const vt = document.startViewTransition(doNav);
+      vt.finished.finally(() => { delete document.documentElement.dataset.vtDir; });
     } else {
       doNav();
     }

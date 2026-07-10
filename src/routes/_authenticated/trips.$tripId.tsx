@@ -262,7 +262,9 @@ function TripLayout() {
           onClick={() => {
             const doNav = () => { void nav({ to: "/trips" }); };
             if (typeof document.startViewTransition === "function") {
-              document.startViewTransition(doNav);
+              document.documentElement.dataset.vtDir = "back";
+              const vt = document.startViewTransition(doNav);
+              vt.finished.finally(() => { delete document.documentElement.dataset.vtDir; });
             } else {
               doNav();
             }
