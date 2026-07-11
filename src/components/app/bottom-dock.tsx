@@ -38,7 +38,7 @@ export function BottomDock() {
   return (
     <nav
       aria-label="Primary"
-      className="fixed inset-x-0 z-40 mx-auto flex w-fit max-w-[calc(100vw-1.5rem)] items-center gap-1 sm:gap-2 rounded-full border border-border/60 bg-card/85 px-2 sm:px-2.5 py-1.5 sm:py-2 shadow-soft backdrop-blur-xl"
+      className="fixed inset-x-0 z-40 mx-auto flex w-fit max-w-[calc(100vw-1.5rem)] items-center gap-2 sm:gap-1 rounded-full border border-border/60 bg-card/85 px-2.5 sm:px-2 py-2 sm:py-1.5 shadow-soft backdrop-blur-xl"
       style={{ bottom: "calc(0.75rem + env(safe-area-inset-bottom, 0px))" }}
     >
       {/* Compass nav */}
@@ -50,13 +50,13 @@ export function BottomDock() {
             key={to}
             to={to}
             className={cn(
-              "group flex items-center gap-1.5 rounded-full px-3.5 py-2 sm:px-4 sm:py-3 text-xs font-medium transition",
+              "group flex items-center gap-1.5 rounded-full px-4 py-3 sm:px-3.5 sm:py-2 text-xs font-medium transition",
               active
                 ? "bg-primary text-primary-foreground shadow-soft"
                 : "text-muted-foreground hover:bg-muted hover:text-foreground",
             )}
           >
-            <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
+            <Icon className="h-5 w-5 sm:h-4 sm:w-4" />
             <span className="hidden sm:inline">{t(labelKey)}</span>
           </Link>
         );
@@ -66,13 +66,13 @@ export function BottomDock() {
       <Link
         to="/map"
         className={cn(
-          "group flex items-center gap-1.5 rounded-full px-3.5 py-2 sm:px-4 sm:py-3 text-xs font-medium transition",
+          "group flex items-center gap-1.5 rounded-full px-4 py-3 sm:px-3.5 sm:py-2 text-xs font-medium transition",
           loc.pathname.startsWith("/map")
             ? "bg-primary text-primary-foreground shadow-soft"
             : "text-muted-foreground hover:bg-muted hover:text-foreground",
         )}
       >
-        <Globe2 className="h-4 w-4 sm:h-5 sm:w-5" />
+        <Globe2 className="h-5 w-5 sm:h-4 sm:w-4" />
         <span className="hidden sm:inline">{t("map")}</span>
       </Link>
 
@@ -82,13 +82,13 @@ export function BottomDock() {
         onClick={() => nav({ to: "/trips/new" })}
         aria-label={t("new_trip")}
         className={cn(
-          "flex items-center gap-1.5 rounded-full px-3.5 py-2 sm:px-4 sm:py-3 text-xs font-medium transition",
+          "flex items-center gap-1.5 rounded-full px-4 py-3 sm:px-3.5 sm:py-2 text-xs font-medium transition",
           isNewTripPage
             ? "bg-primary text-primary-foreground shadow-soft"
             : "text-muted-foreground hover:bg-muted hover:text-foreground",
         )}
       >
-        <Plus className="h-4 w-4 sm:h-5 sm:w-5" />
+        <Plus className="h-5 w-5 sm:h-4 sm:w-4" />
         <span className="hidden sm:inline">{t("new")}</span>
       </button>
 
@@ -101,13 +101,13 @@ export function BottomDock() {
             key={to}
             to={to}
             className={cn(
-              "group flex items-center gap-1.5 rounded-full px-3.5 py-2 sm:px-4 sm:py-3 text-xs font-medium transition",
+              "group flex items-center gap-1.5 rounded-full px-4 py-3 sm:px-3.5 sm:py-2 text-xs font-medium transition",
               active
                 ? "bg-primary text-primary-foreground shadow-soft"
                 : "text-muted-foreground hover:bg-muted hover:text-foreground",
             )}
           >
-            <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
+            <Icon className="h-5 w-5 sm:h-4 sm:w-4" />
             <span className="hidden sm:inline">{t(labelKey)}</span>
           </Link>
         );
@@ -117,14 +117,14 @@ export function BottomDock() {
       <Link
         to="/notifications"
         className={cn(
-          "group flex items-center gap-1.5 rounded-full px-3.5 py-2 sm:px-4 sm:py-3 text-xs font-medium transition",
+          "group flex items-center gap-1.5 rounded-full px-4 py-3 sm:px-3.5 sm:py-2 text-xs font-medium transition",
           loc.pathname.startsWith("/notifications")
             ? "bg-primary text-primary-foreground shadow-soft"
             : "text-muted-foreground hover:bg-muted hover:text-foreground",
         )}
       >
         <span className="relative">
-          <Bell className="h-4 w-4 sm:h-5 sm:w-5" />
+          <Bell className="h-5 w-5 sm:h-4 sm:w-4" />
           {unreadCount > 0 && (
             <span className="absolute -right-1.5 -top-1.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-destructive text-[8px] font-bold text-white leading-none">
               {unreadCount > 9 ? "9+" : unreadCount}

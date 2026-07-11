@@ -195,23 +195,18 @@ function TripsList() {
   const jan1Ms = new Date(currentYear, 0, 1).getTime();
   const dayOfYear = Math.floor((Date.now() - jan1Ms) / 86400000) + 1;
 
-  // ── Scroll-to-top on mount ────────────────────────────────────────────────
+  // ── Scroll restoration on mount ──────────────────────────────────────────
   useLayoutEffect(() => {
     const prev = history.scrollRestoration;
     history.scrollRestoration = "manual";
-    window.scrollTo(0, 0);
-    return () => { history.scrollRestoration = prev; };
-  }, []);
-  useEffect(() => {
-    window.scrollTo(0, 0);
-    const mountTime = Date.now();
-    function guard() {
-      if (Date.now() - mountTime < 800 && window.scrollY > 50) {
-        window.scrollTo({ top: 0, behavior: "instant" });
-      }
+    const saved = sessionStorage.getItem("trips-scroll");
+    if (saved) {
+      window.scrollTo(0, parseInt(saved, 10));
+      sessionStorage.removeItem("trips-scroll");
+    } else {
+      window.scrollTo(0, 0);
     }
-    window.addEventListener("scroll", guard);
-    return () => window.removeEventListener("scroll", guard);
+    return () => { history.scrollRestoration = prev; };
   }, []);
 
   // Inject View Transitions CSS once per session
@@ -746,6 +741,7 @@ function FavoriteCard({ trip }: { trip: Trip }) {
 
   function handleClick(e: React.MouseEvent) {
     e.preventDefault();
+    sessionStorage.setItem("trips-scroll", String(window.scrollY));
     const doNav = () => { void navigate({ to: "/trips/$tripId", params: { tripId: trip.id } }); };
     if (typeof document.startViewTransition === "function") {
       document.documentElement.dataset.vtDir = "forward";
@@ -826,6 +822,7 @@ function TripCard({
 
   function handleClick(e: React.MouseEvent) {
     e.preventDefault();
+    sessionStorage.setItem("trips-scroll", String(window.scrollY));
     const doNav = () => { void navigate({ to: "/trips/$tripId", params: { tripId: trip.id } }); };
     if (typeof document.startViewTransition === "function") {
       document.documentElement.dataset.vtDir = "forward";

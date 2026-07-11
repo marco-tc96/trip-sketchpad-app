@@ -1173,7 +1173,7 @@ function AddItemDialog({
         </DialogHeader>
         <form
           id="add-item-form"
-          className="flex-1 space-y-4 overflow-y-auto px-5 pb-5 pt-4"
+          className="flex-1 space-y-4 overflow-x-hidden overflow-y-auto px-5 pb-5 pt-4"
           onSubmit={async (e) => {
             e.preventDefault();
             try {
@@ -1497,11 +1497,12 @@ function AddItemDialog({
           ) : (
             <div className="space-y-3">
               <div className="grid gap-2 sm:grid-cols-2">
-                <div className="space-y-1.5">
+                <div className="min-w-0 space-y-1.5">
                   <Label>{t("starts_at")}</Label>
                   <Input
                     type="date"
                     required
+                    className="w-full"
                     value={form.start_at ? form.start_at.slice(0, 10) : ""}
                     onChange={(e) => {
                       const date = e.target.value;
@@ -1510,10 +1511,11 @@ function AddItemDialog({
                     }}
                   />
                 </div>
-                <div className="space-y-1.5">
+                <div className="min-w-0 space-y-1.5">
                   <Label className="text-muted-foreground">{t("start_time")} <span className="text-xs opacity-70">{t("optional")}</span></Label>
                   <Input
                     type="time"
+                    className="w-full"
                     value={form.start_at && form.start_at.slice(11, 16) !== "00:00" ? form.start_at.slice(11, 16) : ""}
                     onChange={(e) => {
                       const time = e.target.value;
@@ -1524,10 +1526,11 @@ function AddItemDialog({
                 </div>
               </div>
               <div className="grid gap-2 sm:grid-cols-2">
-                <div className="space-y-1.5">
+                <div className="min-w-0 space-y-1.5">
                   <Label className="text-muted-foreground">{t("ends_at")} <span className="text-xs opacity-70">{t("optional")}</span></Label>
                   <Input
                     type="date"
+                    className="w-full"
                     value={form.end_at ? form.end_at.slice(0, 10) : ""}
                     onChange={(e) => {
                       const date = e.target.value;
@@ -1536,10 +1539,11 @@ function AddItemDialog({
                     }}
                   />
                 </div>
-                <div className="space-y-1.5">
+                <div className="min-w-0 space-y-1.5">
                   <Label className="text-muted-foreground">{t("end_time")} <span className="text-xs opacity-70">{t("optional")}</span></Label>
                   <Input
                     type="time"
+                    className="w-full"
                     value={form.end_at && form.end_at.slice(11, 16) !== "00:00" ? form.end_at.slice(11, 16) : ""}
                     onChange={(e) => {
                       const time = e.target.value;
