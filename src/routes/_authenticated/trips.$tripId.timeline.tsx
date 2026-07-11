@@ -107,13 +107,49 @@ const _areaCache = new Map<string, string>();   // city → overpass area snippe
 const _lineCache = new Map<string, Array<{ ref: string; name: string }>>();
 const _stopCache = new Map<string, string[]>();
 
+// ── Overpass fetch: race several mirrors, first success wins ─────────────────
+// The public overpass-api.de instance is frequently slow or rate-limited, which
+// is what makes the line search hang. Racing faster mirrors with a hard client
+// timeout makes results arrive much sooner and never hang forever.
+const OVERPASS_MIRRORS = [
+  "https://overpass.kumi.systems/api/interpreter",
+  "https://overpass-api.de/api/interpreter",
+  "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+];
+
+async function overpassFetch(
+  query: string,
+  timeoutMs = 25000,
+): Promise<{ elements: Array<{ tags?: Record<string, string> }> }> {
+  const body = `data=${encodeURIComponent(query)}`;
+  const attempts = OVERPASS_MIRRORS.map((url) => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    return fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+      signal: ctrl.signal,
+    })
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return (await r.json()) as { elements: Array<{ tags?: Record<string, string> }> };
+      })
+      .finally(() => clearTimeout(timer));
+  });
+  // Promise.any resolves with the first mirror that succeeds; rejects only if all fail.
+  return Promise.any(attempts);
+}
+
 // Resolve city name → precise Overpass area query via Nominatim
 async function getAreaQuery(city: string): Promise<string> {
   if (_areaCache.has(city)) return _areaCache.get(city)!;
   try {
+    // NB: browsers forbid setting a custom User-Agent on fetch (it is silently
+    // stripped), so we don't try — Accept is enough for Nominatim.
     const r = await fetch(
       `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(city)}&format=json&limit=5&addressdetails=0`,
-      { headers: { Accept: "application/json", "User-Agent": "Voyager-TravelApp/1.0" } },
+      { headers: { Accept: "application/json" } },
     );
     const hits = await r.json() as Array<{ osm_type: string; osm_id: string; class: string; type: string }>;
     // Prefer administrative boundary relations (cities, municipalities)
@@ -141,8 +177,7 @@ async function fetchTransitLines(city: string, osmMode: string): Promise<Array<{
     `relation["type"="route"]["route"="${m}"](area.c)`,
   ]).join(";");
   const q = `[out:json][timeout:40];${areaQ};(${clauses};);out tags;`;
-  const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`);
-  const data = await res.json() as { elements: Array<{ tags: Record<string, string> }> };
+  const data = await overpassFetch(q) as { elements: Array<{ tags: Record<string, string> }> };
   const seen = new Set<string>();
   const lines: Array<{ ref: string; name: string }> = [];
   for (const el of data.elements) {
@@ -170,8 +205,7 @@ async function fetchLineStops(city: string, osmMode: string, lineRef: string): P
     `relation["type"="route"]["route"="${m}"]["ref"="${lineRef}"](area.c)`
   ).join(";");
   const q = `[out:json][timeout:40];${areaQ};(${routeClauses};)->.r;node(r.r:"stop");out tags;`;
-  const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`);
-  const data = await res.json() as { elements: Array<{ tags: Record<string, string> }> };
+  const data = await overpassFetch(q) as { elements: Array<{ tags: Record<string, string> }> };
   const seen = new Set<string>();
   const stops: string[] = [];
   for (const el of data.elements) {
@@ -1934,6 +1968,7 @@ function LineCombobox({
   const [open, setOpen] = useState(false);
   const [lines, setLines] = useState<Array<{ ref: string; name: string }>>([]);
   const [loading, setLoading] = useState(false);
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     const osmMode = OSM_ROUTE_MODE[mode];
@@ -1948,6 +1983,17 @@ function LineCombobox({
     return () => { cancelled = true; };
   }, [mode, city]);
 
+  // Own filtering (shouldFilter={false}) so we can always offer a free-text entry
+  const trimmed = query.trim();
+  const qLower = trimmed.toLowerCase();
+  const filteredLines = useMemo(
+    () => qLower
+      ? lines.filter(l => l.ref.toLowerCase().includes(qLower) || l.name.toLowerCase().includes(qLower))
+      : lines,
+    [lines, qLower],
+  );
+  const showCustom = trimmed.length > 0 && !lines.some(l => l.ref.toLowerCase() === qLower);
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -1960,37 +2006,47 @@ function LineCombobox({
           <span className={cn("truncate", !value && "text-muted-foreground")}>
             {value
               ? (lines.find(l => l.ref === value)?.name ?? value)
-              : loading
-                ? t("loading")
-                : t("select_line")}
+              : t("select_line")}
           </span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-        <Command>
-          <CommandInput placeholder={t("search_type")} />
+        <Command shouldFilter={false}>
+          <CommandInput placeholder={t("search_type")} value={query} onValueChange={setQuery} />
           <CommandList className="max-h-60">
-            {loading ? (
-              <div className="py-6 text-center text-sm text-muted-foreground animate-pulse">{t("loading")}</div>
-            ) : lines.length === 0 ? (
-              <CommandEmpty>{t("no_results")}</CommandEmpty>
-            ) : (
-              <CommandGroup>
-                {lines.map(line => (
-                  <CommandItem
-                    key={line.ref}
-                    value={`${line.ref} ${line.name}`}
-                    onSelect={() => { onChange(line.ref); setOpen(false); }}
-                  >
-                    <Check className={cn("mr-2 h-4 w-4 shrink-0", value === line.ref ? "opacity-100" : "opacity-0")} />
-                    <span className="mr-2 font-semibold">{line.ref}</span>
-                    {line.name !== line.ref && (
-                      <span className="truncate text-xs text-muted-foreground">{line.name}</span>
-                    )}
-                  </CommandItem>
-                ))}
-              </CommandGroup>
+            <CommandGroup>
+              {/* Free-text entry — always usable, even while OSM is still loading */}
+              {showCustom && (
+                <CommandItem
+                  key="__custom__"
+                  value={`custom-${trimmed}`}
+                  onSelect={() => { onChange(trimmed); setOpen(false); }}
+                >
+                  <Check className="mr-2 h-4 w-4 shrink-0 opacity-0" />
+                  <span className="mr-2 font-semibold">{trimmed}</span>
+                  <span className="truncate text-xs text-muted-foreground">{t("use_value", { name: trimmed })}</span>
+                </CommandItem>
+              )}
+              {filteredLines.map(line => (
+                <CommandItem
+                  key={line.ref}
+                  value={line.ref}
+                  onSelect={() => { onChange(line.ref); setOpen(false); }}
+                >
+                  <Check className={cn("mr-2 h-4 w-4 shrink-0", value === line.ref ? "opacity-100" : "opacity-0")} />
+                  <span className="mr-2 font-semibold">{line.ref}</span>
+                  {line.name !== line.ref && (
+                    <span className="truncate text-xs text-muted-foreground">{line.name}</span>
+                  )}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+            {loading && (
+              <div className="py-3 text-center text-xs text-muted-foreground animate-pulse">{t("loading")}</div>
+            )}
+            {!loading && filteredLines.length === 0 && !showCustom && (
+              <div className="py-6 text-center text-sm text-muted-foreground">{t("no_results")}</div>
             )}
           </CommandList>
         </Command>

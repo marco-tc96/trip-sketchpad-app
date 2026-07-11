@@ -761,9 +761,11 @@ function FavoriteCard({ trip }: { trip: Trip }) {
       onClick={handleClick}
       className="flex items-center gap-3 rounded-2xl bg-card p-3 ring-1 ring-border/50 shadow-sm transition hover:shadow-md hover:ring-border"
     >
-      {/* Left: square cover thumbnail */}
-      <div className="h-16 w-16 shrink-0 overflow-hidden rounded-xl">
+      {/* Left: square cover thumbnail — `relative` anchors CityCover's absolute inset-0 */}
+      <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-xl">
         <CityCover src={inlineSrc} gradient={gradient} className="h-full w-full object-cover" />
+        {/* Fade the right edge into the card background */}
+        <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-card to-transparent" />
       </div>
 
       {/* Right: all trip info outside the thumbnail */}
