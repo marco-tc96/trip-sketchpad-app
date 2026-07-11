@@ -190,6 +190,7 @@ const translations: Record<string, string> = {
   moto: "Motorbike",
   metro: "Metro",
   tram: "Tram",
+  taxi: "Taxi",
   // ── Transport mode labels (buttons) ────────────────────────────────────
   mode_car: "Car",
   mode_moto: "Motorbike",

@@ -4,7 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { useState, useMemo, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  Plane, Bus, Car, Bike, Ship, Hotel, MapPin, Sparkles, ArrowRightLeft,
+  Plane, Bus, Car, CarTaxiFront, Bike, Ship, Hotel, MapPin, Sparkles, ArrowRightLeft,
   PlaneTakeoff, PlaneLanding, Plus, Trash2, ChevronsUpDown, Check, Clock,
   CalendarDays, Wallet, Pencil, X, TramFront, TrainFront, Train,
 } from "lucide-react";
@@ -84,6 +84,7 @@ const KIND_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   train: TrainFront,
   bus: Bus,
   car: Car,
+  taxi: CarTaxiFront,
   moto: Bike,
   ferry: Ship,
   transfer: ArrowRightLeft,
@@ -96,7 +97,7 @@ const KIND_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
 };
 
 const TRANSPORT_KINDS = new Set([
-  "outbound", "return", "flight", "train", "bus", "car", "moto", "ferry", "transfer", "metro", "tram",
+  "outbound", "return", "flight", "train", "bus", "car", "taxi", "moto", "ferry", "transfer", "metro", "tram",
 ]);
 const STOP_KINDS = new Set(["train", "bus", "metro", "tram"]);
 const PT_TRANSIT_KINDS = new Set(["bus", "metro", "tram"]);
@@ -392,8 +393,20 @@ function TimelineView() {
                     return (
                       <li key={it.id}>
                         <div className={cn("overflow-hidden rounded-xl", cls.card)}>
-                          <div className="flex items-start gap-2 p-3">
+                          <div className="flex items-start gap-2.5 p-3">
                             <Icon className="mt-0.5 h-5 w-5 shrink-0" />
+                            {(fmtTime(it.start_at) || fmtTime(it.end_at)) && (
+                              <div className="shrink-0 leading-none">
+                                <p className="font-mono text-2xl font-bold tabular-nums tracking-tight sm:text-3xl">
+                                  {fmtTime(it.start_at) || fmtTime(it.end_at)}
+                                </p>
+                                {fmtTime(it.start_at) && fmtTime(it.end_at) && (
+                                  <p className={cn("mt-1 text-xs font-medium tabular-nums", cls.sub)}>
+                                    → {fmtTime(it.end_at)}
+                                  </p>
+                                )}
+                              </div>
+                            )}
                             <div className="min-w-0 flex-1">
                               {(it.kind === "outbound" || it.kind === "return") && (
                                 <p className={cn("text-[10px] uppercase tracking-widest", cls.sub)}>{t(it.kind)}</p>
@@ -401,12 +414,6 @@ function TimelineView() {
                               <p className="truncate font-medium">{it.title}</p>
                               {it.location && (
                                 <p className={cn("text-xs", cls.sub)}>{cityNameLocalized(it.location, lang)}</p>
-                              )}
-                              {(fmtTime(it.start_at) || fmtTime(it.end_at)) && (
-                                <p className={cn("mt-0.5 text-sm font-semibold tabular-nums", cls.sub)}>
-                                  {fmtTime(it.start_at)}
-                                  {fmtTime(it.end_at) && <span className="font-normal"> → {fmtTime(it.end_at)}</span>}
-                                </p>
                               )}
                               {(() => {
                                 const mixedLegs = (it.meta as { mixed_legs?: MixedLeg[] } | null)?.mixed_legs;
@@ -1285,6 +1292,7 @@ function AddItemDialog({
     { kind: "metro" as (typeof ITEM_KINDS)[number], icon: TramFront, label: t("metro") },
     { kind: "tram" as (typeof ITEM_KINDS)[number], icon: Train, label: t("tram") },
     { kind: "car", icon: Car, label: t("car") },
+    { kind: "taxi" as (typeof ITEM_KINDS)[number], icon: CarTaxiFront, label: t("taxi") },
     { kind: "moto" as (typeof ITEM_KINDS)[number], icon: Bike, label: t("moto") },
     { kind: "ferry", icon: Ship, label: t("ferry") },
   ];

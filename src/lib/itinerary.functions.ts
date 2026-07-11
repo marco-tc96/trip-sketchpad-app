@@ -3,7 +3,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
 
 export const ITEM_KINDS = [
-  "outbound","return","flight","train","bus","car","moto","ferry","transfer",
+  "outbound","return","flight","train","bus","car","taxi","moto","ferry","transfer",
   "lodging","activity","zone","other","metro","tram",
 ] as const;
 
