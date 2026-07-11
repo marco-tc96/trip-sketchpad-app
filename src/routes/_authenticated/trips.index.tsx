@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { MapPin, Calendar, Briefcase, Palmtree, Footprints, Cloud, Compass, Globe2 } from "lucide-react";
+import { MapPin, Calendar, Briefcase, Palmtree, Footprints, Cloud, Compass, Globe2, ChevronDown } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { listTrips, getTodayInboundItems } from "@/lib/trips.functions";
@@ -478,6 +478,9 @@ function Section({
   const dotsRef = useRef<HTMLDivElement>(null);
   const dotRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const isFirstDotMount = useRef(true);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [expandedPast, setExpandedPast] = useState(false);
+  const [gridLayout, setGridLayout] = useState<{ cols: number; rowH: number; gap: number }>({ cols: 4, rowH: 0, gap: 12 });
 
   const years = useMemo(() => {
     const ys = new Set(trips.map((tr) => tr.start_date.slice(0, 4)));
@@ -490,7 +493,30 @@ function Section({
     return trips.filter((tr) => tr.start_date.startsWith(selectedYear));
   }, [trips, withYearSelector, selectedYear]);
 
-  useEffect(() => { setIdx(0); setDragX(0); }, [selectedYear]);
+  useEffect(() => { setIdx(0); setDragX(0); setExpandedPast(false); }, [selectedYear]);
+
+  // Measure the desktop grid so we can cap the past-trips list to 3 rows.
+  // Column count and card height are responsive, so we read them from the DOM
+  // and recompute on resize.
+  useEffect(() => {
+    const el = gridRef.current;
+    if (!el) return;
+    const measure = () => {
+      if (!el.children.length) return;
+      const style = getComputedStyle(el);
+      const cols = style.gridTemplateColumns.split(" ").filter((s) => s && s !== "none").length || 1;
+      const gap = parseFloat(style.rowGap) || 0;
+      const rowH = (el.children[0] as HTMLElement).offsetHeight;
+      setGridLayout((prev) =>
+        prev.cols === cols && prev.rowH === rowH && prev.gap === gap ? prev : { cols, rowH, gap },
+      );
+    };
+    measure();
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
+    ro?.observe(el);
+    window.addEventListener("resize", measure);
+    return () => { ro?.disconnect(); window.removeEventListener("resize", measure); };
+  }, [filtered.length]);
 
   useEffect(() => {
     if (isFirstDotMount.current) { isFirstDotMount.current = false; return; }
@@ -668,11 +694,41 @@ function Section({
       </div>
 
       {/* ─── Desktop grid ─── */}
-      <div className="hidden sm:grid sm:grid-cols-3 sm:gap-3 lg:grid-cols-4">
-        {filtered.map((tr) => (
-          <TripCard key={tr.id} trip={tr} />
-        ))}
-      </div>
+      {(() => {
+        // Only the "all years" past view collapses to 3 rows; a selected year
+        // shows every trip as before. Mobile (carousel above) is unaffected.
+        const collapsible = withYearSelector && selectedYear === "all";
+        const rows = 3;
+        const canCollapse = collapsible && gridLayout.rowH > 0 && filtered.length > gridLayout.cols * rows;
+        const isCollapsed = canCollapse && !expandedPast;
+        const maxHeight = gridLayout.rowH * rows + gridLayout.gap * rows + Math.round(gridLayout.rowH * 0.3);
+        const hiddenCount = filtered.length - gridLayout.cols * rows;
+        return (
+          <div className="relative hidden sm:block">
+            <div
+              ref={gridRef}
+              className="grid grid-cols-3 gap-3 lg:grid-cols-4"
+              style={isCollapsed ? { maxHeight, overflow: "hidden" } : undefined}
+            >
+              {filtered.map((tr) => (
+                <TripCard key={tr.id} trip={tr} />
+              ))}
+            </div>
+            {isCollapsed && (
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 flex h-56 items-end justify-center bg-gradient-to-b from-transparent to-background">
+                <button
+                  type="button"
+                  onClick={() => setExpandedPast(true)}
+                  className="pointer-events-auto mb-2 inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-4 py-2 text-xs font-medium text-foreground shadow-soft transition hover:bg-muted"
+                >
+                  <ChevronDown className="h-3.5 w-3.5" />
+                  {t("show_more", { count: hiddenCount })}
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </section>
   );
 }
