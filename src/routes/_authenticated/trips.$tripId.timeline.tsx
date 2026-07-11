@@ -1189,6 +1189,11 @@ function AddItemDialog({
                 : STOP_KINDS.has(submitKind)
                   ? { from_stop: form.from_stop || null, to_stop: form.to_stop || null }
                   : undefined;
+              // Se manca start_at ma c'è il depart_at della prima tratta, usalo
+              const firstLegDepart = isMultiModal ? (form.mixedLegs[0]?.depart_at ?? "") : "";
+              const lastLegArrive = isMultiModal ? (form.mixedLegs[form.mixedLegs.length - 1]?.arrive_at ?? "") : "";
+              const resolvedStartAt = form.start_at || firstLegDepart || null;
+              const resolvedEndAt = form.end_at || lastLegArrive || null;
               if (existing) {
                 await updateFn({
                   data: {
@@ -1197,8 +1202,8 @@ function AddItemDialog({
                       kind: submitKind,
                       title: form.title,
                       location: form.location || null,
-                      start_at: isWishlist ? null : (form.start_at || null),
-                      end_at: isWishlist ? null : (form.end_at || null),
+                      start_at: isWishlist ? null : resolvedStartAt,
+                      end_at: isWishlist ? null : resolvedEndAt,
                       notes: form.notes || null,
                       ...(isWishlist ? { day_index: form.day_index } : {}),
                       ...(meta !== undefined ? { meta } : {}),
@@ -1212,8 +1217,8 @@ function AddItemDialog({
                     kind: submitKind,
                     title: form.title,
                     location: form.location || null,
-                    start_at: isWishlist ? null : (form.start_at || null),
-                    end_at: isWishlist ? null : (form.end_at || null),
+                    start_at: isWishlist ? null : resolvedStartAt,
+                    end_at: isWishlist ? null : resolvedEndAt,
                     notes: form.notes || null,
                     position: 0,
                     day_index: form.day_index ?? null,
