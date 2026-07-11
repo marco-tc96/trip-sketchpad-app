@@ -302,7 +302,7 @@ function kindClasses(kind: string) {
   return {
     card: "bg-muted/40 text-foreground",
     sub: "text-muted-foreground",
-    dot: "bg-muted-foreground/50 text-background",
+    dot: "bg-rose-500 text-white",
   };
 }
 
@@ -478,7 +478,7 @@ function TimelineView() {
                                 type="button"
                                 onClick={() => toggleCompleted(it.id)}
                                 aria-label={t("completed")}
-                                className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500 text-white transition"
+                                className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600 transition dark:text-emerald-400"
                               >
                                 <Check className="h-4 w-4" />
                               </button>
@@ -487,7 +487,7 @@ function TimelineView() {
                                 type="button"
                                 onClick={() => setOpenMenuId(menuOpen ? null : it.id)}
                                 aria-label={t("edit")}
-                                className="flex h-8 w-8 items-center justify-center rounded-full bg-foreground/8 text-foreground/60 transition hover:bg-foreground/15"
+                                className="flex h-7 w-7 items-center justify-center rounded-full bg-foreground/8 text-foreground/60 transition hover:bg-foreground/15"
                               >
                                 <Menu className="h-4 w-4" />
                               </button>
@@ -526,19 +526,25 @@ function TimelineView() {
                         {/* Vehicle legs — each on its own row: coloured mode icon
                             beside its line/stops, highlighted in the mode colour */}
                         {mixedLegs.length > 0 && (
-                          <div className="mt-2 space-y-1 pl-11">
+                          <div className="mt-2 space-y-2">
                             {mixedLegs.map((leg, i) => {
                               const LIcon = TRANSIT_ICON[leg.mode] ?? Bus;
                               const color = TRANSIT_TEXT[leg.mode] ?? "text-muted-foreground";
                               return (
-                                <div key={i} className="flex items-center gap-1.5 text-xs">
-                                  <LIcon className={cn("h-4 w-4 shrink-0", color)} />
-                                  <span className="min-w-0 truncate">
+                                <div key={i} className="text-xs">
+                                  {/* Line ref + departure time, right after it */}
+                                  <div className="flex items-center gap-1.5">
+                                    <LIcon className={cn("h-4 w-4 shrink-0", color)} />
                                     {leg.vehicle && <span className={cn("font-semibold", color)}>{leg.vehicle}</span>}
-                                    {leg.from_stop && <span className="text-muted-foreground"> · {leg.from_stop}</span>}
-                                    {leg.to_stop && <span className="text-muted-foreground"> → {leg.to_stop}</span>}
-                                    {leg.depart_at && <span className="text-muted-foreground opacity-75"> {leg.depart_at}</span>}
-                                  </span>
+                                    {leg.depart_at && <span className="tabular-nums text-muted-foreground">{leg.depart_at}</span>}
+                                  </div>
+                                  {/* Boarding / alighting stop on their own lines */}
+                                  {(leg.from_stop || leg.to_stop) && (
+                                    <div className="mt-0.5 space-y-0.5 pl-[1.375rem] text-muted-foreground">
+                                      {leg.from_stop && <p>{leg.from_stop}</p>}
+                                      {leg.to_stop && <p>→ {leg.to_stop}</p>}
+                                    </div>
+                                  )}
                                 </div>
                               );
                             })}
