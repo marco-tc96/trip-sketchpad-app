@@ -263,6 +263,12 @@ const translations: Record<string, string> = {
   trip_sections: "Trip sections",
   // ── Bottom dock ────────────────────────────────────────────────────────
   new: "New",
+  map: "지도",
+  // ── Home stats & countdown ─────────────────────────────────────────────
+  next_trip: "다음 여행",
+  no_upcoming_trips: "예정된 여행 없음",
+  days_traveled: "여행 일수",
+  stats_year: "{{year}}년 통계",
 };
 
 export default translations;

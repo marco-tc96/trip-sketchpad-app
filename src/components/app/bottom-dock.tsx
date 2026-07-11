@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
-import { Compass, User, Plus, Bell } from "lucide-react";
+import { Compass, Globe2, User, Plus, Bell } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -61,6 +61,20 @@ export function BottomDock() {
           </Link>
         );
       })()}
+
+      {/* Map nav */}
+      <Link
+        to="/map"
+        className={cn(
+          "group flex items-center gap-1.5 rounded-full px-3.5 py-2 sm:px-4 sm:py-3 text-xs font-medium transition",
+          loc.pathname.startsWith("/map")
+            ? "bg-primary text-primary-foreground shadow-soft"
+            : "text-muted-foreground hover:bg-muted hover:text-foreground",
+        )}
+      >
+        <Globe2 className="h-4 w-4 sm:h-5 sm:w-5" />
+        <span className="hidden sm:inline">{t("map")}</span>
+      </Link>
 
       {/* Nuovo — apre la pagina con toggle viaggio/wishlist interno */}
       <button

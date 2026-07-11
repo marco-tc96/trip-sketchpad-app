@@ -1,17 +1,14 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { MapPin, Calendar, Briefcase, Palmtree, Footprints, Globe2, Pin, PinOff, Cloud, Compass } from "lucide-react";
+import { MapPin, Calendar, Briefcase, Palmtree, Footprints, Cloud, Compass, Globe2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { listTrips, getTodayInboundItems } from "@/lib/trips.functions";
-import { getProfile } from "@/lib/profile.functions";
 import { flagOf, cityNameLocalized } from "@/lib/country-data";
 import { CityCover } from "@/components/app/city-cover";
 import { flagGradient } from "@/lib/flag-gradient";
 import { supabase } from "@/integrations/supabase/client";
-import { WorldMap, type WorldMapCity } from "@/components/app/world-map";
-import { Switch } from "@/components/ui/switch";
 
 export const Route = createFileRoute("/_authenticated/trips/")({
   component: TripsList,
@@ -24,25 +21,181 @@ function naiveLocalToUtcMs(naiveDateStr: string, utcPlusMinutes: number): number
   return new Date(naiveDateStr).getTime() - utcPlusMinutes * 60_000;
 }
 
+// ── Stat ring (Apple Activity Rings style) ──────────────────────────────────
+function StatRing({
+  label,
+  value,
+  max,
+  sublabel,
+  color,
+}: {
+  label: string;
+  value: number;
+  max: number;
+  sublabel?: string;
+  color: string;
+}) {
+  const R = 36;
+  const circ = 2 * Math.PI * R;
+  const pct = max > 0 ? Math.min(value / max, 1) : 0;
+  const offset = circ * (1 - pct);
+  return (
+    <div className="flex flex-1 flex-col items-center gap-1.5">
+      <div className="relative h-20 w-20">
+        <svg width="80" height="80" viewBox="0 0 100 100">
+          {/* Track */}
+          <circle
+            cx="50" cy="50" r={R}
+            fill="none"
+            strokeWidth="11"
+            className="stroke-muted/30"
+          />
+          {/* Progress */}
+          <circle
+            cx="50" cy="50" r={R}
+            fill="none"
+            stroke={color}
+            strokeWidth="11"
+            strokeLinecap="round"
+            strokeDasharray={`${circ} ${circ}`}
+            strokeDashoffset={offset}
+            transform="rotate(-90 50 50)"
+            style={{ transition: "stroke-dashoffset 0.8s cubic-bezier(0.16,1,0.3,1)" }}
+          />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-xl font-bold tabular-nums leading-none">{value}</span>
+          <span className="text-[10px] leading-tight text-muted-foreground">/{max}</span>
+        </div>
+      </div>
+      <p className="text-center text-xs font-medium leading-tight">{label}</p>
+      {sublabel && (
+        <p className="text-center text-[10px] leading-tight text-muted-foreground">{sublabel}</p>
+      )}
+    </div>
+  );
+}
+
+// ── Countdown card ──────────────────────────────────────────────────────────
+function CountdownCard({
+  nextPlanned,
+  nextOngoing,
+}: {
+  nextPlanned: Trip | null;
+  nextOngoing: Trip | null;
+}) {
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language ?? "en";
+
+  const trip = nextPlanned ?? nextOngoing;
+
+  if (!trip) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 rounded-3xl border border-dashed border-border bg-card p-6 text-center">
+        <Globe2 className="h-8 w-8 text-muted-foreground/40" />
+        <p className="text-sm text-muted-foreground">{t("no_upcoming_trips")}</p>
+        <Link
+          to="/trips/new"
+          className="inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-xs font-medium text-primary-foreground shadow-soft transition hover:opacity-90"
+        >
+          {t("new_trip")}
+        </Link>
+      </div>
+    );
+  }
+
+  const isOngoing = !nextPlanned && !!nextOngoing;
+  const todayMs = new Date().setHours(0, 0, 0, 0);
+  const startMs = new Date(trip.start_date).setHours(0, 0, 0, 0);
+  const daysLeft = Math.round((startMs - todayMs) / 86400000);
+
+  const countries: string[] = Array.isArray(
+    (trip as unknown as { countries?: string[] }).countries,
+  )
+    ? (trip as unknown as { countries: string[] }).countries
+    : [];
+  const flagStr =
+    countries.length > 0 ? countries.slice(0, 4).map(flagOf).join(" ") : "✈️";
+  const cities = getCities(trip);
+  const gradient = flagGradient(countries);
+  const coverEmoji = (trip as unknown as { cover_emoji?: string | null }).cover_emoji;
+
+  const countdownLabel =
+    isOngoing
+      ? null
+      : daysLeft <= 0
+        ? fmt(trip.start_date)
+        : daysLeft === 1
+          ? t("day_to_departure", { n: 1 })
+          : t("days_to_departure", { n: daysLeft });
+
+  return (
+    <Link
+      to="/trips/$tripId"
+      params={{ tripId: trip.id }}
+      className="group overflow-hidden rounded-3xl border border-border shadow-soft transition hover:shadow-md"
+    >
+      {/* Gradient hero */}
+      <div className="relative p-5" style={{ background: gradient }}>
+        <div className="absolute inset-0 bg-black/25" />
+        <div className="relative z-10 flex items-start justify-between gap-3">
+          <div className="flex flex-col gap-0.5">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-white/70">
+              {isOngoing ? t("ongoing") : t("next_trip")}
+            </p>
+            <h2 className="font-serif text-xl font-bold leading-tight text-white line-clamp-2">
+              {coverEmoji ? <span className="mr-1">{coverEmoji}</span> : null}
+              {trip.title}
+            </h2>
+          </div>
+          <span className="shrink-0 text-3xl leading-none">{flagStr}</span>
+        </div>
+        {cities.length > 0 && (
+          <p className="relative z-10 mt-2 flex items-center gap-1 text-[13px] text-white/85">
+            <MapPin className="h-3 w-3 shrink-0" />
+            {cities.map((c) => cityNameLocalized(c.name, lang)).join(" · ")}
+          </p>
+        )}
+      </div>
+
+      {/* Countdown strip */}
+      <div className="flex items-center justify-between bg-card px-5 py-3">
+        <span className="text-xs text-muted-foreground">
+          {fmt(trip.start_date)} → {isOngoing ? "…" : fmt(trip.end_date)}
+        </span>
+        {isOngoing ? (
+          <span className="rounded-full bg-amber-500/15 px-3 py-0.5 text-xs font-bold text-amber-600 dark:text-amber-400">
+            {t("ongoing")}
+          </span>
+        ) : countdownLabel ? (
+          <span className="rounded-full bg-primary/10 px-3 py-0.5 text-xs font-bold text-primary">
+            {countdownLabel}
+          </span>
+        ) : null}
+      </div>
+    </Link>
+  );
+}
+
 function TripsList() {
   const { t, i18n } = useTranslation();
   const lang = i18n.language ?? "en";
   const fn = useServerFn(listTrips);
   const inboundFn = useServerFn(getTodayInboundItems);
-  const profileFn = useServerFn(getProfile);
   const q = useQuery({ queryKey: ["trips"], queryFn: () => fn() });
   const inboundQ = useQuery({ queryKey: ["today-inbound"], queryFn: () => inboundFn() });
-  const profileQ = useQuery({ queryKey: ["profile"], queryFn: () => profileFn() });
-  const homeCountry = (profileQ.data as { home_country?: string | null } | undefined)?.home_country ?? null;
 
   const today = new Date().toISOString().slice(0, 10);
   const utcOffsetMinutes = -new Date().getTimezoneOffset();
   const trips = q.data ?? [];
 
-  // ── Scroll-to-top on mount ───────────────────────────────────────────────
-  // Strategy: disable router scroll-restoration, scroll sync in layout effect,
-  // then install a scroll-guard listener for the first 800ms that intercepts
-  // any programmatic scroll-restoration fired by the router after mount.
+  // ── Current year stats ───────────────────────────────────────────────────
+  const currentYear = new Date().getFullYear();
+  const yearStr = String(currentYear);
+  const jan1Ms = new Date(currentYear, 0, 1).getTime();
+  const dayOfYear = Math.floor((Date.now() - jan1Ms) / 86400000) + 1;
+
+  // ── Scroll-to-top on mount ────────────────────────────────────────────────
   useLayoutEffect(() => {
     const prev = history.scrollRestoration;
     history.scrollRestoration = "manual";
@@ -61,19 +214,16 @@ function TripsList() {
     return () => window.removeEventListener("scroll", guard);
   }, []);
 
-  // Inject View Transitions CSS once per session for smooth hero animations
+  // Inject View Transitions CSS once per session
   useEffect(() => {
     if (document.getElementById("vt-trips-style")) return;
     const s = document.createElement("style");
     s.id = "vt-trips-style";
     s.textContent = [
-      // Shared element (card) – spring overshoot on open
       "::view-transition-group(*){animation-duration:560ms;animation-timing-function:cubic-bezier(0.22,1.45,0.36,1)}",
       "::view-transition-image-pair(*){isolation:isolate}",
-      // Root cross-fade keyframes (forward)
       "::view-transition-old(root){animation:vt-fade-out 300ms ease forwards}",
       "::view-transition-new(root){animation:vt-fade-in 300ms ease forwards}",
-      // Back direction: smooth decelerate, no overshoot
       "[data-vt-dir='back']::view-transition-group(*){animation-duration:380ms;animation-timing-function:cubic-bezier(0.4,0,0.2,1)}",
       "[data-vt-dir='back']::view-transition-old(root){animation:vt-fade-out 220ms ease forwards}",
       "[data-vt-dir='back']::view-transition-new(root){animation:vt-fade-in 220ms ease forwards}",
@@ -123,12 +273,13 @@ function TripsList() {
     [realTrips, isConcluded],
   );
 
-  // Favorites: include any trip (past / planned / ongoing / wishlist) that is favorited
+  // Favorites: include any trip that is favorited
   const favoriteTrips = useMemo(
     () => trips.filter((tr) => favorites.has(tr.id)),
     [trips, favorites],
   );
 
+  // ── Stats: total (all-time past trips) ───────────────────────────────────
   const visitedCountries = useMemo(() => {
     const set = new Set<string>();
     for (const tr of past) {
@@ -138,101 +289,68 @@ function TripsList() {
     return Array.from(set);
   }, [past]);
 
-  const visitedCities = useMemo<WorldMapCity[]>(() => {
+  const totalCities = useMemo(() => {
     const seen = new Set<string>();
-    const out: WorldMapCity[] = [];
     for (const tr of past) {
       for (const c of getCities(tr)) {
-        const key = `${c.country}|${c.name.toLowerCase()}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push(c);
+        seen.add(`${c.country}|${c.name.toLowerCase()}`);
       }
     }
-    return out;
+    return seen.size;
   }, [past]);
 
-  const ongoingCountries = useMemo(() => {
-    const visited = new Set(visitedCountries.map((c) => c.toUpperCase()));
-    const set = new Set<string>();
-    for (const tr of ongoing) {
-      const cs = (tr as unknown as { countries?: string[] }).countries;
-      if (Array.isArray(cs)) cs.forEach((c) => { if (!visited.has(c.toUpperCase())) set.add(c); });
-    }
-    return Array.from(set);
-  }, [ongoing, visitedCountries]);
-
-  const ongoingCities = useMemo<WorldMapCity[]>(() => {
-    const seen = new Set<string>();
-    const out: WorldMapCity[] = [];
-    for (const tr of ongoing) {
-      for (const c of getCities(tr)) {
-        const key = `${c.country}|${c.name.toLowerCase()}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push(c);
+  const totalDays = useMemo(() => {
+    const days = new Set<string>();
+    for (const tr of past) {
+      const start = new Date(tr.start_date);
+      const end = new Date(tr.end_date);
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        days.add(d.toISOString().slice(0, 10));
       }
     }
-    return out;
-  }, [ongoing]);
+    return days.size;
+  }, [past]);
 
-  const plannedCountries = useMemo(() => {
-    const visited = new Set(visitedCountries.map((c) => c.toUpperCase()));
-    const ongoingISOs = new Set(ongoingCountries.map((c) => c.toUpperCase()));
+  // ── Stats: this year ─────────────────────────────────────────────────────
+  const countriesThisYear = useMemo(() => {
     const set = new Set<string>();
-    for (const tr of planned) {
-      const cs = (tr as unknown as { countries?: string[] }).countries;
-      if (Array.isArray(cs)) cs.forEach((c) => {
-        const u = c.toUpperCase();
-        if (!visited.has(u) && !ongoingISOs.has(u)) set.add(c);
-      });
-    }
-    return Array.from(set);
-  }, [planned, visitedCountries, ongoingCountries]);
-
-  const plannedCities = useMemo<WorldMapCity[]>(() => {
-    const seen = new Set<string>();
-    const out: WorldMapCity[] = [];
-    for (const tr of planned) {
-      for (const c of getCities(tr)) {
-        const key = `${c.country}|${c.name.toLowerCase()}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push(c);
+    for (const tr of [...past, ...ongoing]) {
+      if (tr.end_date >= `${yearStr}-01-01` && tr.start_date <= `${yearStr}-12-31`) {
+        const cs = (tr as unknown as { countries?: string[] }).countries;
+        if (Array.isArray(cs)) cs.forEach((c) => set.add(c));
       }
     }
-    return out;
-  }, [planned]);
+    return set.size;
+  }, [past, ongoing, yearStr]);
 
-  const wishlistCountries = useMemo(() => {
-    const set = new Set<string>();
-    for (const tr of wishlistTrips) {
-      const cs = (tr as unknown as { countries?: string[] }).countries;
-      if (Array.isArray(cs)) cs.forEach((c) => set.add(c));
-    }
-    return Array.from(set);
-  }, [wishlistTrips]);
-
-  const wishlistCities = useMemo<WorldMapCity[]>(() => {
+  const citiesThisYear = useMemo(() => {
     const seen = new Set<string>();
-    const out: WorldMapCity[] = [];
-    for (const tr of wishlistTrips) {
-      for (const c of getCities(tr)) {
-        const key = `${c.country}|${c.name.toLowerCase()}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push(c);
+    for (const tr of [...past, ...ongoing]) {
+      if (tr.end_date >= `${yearStr}-01-01` && tr.start_date <= `${yearStr}-12-31`) {
+        for (const c of getCities(tr)) {
+          seen.add(`${c.country}|${c.name.toLowerCase()}`);
+        }
       }
     }
-    return out;
-  }, [wishlistTrips]);
+    return seen.size;
+  }, [past, ongoing, yearStr]);
 
-  const [showPins, setShowPins] = useState(() => {
-    try { return localStorage.getItem("map_showPins") !== "false"; } catch { return true; }
-  });
-  useEffect(() => {
-    try { localStorage.setItem("map_showPins", String(showPins)); } catch { /* ignore */ }
-  }, [showPins]);
+  const daysThisYear = useMemo(() => {
+    const days = new Set<string>();
+    const nowIso = new Date().toISOString().slice(0, 10);
+    for (const tr of [...past, ...ongoing]) {
+      const tripStart = tr.start_date > `${yearStr}-01-01` ? tr.start_date : `${yearStr}-01-01`;
+      const tripEnd = tr.end_date < nowIso ? tr.end_date : nowIso;
+      if (tripEnd < `${yearStr}-01-01` || tripStart > `${yearStr}-12-31`) continue;
+      const start = new Date(tripStart);
+      const end = new Date(tripEnd);
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        const iso = d.toISOString().slice(0, 10);
+        if (iso.startsWith(yearStr)) days.add(iso);
+      }
+    }
+    return days.size;
+  }, [past, ongoing, yearStr]);
 
   const allTripsCount = trips.length;
 
@@ -246,33 +364,43 @@ function TripsList() {
       </div>
 
       {!q.isLoading && allTripsCount > 0 && (
-        <section className="mt-6 overflow-hidden rounded-3xl border border-border bg-card shadow-soft">
-          <div className="flex flex-wrap items-center gap-2 border-b border-border/60 px-4 py-3">
-            <Globe2 className="h-4 w-4 text-primary" />
-            <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">{t("countries_visited")}</h2>
-            <span className="text-xs text-muted-foreground/70">· {visitedCountries.length}</span>
-            <label className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
-              {showPins ? <Pin className="h-3.5 w-3.5" /> : <PinOff className="h-3.5 w-3.5" />}
-              <span className="hidden sm:inline">{t("show_pins")}</span>
-              <Switch checked={showPins} onCheckedChange={setShowPins} />
-            </label>
-          </div>
-          <WorldMap
-            visitedCountries={visitedCountries}
-            cities={visitedCities}
-            ongoingCountries={ongoingCountries}
-            ongoingCities={ongoingCities}
-            plannedCountries={plannedCountries}
-            plannedCities={plannedCities}
-            wishlistCountries={wishlistCountries}
-            wishlistCities={wishlistCities}
-            homeCountry={homeCountry}
-            showPins={showPins}
-            showSubdivisions={false}
-            lang={lang}
-            className="h-[280px] w-full sm:h-[360px]"
+        <div className="mt-6 space-y-4">
+          {/* Countdown to next trip */}
+          <CountdownCard
+            nextPlanned={planned[0] ?? null}
+            nextOngoing={ongoing[0] ?? null}
           />
-        </section>
+
+          {/* Year stats rings */}
+          <section className="overflow-hidden rounded-3xl border border-border bg-card shadow-soft">
+            <div className="border-b border-border/60 px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                {t("stats_year", { year: currentYear })}
+              </p>
+            </div>
+            <div className="flex items-start justify-around gap-2 p-5">
+              <StatRing
+                label={t("countries")}
+                value={countriesThisYear}
+                max={Math.max(visitedCountries.length, countriesThisYear, 1)}
+                color="oklch(0.62 0.22 25)"
+              />
+              <StatRing
+                label={t("cities")}
+                value={citiesThisYear}
+                max={Math.max(totalCities, citiesThisYear, 1)}
+                color="oklch(0.7 0.18 95)"
+              />
+              <StatRing
+                label={t("days_traveled")}
+                value={daysThisYear}
+                max={Math.max(dayOfYear, daysThisYear, 1)}
+                sublabel={`${totalDays} ${t("total").toLowerCase()}`}
+                color="oklch(0.62 0.16 255)"
+              />
+            </div>
+          </section>
+        </div>
       )}
 
       {q.isLoading ? (
@@ -458,10 +586,7 @@ function Section({
       <div className="sm:hidden">
         {filtered.length === 0 ? null : filtered.length === 1 ? (
           <div className="flex justify-center">
-            <TripCard
-              trip={filtered[0]}
-              carousel
-            />
+            <TripCard trip={filtered[0]} carousel />
           </div>
         ) : (
           <>
@@ -513,10 +638,7 @@ function Section({
                         pointerEvents: Math.abs(eff) < 0.5 ? "auto" : "none",
                       }}
                     >
-                      <TripCard
-                        trip={tr}
-                        carousel
-                      />
+                      <TripCard trip={tr} carousel />
                     </div>
                   );
                 });

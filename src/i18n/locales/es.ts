@@ -263,6 +263,12 @@ const translations: Record<string, string> = {
   trip_sections: "Trip sections",
   // ── Bottom dock ────────────────────────────────────────────────────────
   new: "New",
+  map: "Mapa",
+  // ── Home stats & countdown ─────────────────────────────────────────────
+  next_trip: "Próximo viaje",
+  no_upcoming_trips: "Sin viajes próximos",
+  days_traveled: "Días de viaje",
+  stats_year: "Estadísticas {{year}}",
 };
 
 export default translations;

@@ -263,6 +263,12 @@ const translations: Record<string, string> = {
   trip_sections: "Trip sections",
   // ── Bottom dock ────────────────────────────────────────────────────────
   new: "New",
+  map: "地图",
+  // ── Home stats & countdown ─────────────────────────────────────────────
+  next_trip: "下次旅行",
+  no_upcoming_trips: "暂无即将出发的旅行",
+  days_traveled: "旅行天数",
+  stats_year: "{{year}}年统计",
 };
 
 export default translations;
