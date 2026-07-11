@@ -36,7 +36,7 @@ export const Route = createFileRoute("/_authenticated/trips/$tripId")({
 // Intra-city legs get the trip country as a geocoding hint; inter-city legs
 // (flights, etc.) are geocoded by place name only.
 function buildMapRoutes(
-  items: Array<{ kind: string; meta?: unknown }>,
+  items: Array<{ kind: string; location?: string | null; meta?: unknown }>,
   tripData: unknown,
 ): MapRoute[] {
   const countries = Array.isArray((tripData as { countries?: string[] } | undefined)?.countries)
@@ -45,10 +45,11 @@ function buildMapRoutes(
   const singleCountry = countries.length === 1 ? countries[0] : undefined;
   const out: MapRoute[] = [];
   for (const it of items) {
+    const city = it.location ?? undefined;
     const meta = (it.meta ?? {}) as {
       mode?: string;
       legs?: Array<{ from?: string; to?: string }>;
-      mixed_legs?: Array<{ mode?: string; from_stop?: string; to_stop?: string }>;
+      mixed_legs?: Array<{ mode?: string; vehicle?: string; from_stop?: string; to_stop?: string }>;
       from_stop?: string;
       to_stop?: string;
     };
@@ -61,13 +62,13 @@ function buildMapRoutes(
     if (Array.isArray(meta.mixed_legs) && meta.mixed_legs.length > 0) {
       for (const l of meta.mixed_legs) {
         if (l.from_stop && l.to_stop) {
-          out.push({ from: l.from_stop, to: l.to_stop, mode: l.mode ?? it.kind, country: singleCountry });
+          out.push({ from: l.from_stop, to: l.to_stop, mode: l.mode ?? it.kind, country: singleCountry, line: l.vehicle, city });
         }
       }
       continue;
     }
     if (meta.from_stop && meta.to_stop) {
-      out.push({ from: meta.from_stop, to: meta.to_stop, mode: it.kind, country: singleCountry });
+      out.push({ from: meta.from_stop, to: meta.to_stop, mode: it.kind, country: singleCountry, city });
     }
   }
   return out;

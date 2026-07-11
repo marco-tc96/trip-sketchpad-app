@@ -5,7 +5,7 @@ import "leaflet/dist/leaflet.css";
 import { geocodeCity } from "@/lib/country-data";
 
 export type MapCity = { name: string; country: string; lat?: number; lng?: number };
-export type MapRoute = { from: string; to: string; mode: string; country?: string };
+export type MapRoute = { from: string; to: string; mode: string; country?: string; line?: string; city?: string };
 
 // Approximate country centroids (lat, lng) keyed by ISO-2.
 // Used as a fallback when no city coordinates are available.
@@ -122,6 +122,137 @@ async function fetchRoadPath(
   return null;
 }
 
+// ── Real transit-line geometry (metro/tram/bus/train) from OSM via Overpass ──
+const TRANSIT_MODES = new Set(["bus", "metro", "tram", "train"]);
+const OSM_ROUTE_MODE: Record<string, string> = { bus: "bus", metro: "subway", tram: "tram", train: "train" };
+
+const OVERPASS_MIRRORS = [
+  "https://overpass.kumi.systems/api/interpreter",
+  "https://overpass-api.de/api/interpreter",
+  "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+];
+const _areaCache = new Map<string, string>();
+
+async function overpassFetch(query: string, timeoutMs = 25000): Promise<{ elements: unknown[] }> {
+  const body = `data=${encodeURIComponent(query)}`;
+  const attempts = OVERPASS_MIRRORS.map((url) => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    return fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+      signal: ctrl.signal,
+    })
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return (await r.json()) as { elements: unknown[] };
+      })
+      .finally(() => clearTimeout(timer));
+  });
+  return Promise.any(attempts);
+}
+
+async function getAreaQuery(city: string): Promise<string> {
+  if (_areaCache.has(city)) return _areaCache.get(city)!;
+  try {
+    const r = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(city)}&format=json&limit=5&addressdetails=0`,
+      { headers: { Accept: "application/json" } },
+    );
+    const hits = (await r.json()) as Array<{ osm_type: string; osm_id: string; class: string; type: string }>;
+    const rel =
+      hits.find((h) => h.osm_type === "relation" && h.class === "boundary" && h.type === "administrative") ??
+      hits.find((h) => h.osm_type === "relation" && ["place", "boundary"].includes(h.class));
+    if (rel) {
+      const q = `area(${3600000000 + parseInt(rel.osm_id)})->.c`;
+      _areaCache.set(city, q);
+      return q;
+    }
+  } catch { /* fall through */ }
+  const fallback = `area["name"="${city}"]["boundary"="administrative"]->.c`;
+  _areaCache.set(city, fallback);
+  return fallback;
+}
+
+type LL = [number, number];
+const _near = (p: LL, q: LL) => Math.abs(p[0] - q[0]) < 1e-4 && Math.abs(p[1] - q[1]) < 1e-4;
+
+// Stitch the route's way segments into one continuous ordered polyline,
+// flipping ways whose direction doesn't match so the path stays connected.
+function stitchWays(ways: LL[][]): LL[] {
+  const list = ways.filter((w) => w.length >= 2);
+  if (list.length === 0) return [];
+  const used = new Array(list.length).fill(false);
+  let path = list[0].slice();
+  used[0] = true;
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (let k = 0; k < list.length; k++) {
+      if (used[k]) continue;
+      const w = list[k];
+      const start = path[0];
+      const end = path[path.length - 1];
+      const ws = w[0];
+      const we = w[w.length - 1];
+      if (_near(end, ws)) { path = path.concat(w.slice(1)); used[k] = true; changed = true; }
+      else if (_near(end, we)) { path = path.concat(w.slice().reverse().slice(1)); used[k] = true; changed = true; }
+      else if (_near(start, we)) { path = w.slice().concat(path.slice(1)); used[k] = true; changed = true; }
+      else if (_near(start, ws)) { path = w.slice().reverse().concat(path.slice(1)); used[k] = true; changed = true; }
+    }
+  }
+  return path;
+}
+
+// Fetch the real OSM geometry of a transit line (its route relation ways),
+// returning the longest continuous polyline found.
+async function fetchTransitGeometry(city: string, mode: string, ref: string): Promise<LL[]> {
+  const osmMode = OSM_ROUTE_MODE[mode];
+  if (!osmMode || !city || !ref) return [];
+  const areaQ = await getAreaQuery(city);
+  const modes = osmMode === "subway" ? ["subway", "metro"] : [osmMode];
+  const clauses = modes
+    .map((m) => `relation["type"="route"]["route"="${m}"]["ref"="${ref}"](area.c)`)
+    .join(";");
+  const q = `[out:json][timeout:40];${areaQ};(${clauses};);out geom;`;
+  const data = (await overpassFetch(q)) as {
+    elements: Array<{ type: string; members?: Array<{ type: string; geometry?: Array<{ lat: number; lon: number }> }> }>;
+  };
+  let best: LL[] = [];
+  for (const el of data.elements) {
+    if (el.type !== "relation" || !el.members) continue;
+    const ways = el.members
+      .filter((m) => m.type === "way" && Array.isArray(m.geometry))
+      .map((m) => (m.geometry as Array<{ lat: number; lon: number }>).map((g) => [g.lat, g.lon] as LL));
+    const stitched = stitchWays(ways);
+    if (stitched.length > best.length) best = stitched;
+  }
+  return best;
+}
+
+function nearestIdx(path: LL[], pt: LL): number {
+  let bi = 0;
+  let bd = Infinity;
+  for (let i = 0; i < path.length; i++) {
+    const dx = path[i][0] - pt[0];
+    const dy = path[i][1] - pt[1];
+    const d = dx * dx + dy * dy;
+    if (d < bd) { bd = d; bi = i; }
+  }
+  return bi;
+}
+
+// Keep only the portion of the line between the boarding and alighting stops.
+function trimPath(path: LL[], a: LL, b: LL): LL[] {
+  if (path.length < 2) return path;
+  let i = nearestIdx(path, a);
+  let j = nearestIdx(path, b);
+  if (i > j) { const t = i; i = j; j = t; }
+  const seg = path.slice(i, j + 1);
+  return seg.length >= 2 ? seg : path;
+}
+
 // Free-form geocoder for route endpoints (airports, stations, stops, streets).
 // geocodeCity() is city-structured and fails on these, so we hit Nominatim's
 // search endpoint with the full place name (+ an optional country filter).
@@ -201,6 +332,8 @@ export function TripMap({
   const [routeGeo, setRouteGeo] = useState<Record<string, { lat: number; lng: number } | null>>({});
   // Road-snapped geometries per leg (keyed by the leg key), from OSRM.
   const [pathCache, setPathCache] = useState<Record<string, [number, number][]>>({});
+  // Real transit-line geometries keyed by `city|mode|ref`, from OSM/Overpass.
+  const [transitPathCache, setTransitPathCache] = useState<Record<string, [number, number][]>>({});
 
   // Unique route endpoints that need geocoding (only when routes are shown).
   const routeEndpoints = useMemo<Array<{ name: string; country?: string }>>(() => {
@@ -303,12 +436,13 @@ export function TripMap({
 
   // Build the polylines for the legs that could be geocoded.
   const routeLines = useMemo(() => {
-    if (!showRoutes || !routes) return [] as Array<{ a: [number, number]; b: [number, number]; mode: string; key: string }>;
-    const out: Array<{ a: [number, number]; b: [number, number]; mode: string; key: string }> = [];
+    type Line = { a: [number, number]; b: [number, number]; mode: string; line?: string; city?: string; key: string };
+    if (!showRoutes || !routes) return [] as Line[];
+    const out: Line[] = [];
     routes.forEach((r, i) => {
       const a = resolve(r.from, r.country);
       const b = resolve(r.to, r.country);
-      if (a && b) out.push({ a, b, mode: r.mode, key: `${i}-${r.from}-${r.to}` });
+      if (a && b) out.push({ a, b, mode: r.mode, line: r.line, city: r.city, key: `${i}-${r.from}-${r.to}` });
     });
     return out;
   }, [routes, showRoutes, resolve]);
@@ -327,6 +461,32 @@ export function TripMap({
       }
       if (!cancelled && Object.keys(updates).length > 0) {
         setPathCache((prev) => ({ ...prev, ...updates }));
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeLines]);
+
+  // Fetch exact OSM geometry for transit legs that carry a line ref + city.
+  useEffect(() => {
+    const todo = routeLines.filter(
+      (l) => TRANSIT_MODES.has(l.mode) && l.line && l.city && !(`${l.city}|${l.mode}|${l.line}` in transitPathCache),
+    );
+    if (todo.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const updates: Record<string, [number, number][]> = {};
+      for (const l of todo) {
+        const key = `${l.city}|${l.mode}|${l.line}`;
+        if (key in transitPathCache || key in updates) continue;
+        try {
+          updates[key] = await fetchTransitGeometry(l.city!, l.mode, l.line!);
+        } catch {
+          updates[key] = [];
+        }
+      }
+      if (!cancelled && Object.keys(updates).length > 0) {
+        setTransitPathCache((prev) => ({ ...prev, ...updates }));
       }
     })();
     return () => { cancelled = true; };
@@ -386,10 +546,18 @@ export function TripMap({
       {showRoutes &&
         routeLines.map((l) => {
           const st = modeStyle(l.mode);
+          // Prefer the real transit-line geometry (trimmed to the ridden
+          // segment); fall back to the road-snapped path, then a straight line.
+          const transitKey = l.line && l.city ? `${l.city}|${l.mode}|${l.line}` : "";
+          const transitGeom = transitKey ? transitPathCache[transitKey] : undefined;
+          const positions =
+            transitGeom && transitGeom.length > 1
+              ? trimPath(transitGeom, l.a, l.b)
+              : pathCache[l.key] ?? [l.a, l.b];
           return (
             <Polyline
               key={l.key}
-              positions={pathCache[l.key] ?? [l.a, l.b]}
+              positions={positions}
               pathOptions={{ color: st.color, weight: 3, opacity: 0.9, dashArray: st.dash }}
             />
           );
