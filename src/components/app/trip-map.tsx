@@ -77,19 +77,47 @@ const COUNTRY_CENTROIDS: Record<string, [number, number]> = {
   ZM: [-13.134, 27.849], ZW: [-19.015, 29.155],
 };
 
-// Colour (and optional dash pattern) per transport mode for the route lines.
+// Colour (and optional dash pattern) per transport mode — matches the colours
+// used in the timeline activity list: amber train, sky bus, violet metro,
+// emerald tram; everything else uses the app's primary (warm) colour, same as
+// the transport icon circles there.
+const PRIMARY = "oklch(0.66 0.14 38)";
 const MODE_STYLE: Record<string, { color: string; dash?: string }> = {
-  plane:    { color: "#0ea5e9", dash: "2 8" },   // sky, dotted
-  ferry:    { color: "#06b6d4", dash: "8 6" },   // cyan, dashed
-  train:    { color: "#f59e0b" },                // amber
-  bus:      { color: "#3b82f6" },                // blue
-  metro:    { color: "#8b5cf6" },                // violet
-  tram:     { color: "#10b981" },                // emerald
-  car:      { color: "#f97316" },                // orange
-  moto:     { color: "#f97316" },                // orange
-  transfer: { color: "#94a3b8" },                // slate
+  train:    { color: "#f59e0b" },              // amber-500
+  bus:      { color: "#0ea5e9" },              // sky-500
+  metro:    { color: "#8b5cf6" },              // violet-500
+  tram:     { color: "#10b981" },              // emerald-500
+  plane:    { color: PRIMARY, dash: "2 8" },   // primary, dotted
+  ferry:    { color: PRIMARY, dash: "8 6" },   // primary, dashed
+  car:      { color: PRIMARY },
+  moto:     { color: PRIMARY },
+  transfer: { color: PRIMARY },
 };
-const modeStyle = (mode: string) => MODE_STYLE[mode] ?? MODE_STYLE.transfer;
+const modeStyle = (mode: string) => MODE_STYLE[mode] ?? { color: PRIMARY };
+
+// Free-form geocoder for route endpoints (airports, stations, stops, streets).
+// geocodeCity() is city-structured and fails on these, so we hit Nominatim's
+// search endpoint with the full place name (+ an optional country filter).
+async function geocodePlace(query: string, country?: string): Promise<{ lat: number; lng: number } | null> {
+  const q = (query ?? "").trim();
+  if (!q) return null;
+  try {
+    const params = new URLSearchParams({ q, format: "json", limit: "1", addressdetails: "0" });
+    if (country) params.set("countrycodes", country.toLowerCase());
+    const r = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`, {
+      headers: { Accept: "application/json" },
+    });
+    if (!r.ok) return null;
+    const hits = (await r.json()) as Array<{ lat: string; lon: string }>;
+    const hit = Array.isArray(hits) ? hits[0] : undefined;
+    if (hit) {
+      const lat = parseFloat(hit.lat);
+      const lng = parseFloat(hit.lon);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+    }
+  } catch { /* ignore */ }
+  return null;
+}
 
 // Custom pin so we don't depend on Leaflet's default marker images.
 const pinIcon = L.divIcon({
@@ -139,9 +167,11 @@ export function TripMap({
   noTiles?: boolean;
   compact?: boolean;
 }) {
-  // Async geocoding cache for cities + route endpoints without stored coords.
+  // Async geocoding cache for cities without stored coords.
   // Value is null when geocoding failed (explicit failure, not "pending").
   const [geoCache, setGeoCache] = useState<Record<string, { lat: number; lng: number } | null>>({});
+  // Separate cache for route endpoints (geocoded free-form via geocodePlace).
+  const [routeGeo, setRouteGeo] = useState<Record<string, { lat: number; lng: number } | null>>({});
 
   // Unique route endpoints that need geocoding (only when routes are shown).
   const routeEndpoints = useMemo<Array<{ name: string; country?: string }>>(() => {
@@ -158,33 +188,48 @@ export function TripMap({
     return [...seen.values()];
   }, [routes, showRoutes]);
 
+  // Geocode missing city coordinates (city-structured lookup).
   useEffect(() => {
-    const targets: Array<{ name: string; country?: string }> = [
-      ...cities
-        .filter((c) => typeof c.lat !== "number" || typeof c.lng !== "number")
-        .map((c) => ({ name: c.name, country: c.country })),
-      ...routeEndpoints,
-    ];
-    const missing = targets.filter((t) => !(`${t.country ?? ""}|${t.name}` in geoCache));
+    const missing = cities.filter(
+      (c) => typeof c.lat !== "number" || typeof c.lng !== "number",
+    );
     if (missing.length === 0) return;
     let cancelled = false;
     (async () => {
       const updates: Record<string, { lat: number; lng: number } | null> = {};
-      for (const tgt of missing) {
-        const key = `${tgt.country ?? ""}|${tgt.name}`;
+      for (const city of missing) {
+        const key = `${city.country}|${city.name}`;
         if (key in geoCache || key in updates) continue;
-        const result = await geocodeCity(tgt.name, tgt.country ?? "");
-        updates[key] = result; // null on failure — stored explicitly
+        updates[key] = await geocodeCity(city.name, city.country);
       }
       if (!cancelled && Object.keys(updates).length > 0) {
         setGeoCache((prev) => ({ ...prev, ...updates }));
       }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cities, routeEndpoints]);
+  }, [cities]);
+
+  // Geocode route endpoints (free-form: airports/stations/stops/streets).
+  useEffect(() => {
+    if (routeEndpoints.length === 0) return;
+    const missing = routeEndpoints.filter((e) => !(`${e.country ?? ""}|${e.name}` in routeGeo));
+    if (missing.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const updates: Record<string, { lat: number; lng: number } | null> = {};
+      for (const e of missing) {
+        const key = `${e.country ?? ""}|${e.name}`;
+        if (key in routeGeo || key in updates) continue;
+        updates[key] = await geocodePlace(e.name, e.country);
+      }
+      if (!cancelled && Object.keys(updates).length > 0) {
+        setRouteGeo((prev) => ({ ...prev, ...updates }));
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeEndpoints]);
 
   // Enrich cities with geocoded coordinates when stored coords are missing.
   const enrichedCities = useMemo<MapCity[]>(() => {
@@ -217,15 +262,15 @@ export function TripMap({
     return (raw: string, country?: string): [number, number] | null => {
       const name = cleanPlace(raw);
       const key = `${country ?? ""}|${name}`;
-      const cached = geoCache[key];
+      const cached = routeGeo[key];
       if (cached) return [cached.lat, cached.lng];
-      if (key in geoCache && geoCache[key] === null && country) {
+      if (key in routeGeo && routeGeo[key] === null && country) {
         const centroid = COUNTRY_CENTROIDS[country.toUpperCase()];
         if (centroid) return centroid;
       }
       return null;
     };
-  }, [geoCache]);
+  }, [routeGeo]);
 
   // Build the polylines for the legs that could be geocoded.
   const routeLines = useMemo(() => {
