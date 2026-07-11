@@ -195,6 +195,26 @@ function dedupePins(cities: (WorldMapCity & { lat?: number; lng?: number })[]) {
   return list;
 }
 
+// Approximate country centroids for initial map centering
+const HOME_CENTERS: Record<string, [number, number]> = {
+  IT: [43, 12], FR: [47, 2], DE: [51, 10], ES: [40, -4],
+  GB: [54, -2], PT: [39, -8], CH: [47, 8], AT: [47, 14],
+  NL: [52, 5], BE: [51, 4], PL: [52, 20], SE: [62, 15],
+  NO: [65, 15], DK: [56, 10], FI: [64, 26], CZ: [50, 15],
+  HU: [47, 19], RO: [46, 25], GR: [39, 22], HR: [45, 16],
+  SK: [48, 19], SI: [46, 15], BG: [43, 25], RS: [44, 21],
+  UA: [49, 32], RU: [60, 100], TR: [39, 35],
+  US: [38, -97], CA: [56, -96], MX: [24, -102],
+  BR: [-15, -50], AR: [-34, -65], CL: [-33, -70],
+  AU: [-25, 134], NZ: [-42, 173],
+  JP: [36, 138], KR: [37, 128], CN: [35, 105],
+  IN: [20, 77], TH: [15, 101], VN: [16, 108],
+  ID: [-5, 120], MY: [4, 109], SG: [1, 104],
+  ZA: [-30, 25], EG: [27, 30], NG: [10, 8],
+  SA: [24, 45], AE: [24, 54], IL: [31, 35],
+  HK: [22, 114], TW: [24, 121],
+};
+
 export function WorldMap({
   visitedCountries,
   cities,
@@ -208,6 +228,8 @@ export function WorldMap({
   showPins = true,
   lang = "en",
   className,
+  defaultZoom = 2,
+  disableFit = false,
 }: {
   visitedCountries: string[];
   cities: WorldMapCity[];
@@ -222,6 +244,8 @@ export function WorldMap({
   lang?: string;
   className?: string;
   showSubdivisions?: boolean;
+  defaultZoom?: number;
+  disableFit?: boolean;
 }) {
   const { data: world, error } = useWorldBorders();
 
@@ -362,15 +386,15 @@ export function WorldMap({
   return (
     <div className={`relative ${className ?? ""}`}>
       <MapContainer
-        center={[20, 10]}
-        zoom={2}
+        center={homeIso && HOME_CENTERS[homeIso] ? HOME_CENTERS[homeIso] : [20, 10]}
+        zoom={defaultZoom}
         minZoom={1}
         maxZoom={9}
         worldCopyJump
         attributionControl={false}
         zoomControl={false}
         className="h-full w-full"
-        style={{ background: "transparent" }}
+        style={{ background: "#d4dde4" }}
       >
         <TileLayer url="https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png" />
 
@@ -406,7 +430,7 @@ export function WorldMap({
               <Tooltip direction="top" offset={[0, -6]}>{cityNameLocalized(c.name, lang)}</Tooltip>
             </Marker>
           ))}
-        {world && <FitToVisited bounds={visitedBounds} />}
+        {world && !disableFit && <FitToVisited bounds={visitedBounds} />}
       </MapContainer>
     </div>
   );

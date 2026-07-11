@@ -227,6 +227,8 @@ function MapPage() {
             homeCountry={homeCountry}
             showPins={showPins}
             showSubdivisions={false}
+            disableFit={true}
+            defaultZoom={3}
             lang={lang}
             className="h-full w-full"
           />
