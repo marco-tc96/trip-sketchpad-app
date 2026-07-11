@@ -102,8 +102,36 @@ const STOP_KINDS = new Set(["train", "bus", "metro", "tram"]);
 const PT_TRANSIT_KINDS = new Set(["bus", "metro", "tram"]);
 const OSM_ROUTE_MODE: Record<string, string> = { bus: "bus", metro: "subway", tram: "tram" };
 
+// ── Caches (module-level, persist across dialog opens) ───────────────────────
+const _areaCache = new Map<string, string>();   // city → overpass area snippet
+const _lineCache = new Map<string, Array<{ ref: string; name: string }>>();
+const _stopCache = new Map<string, string[]>();
+
+// Resolve city name → precise Overpass area query via Nominatim
+async function getAreaQuery(city: string): Promise<string> {
+  if (_areaCache.has(city)) return _areaCache.get(city)!;
+  try {
+    const r = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(city)}&format=json&limit=5&addressdetails=0`,
+      { headers: { Accept: "application/json" } },
+    );
+    const hits = await r.json() as Array<{ osm_type: string; osm_id: string; class: string }>;
+    const rel = hits.find(h => h.osm_type === "relation" && ["place", "boundary"].includes(h.class));
+    if (rel) {
+      const q = `area(${3600000000 + parseInt(rel.osm_id)})->.c`;
+      _areaCache.set(city, q); return q;
+    }
+  } catch { /* fall through */ }
+  const fallback = `area["name"="${city}"]["boundary"="administrative"]->.c`;
+  _areaCache.set(city, fallback); return fallback;
+}
+
 async function fetchTransitLines(city: string, osmMode: string): Promise<Array<{ ref: string; name: string }>> {
-  const q = `[out:json][timeout:30];area["name"="${city}"]->.c;relation["type"="route"]["route"="${osmMode}"](area.c);out tags;`;
+  const key = `${city}|${osmMode}`;
+  if (_lineCache.has(key)) return _lineCache.get(key)!;
+  const areaQ = await getAreaQuery(city);
+  // route_master = one entry per line (not per direction) → fewer results, faster
+  const q = `[out:json][timeout:30];${areaQ};(relation["type"="route_master"]["route_master"="${osmMode}"](area.c);relation["type"="route"]["route"="${osmMode}"](area.c););out tags;`;
   const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`);
   const data = await res.json() as { elements: Array<{ tags: Record<string, string> }> };
   const seen = new Set<string>();
@@ -119,11 +147,15 @@ async function fetchTransitLines(city: string, osmMode: string): Promise<Array<{
     if (!isNaN(na) && !isNaN(nb)) return na - nb;
     return a.ref.localeCompare(b.ref);
   });
+  _lineCache.set(key, lines);
   return lines;
 }
 
 async function fetchLineStops(city: string, osmMode: string, lineRef: string): Promise<string[]> {
-  const q = `[out:json][timeout:30];area["name"="${city}"]->.c;relation["type"="route"]["route"="${osmMode}"]["ref"="${lineRef}"](area.c)->.r;node(r.r:"stop");out tags;`;
+  const key = `${city}|${osmMode}|${lineRef}`;
+  if (_stopCache.has(key)) return _stopCache.get(key)!;
+  const areaQ = await getAreaQuery(city);
+  const q = `[out:json][timeout:30];${areaQ};relation["type"="route"]["route"="${osmMode}"]["ref"="${lineRef}"](area.c)->.r;node(r.r:"stop");out tags;`;
   const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`);
   const data = await res.json() as { elements: Array<{ tags: Record<string, string> }> };
   const seen = new Set<string>();
@@ -133,6 +165,7 @@ async function fetchLineStops(city: string, osmMode: string, lineRef: string): P
     if (!name || seen.has(name)) continue;
     seen.add(name); stops.push(name);
   }
+  _stopCache.set(key, stops);
   return stops;
 }
 

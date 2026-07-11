@@ -252,6 +252,8 @@ const translations: Record<string, string> = {
   add_leg: "Aggiungi tratta",
   legs_label: "Tratte",
   multi_modal: "multi mezzo",
+  line: "Linea",
+  select_line: "Seleziona linea…",
   // ── Trip page ──────────────────────────────────────────────────────────
   add_to_favorites: "Aggiungi ai preferiti",
   remove_from_favorites: "Rimuovi dai preferiti",

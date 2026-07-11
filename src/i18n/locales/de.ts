@@ -250,6 +250,8 @@ const translations: Record<string, string> = {
   add_leg: "Abschnitt hinzufügen",
   legs_label: "Abschnitte",
   multi_modal: "multimodal",
+  line: "Linie",
+  select_line: "Linie wählen…",
   // ── Trip page ──────────────────────────────────────────────────────────
   add_to_favorites: "Add to favorites",
   remove_from_favorites: "Remove from favorites",

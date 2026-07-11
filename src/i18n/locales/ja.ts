@@ -250,6 +250,8 @@ const translations: Record<string, string> = {
   add_leg: "区間を追加",
   legs_label: "区間",
   multi_modal: "複合交通",
+  line: "路線",
+  select_line: "路線を選択…",
   // ── Trip page ──────────────────────────────────────────────────────────
   add_to_favorites: "Add to favorites",
   remove_from_favorites: "Remove from favorites",

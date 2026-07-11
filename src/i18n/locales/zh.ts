@@ -250,6 +250,8 @@ const translations: Record<string, string> = {
   add_leg: "添加段落",
   legs_label: "段落",
   multi_modal: "多式联运",
+  line: "线路",
+  select_line: "选择线路…",
   // ── Trip page ──────────────────────────────────────────────────────────
   add_to_favorites: "Add to favorites",
   remove_from_favorites: "Remove from favorites",
