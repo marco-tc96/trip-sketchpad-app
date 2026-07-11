@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Plane, Bus, Car, Bike, Ship, Hotel, MapPin, Sparkles, ArrowRightLeft,
@@ -1121,8 +1121,89 @@ function AddItemDialog({
     };
   };
   const [form, setForm] = useState(seedForm);
+
+  // ── Transit line/stop data (bus, metro, tram) ────────────────────────────
+  const PT_KINDS = new Set(["bus", "metro", "tram"]);
+  const OSM_MODE: Record<string, string> = { bus: "bus", metro: "subway", tram: "tram" };
+  type TransitLine = { ref: string; name: string };
+  const [transitLines, setTransitLines] = useState<TransitLine[]>([]);
+  const [transitLinesLoading, setTransitLinesLoading] = useState(false);
+  const [selectedLineRef, setSelectedLineRef] = useState("");
+  const [transitStops, setTransitStops] = useState<string[]>([]);
+  const [transitStopsLoading, setTransitStopsLoading] = useState(false);
+  const [lineOpen, setLineOpen] = useState(false);
+  const [fromStopOpen, setFromStopOpen] = useState(false);
+  const [toStopOpen, setToStopOpen] = useState(false);
+
+  const singlePTMode = form.selectedTransit.length === 1 && PT_KINDS.has(form.selectedTransit[0])
+    ? form.selectedTransit[0]
+    : null;
+
+  // Fetch lines from Overpass when city + PT mode is set
+  useEffect(() => {
+    if (!singlePTMode || !form.location) {
+      setTransitLines([]); setSelectedLineRef(""); setTransitStops([]); return;
+    }
+    let cancelled = false;
+    setTransitLinesLoading(true);
+    setTransitLines([]); setSelectedLineRef(""); setTransitStops([]);
+    const osmMode = OSM_MODE[singlePTMode];
+    const q = `[out:json][timeout:30];area["name"="${form.location}"]->.c;relation["type"="route"]["route"="${osmMode}"](area.c);out tags;`;
+    fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`)
+      .then(r => r.json() as Promise<{ elements: Array<{ tags: Record<string, string> }> }>)
+      .then(data => {
+        if (cancelled) return;
+        const seen = new Set<string>();
+        const lines: TransitLine[] = [];
+        for (const el of data.elements) {
+          const ref = el.tags?.ref ?? "";
+          if (!ref || seen.has(ref)) continue;
+          seen.add(ref);
+          lines.push({ ref, name: el.tags?.name ?? ref });
+        }
+        lines.sort((a, b) => {
+          const na = parseFloat(a.ref), nb = parseFloat(b.ref);
+          if (!isNaN(na) && !isNaN(nb)) return na - nb;
+          return a.ref.localeCompare(b.ref);
+        });
+        setTransitLines(lines);
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setTransitLinesLoading(false); });
+    return () => { cancelled = true; };
+  }, [singlePTMode, form.location]); // eslint-disable-line
+
+  // Fetch stops when a line ref is selected
+  useEffect(() => {
+    if (!selectedLineRef || !singlePTMode || !form.location) { setTransitStops([]); return; }
+    let cancelled = false;
+    setTransitStopsLoading(true);
+    setTransitStops([]);
+    const osmMode = OSM_MODE[singlePTMode];
+    const q = `[out:json][timeout:30];area["name"="${form.location}"]->.c;relation["type"="route"]["route"="${osmMode}"]["ref"="${selectedLineRef}"](area.c)->.r;node(r.r:"stop");out tags;`;
+    fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`)
+      .then(r => r.json() as Promise<{ elements: Array<{ tags: Record<string, string> }> }>)
+      .then(data => {
+        if (cancelled) return;
+        const seen = new Set<string>();
+        const stops: string[] = [];
+        for (const el of data.elements) {
+          const name = el.tags?.name;
+          if (!name || seen.has(name)) continue;
+          seen.add(name); stops.push(name);
+        }
+        setTransitStops(stops);
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setTransitStopsLoading(false); });
+    return () => { cancelled = true; };
+  }, [selectedLineRef]); // eslint-disable-line
+
   function handleOpenChange(v: boolean) {
-    if (v) setForm(seedForm());
+    if (v) {
+      setForm(seedForm());
+      setSelectedLineRef(""); setTransitLines([]); setTransitStops([]);
+    }
     setOpen(v);
   }
   const [locOpen, setLocOpen] = useState(false);
@@ -1376,22 +1457,149 @@ function AddItemDialog({
             </Popover>
           </div>
           {form.selectedTransit.length === 1 && (
-            <div className="grid grid-cols-1 gap-2">
+            <div className="space-y-2">
+              {/* Line selector — bus / metro / tram with city set */}
+              {singlePTMode && form.location && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label>{t("line")}</Label>
+                    {transitLinesLoading && (
+                      <span className="animate-pulse text-[11px] text-muted-foreground">{t("loading")}</span>
+                    )}
+                  </div>
+                  {transitLines.length > 0 && (
+                    <Popover open={lineOpen} onOpenChange={setLineOpen}>
+                      <PopoverTrigger asChild>
+                        <Button type="button" variant="outline" className="w-full justify-between font-normal">
+                          <span className={cn("truncate", !selectedLineRef && "text-muted-foreground")}>
+                            {selectedLineRef
+                              ? (transitLines.find(l => l.ref === selectedLineRef)?.name ?? `Linea ${selectedLineRef}`)
+                              : t("select_line")}
+                          </span>
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                        <Command>
+                          <CommandInput placeholder={t("search_type")} />
+                          <CommandList className="max-h-60">
+                            <CommandEmpty>{t("no_results")}</CommandEmpty>
+                            <CommandGroup>
+                              {transitLines.map(line => (
+                                <CommandItem
+                                  key={line.ref}
+                                  value={`${line.ref} ${line.name}`}
+                                  onSelect={() => {
+                                    setSelectedLineRef(line.ref);
+                                    setLineOpen(false);
+                                    setForm(f => ({ ...f, from_stop: "", to_stop: "" }));
+                                  }}
+                                >
+                                  <Check className={cn("mr-2 h-4 w-4 shrink-0", selectedLineRef === line.ref ? "opacity-100" : "opacity-0")} />
+                                  <span className="mr-2 font-semibold">{line.ref}</span>
+                                  {line.name !== line.ref && (
+                                    <span className="truncate text-xs text-muted-foreground">{line.name}</span>
+                                  )}
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                  )}
+                </div>
+              )}
+
+              {/* Boarding stop */}
               <div className="space-y-1.5">
-                <Label>{t("boarding_stop")}</Label>
-                <Input
-                  value={form.from_stop}
-                  onChange={(e) => setForm({ ...form, from_stop: e.target.value })}
-                  placeholder={t("boarding_stop")}
-                />
+                <div className="flex items-center justify-between">
+                  <Label>{t("boarding_stop")}</Label>
+                  {transitStopsLoading && (
+                    <span className="animate-pulse text-[11px] text-muted-foreground">{t("loading")}</span>
+                  )}
+                </div>
+                {transitStops.length > 0 ? (
+                  <Popover open={fromStopOpen} onOpenChange={setFromStopOpen}>
+                    <PopoverTrigger asChild>
+                      <Button type="button" variant="outline" className="w-full justify-between font-normal">
+                        <span className={cn("truncate", !form.from_stop && "text-muted-foreground")}>
+                          {form.from_stop || t("boarding_stop")}
+                        </span>
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                      <Command>
+                        <CommandInput placeholder={t("search_type")} />
+                        <CommandList className="max-h-52">
+                          <CommandEmpty>{t("no_results")}</CommandEmpty>
+                          <CommandGroup>
+                            {transitStops.map(stop => (
+                              <CommandItem
+                                key={stop}
+                                value={stop}
+                                onSelect={() => { setForm(f => ({ ...f, from_stop: stop })); setFromStopOpen(false); }}
+                              >
+                                <Check className={cn("mr-2 h-4 w-4 shrink-0", form.from_stop === stop ? "opacity-100" : "opacity-0")} />
+                                {stop}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                ) : (
+                  <Input
+                    value={form.from_stop}
+                    onChange={(e) => setForm({ ...form, from_stop: e.target.value })}
+                    placeholder={t("boarding_stop")}
+                  />
+                )}
               </div>
+
+              {/* Alighting stop */}
               <div className="space-y-1.5">
                 <Label>{t("alighting_stop")}</Label>
-                <Input
-                  value={form.to_stop}
-                  onChange={(e) => setForm({ ...form, to_stop: e.target.value })}
-                  placeholder={t("alighting_stop")}
-                />
+                {transitStops.length > 0 ? (
+                  <Popover open={toStopOpen} onOpenChange={setToStopOpen}>
+                    <PopoverTrigger asChild>
+                      <Button type="button" variant="outline" className="w-full justify-between font-normal">
+                        <span className={cn("truncate", !form.to_stop && "text-muted-foreground")}>
+                          {form.to_stop || t("alighting_stop")}
+                        </span>
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                      <Command>
+                        <CommandInput placeholder={t("search_type")} />
+                        <CommandList className="max-h-52">
+                          <CommandEmpty>{t("no_results")}</CommandEmpty>
+                          <CommandGroup>
+                            {transitStops.map(stop => (
+                              <CommandItem
+                                key={stop}
+                                value={stop}
+                                onSelect={() => { setForm(f => ({ ...f, to_stop: stop })); setToStopOpen(false); }}
+                              >
+                                <Check className={cn("mr-2 h-4 w-4 shrink-0", form.to_stop === stop ? "opacity-100" : "opacity-0")} />
+                                {stop}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                ) : (
+                  <Input
+                    value={form.to_stop}
+                    onChange={(e) => setForm({ ...form, to_stop: e.target.value })}
+                    placeholder={t("alighting_stop")}
+                  />
+                )}
               </div>
             </div>
           )}
