@@ -4,7 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { useState, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  Plane, Train, Bus, Car, Bike, Ship, Hotel, MapPin, Sparkles, ArrowRightLeft,
+  Plane, Zap, Bus, Car, Bike, Ship, Hotel, MapPin, Sparkles, ArrowRightLeft,
   PlaneTakeoff, PlaneLanding, Plus, Trash2, ChevronsUpDown, Check, Clock,
   CalendarDays, Wallet, Pencil, X, TramFront, TrainFront,
 } from "lucide-react";
@@ -70,7 +70,7 @@ const emptyMixedLeg = (): MixedLeg => ({
   mode: "bus", vehicle: "", from_stop: "", to_stop: "", depart_at: "", arrive_at: "",
 });
 const MODE_ICON: Record<TransportMode, React.ComponentType<{ className?: string }>> = {
-  car: Car, moto: Bike, train: TrainFront, plane: Plane, ferry: Ship, bus: Bus, metro: Train, tram: TramFront,
+  car: Car, moto: Bike, train: TrainFront, plane: Plane, ferry: Ship, bus: Bus, metro: Zap, tram: TramFront,
 };
 
 export const Route = createFileRoute("/_authenticated/trips/$tripId/timeline")({
@@ -91,7 +91,7 @@ const KIND_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   activity: Sparkles,
   zone: MapPin,
   other: MapPin,
-  metro: Train,
+  metro: Zap,
   tram: TramFront,
 };
 
@@ -115,7 +115,7 @@ const TRANSIT_COLOR_INACTIVE: Record<string, string> = {
 const TRANSIT_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   train: TrainFront,
   bus:   Bus,
-  metro: Train,
+  metro: Zap,
   tram:  TramFront,
 };
 
@@ -1131,7 +1131,7 @@ function AddItemDialog({
     { kind: "flight", icon: Plane, label: t("flight") },
     { kind: "train", icon: TrainFront, label: t("train") },
     { kind: "bus", icon: Bus, label: t("bus") },
-    { kind: "metro" as (typeof ITEM_KINDS)[number], icon: Train, label: t("metro") },
+    { kind: "metro" as (typeof ITEM_KINDS)[number], icon: Zap, label: t("metro") },
     { kind: "tram" as (typeof ITEM_KINDS)[number], icon: TramFront, label: t("tram") },
     { kind: "car", icon: Car, label: t("car") },
     { kind: "ferry", icon: Ship, label: t("ferry") },
@@ -1637,10 +1637,17 @@ function StopCombobox({
 
   const remoteFiltered = useMemo(
     () =>
-      (remote.data ?? []).filter(
-        (r) => !localFiltered.some((f) => f.name.toLowerCase() === r.name.toLowerCase()),
-      ),
-    [remote.data, localFiltered],
+      cityLower
+        ? (remote.data ?? []).filter(
+            (r) =>
+              !localFiltered.some((f) => f.name.toLowerCase() === r.name.toLowerCase()) &&
+              (
+                (r.city ?? "").toLowerCase().includes(cityLower) ||
+                r.name.toLowerCase().includes(cityLower)
+              ),
+          )
+        : [],
+    [remote.data, localFiltered, cityLower],
   );
 
   const suggestions = [...localFiltered, ...remoteFiltered].slice(0, 50);

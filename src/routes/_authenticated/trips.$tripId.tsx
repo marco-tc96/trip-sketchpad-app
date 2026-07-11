@@ -348,23 +348,12 @@ function TripLayout() {
                   label={t("cover_photo")}
                 />
                 {coverType === "photo" && tripRow.cover_url && (
-                  <>
-                    <CoverMenuRow
-                      active={repositioning}
-                      onClick={() => {
-                        setRepositioning((v) => !v);
-                        setCoverMenuOpen(false);
-                      }}
-                      icon={Move}
-                      label={t("move_photo")}
-                    />
-                    <CoverMenuRow
-                      active={false}
-                      onClick={() => fileRef.current?.click()}
-                      icon={Upload}
-                      label={t("change_photo")}
-                    />
-                  </>
+                  <CoverMenuRow
+                    active={false}
+                    onClick={() => fileRef.current?.click()}
+                    icon={Upload}
+                    label={t("change_photo")}
+                  />
                 )}
                 <ColorCoverMenuRow
                   active={coverType === "color"}

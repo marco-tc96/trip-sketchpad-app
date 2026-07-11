@@ -44,7 +44,7 @@ const translations: Record<string, string> = {
   return: "返程",
   flight: "航班",
   train: "火车",
-  car: "汽车/高速",
+  car: "汽车",
   ferry: "渡轮",
   transfer: "交通",
   lodging: "住宿",
