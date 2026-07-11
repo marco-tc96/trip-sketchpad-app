@@ -113,10 +113,13 @@ async function getAreaQuery(city: string): Promise<string> {
   try {
     const r = await fetch(
       `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(city)}&format=json&limit=5&addressdetails=0`,
-      { headers: { Accept: "application/json" } },
+      { headers: { Accept: "application/json", "User-Agent": "Voyager-TravelApp/1.0" } },
     );
-    const hits = await r.json() as Array<{ osm_type: string; osm_id: string; class: string }>;
-    const rel = hits.find(h => h.osm_type === "relation" && ["place", "boundary"].includes(h.class));
+    const hits = await r.json() as Array<{ osm_type: string; osm_id: string; class: string; type: string }>;
+    // Prefer administrative boundary relations (cities, municipalities)
+    const rel =
+      hits.find(h => h.osm_type === "relation" && h.class === "boundary" && h.type === "administrative") ??
+      hits.find(h => h.osm_type === "relation" && ["place", "boundary"].includes(h.class));
     if (rel) {
       const q = `area(${3600000000 + parseInt(rel.osm_id)})->.c`;
       _areaCache.set(city, q); return q;
@@ -130,8 +133,14 @@ async function fetchTransitLines(city: string, osmMode: string): Promise<Array<{
   const key = `${city}|${osmMode}`;
   if (_lineCache.has(key)) return _lineCache.get(key)!;
   const areaQ = await getAreaQuery(city);
-  // route_master = one entry per line (not per direction) → fewer results, faster
-  const q = `[out:json][timeout:30];${areaQ};(relation["type"="route_master"]["route_master"="${osmMode}"](area.c);relation["type"="route"]["route"="${osmMode}"](area.c););out tags;`;
+  // Metro: OSM uses both "subway" (international) and "metro" (some countries like Hungary, France).
+  // Query both to maximise coverage.
+  const modes = osmMode === "subway" ? ["subway", "metro"] : [osmMode];
+  const clauses = modes.flatMap(m => [
+    `relation["type"="route_master"]["route_master"="${m}"](area.c)`,
+    `relation["type"="route"]["route"="${m}"](area.c)`,
+  ]).join(";");
+  const q = `[out:json][timeout:40];${areaQ};(${clauses};);out tags;`;
   const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`);
   const data = await res.json() as { elements: Array<{ tags: Record<string, string> }> };
   const seen = new Set<string>();
@@ -155,7 +164,12 @@ async function fetchLineStops(city: string, osmMode: string, lineRef: string): P
   const key = `${city}|${osmMode}|${lineRef}`;
   if (_stopCache.has(key)) return _stopCache.get(key)!;
   const areaQ = await getAreaQuery(city);
-  const q = `[out:json][timeout:30];${areaQ};relation["type"="route"]["route"="${osmMode}"]["ref"="${lineRef}"](area.c)->.r;node(r.r:"stop");out tags;`;
+  // Same dual-mode handling as fetchTransitLines for consistency
+  const modes = osmMode === "subway" ? ["subway", "metro"] : [osmMode];
+  const routeClauses = modes.map(m =>
+    `relation["type"="route"]["route"="${m}"]["ref"="${lineRef}"](area.c)`
+  ).join(";");
+  const q = `[out:json][timeout:40];${areaQ};(${routeClauses};)->.r;node(r.r:"stop");out tags;`;
   const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`);
   const data = await res.json() as { elements: Array<{ tags: Record<string, string> }> };
   const seen = new Set<string>();

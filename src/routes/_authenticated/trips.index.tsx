@@ -346,7 +346,8 @@ function TripsList() {
         </div>
       </div>
 
-      {!q.isLoading && allTripsCount > 0 && (
+      {/* ── Countdown + stats: always visible once loaded, regardless of favorites ── */}
+      {!q.isLoading && (
         <div className="mt-6 space-y-4">
           {/* Countdown to next trip */}
           <CountdownCard
@@ -354,34 +355,36 @@ function TripsList() {
             nextOngoing={ongoing[0] ?? null}
           />
 
-          {/* Year stats rings */}
-          <section className="overflow-hidden rounded-3xl border border-border bg-card shadow-soft">
-            <div className="border-b border-border/60 px-4 py-3">
-              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-                {t("stats_year", { year: currentYear })}
-              </p>
-            </div>
-            <div className="flex items-start justify-around gap-2 p-5">
-              <StatRing
-                label={t("countries")}
-                value={countriesThisYear}
-                max={Math.max(visitedCountries.length, countriesThisYear, 1)}
-                color="oklch(0.62 0.22 25)"
-              />
-              <StatRing
-                label={t("cities")}
-                value={citiesThisYear}
-                max={Math.max(totalCities, citiesThisYear, 1)}
-                color="oklch(0.7 0.18 95)"
-              />
-              <StatRing
-                label={t("days_traveled")}
-                value={daysThisYear}
-                max={Math.max(dayOfYear, daysThisYear, 1)}
-                color="oklch(0.62 0.16 255)"
-              />
-            </div>
-          </section>
+          {/* Year stats rings — show only when there are real trips */}
+          {allTripsCount > 0 && (
+            <section className="overflow-hidden rounded-3xl border border-border bg-card shadow-soft">
+              <div className="border-b border-border/60 px-4 py-3">
+                <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                  {t("stats_year", { year: currentYear })}
+                </p>
+              </div>
+              <div className="flex items-start justify-around gap-2 p-5">
+                <StatRing
+                  label={t("countries")}
+                  value={countriesThisYear}
+                  max={Math.max(visitedCountries.length, countriesThisYear, 1)}
+                  color="oklch(0.62 0.22 25)"
+                />
+                <StatRing
+                  label={t("cities")}
+                  value={citiesThisYear}
+                  max={Math.max(totalCities, citiesThisYear, 1)}
+                  color="oklch(0.7 0.18 95)"
+                />
+                <StatRing
+                  label={t("days_traveled")}
+                  value={daysThisYear}
+                  max={Math.max(dayOfYear, daysThisYear, 1)}
+                  color="oklch(0.62 0.16 255)"
+                />
+              </div>
+            </section>
+          )}
         </div>
       )}
 
@@ -413,10 +416,8 @@ function TripsList() {
                   {favoriteTrips.length}
                 </span>
               </div>
-              <div
-                className="-mx-4 flex gap-3 overflow-x-auto px-4 pb-2"
-                style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" } as React.CSSProperties}
-              >
+              {/* Vertical list — no horizontal scroll */}
+              <div className="flex flex-col gap-3">
                 {favoriteTrips.map((trip) => (
                   <FavoriteCard key={trip.id} trip={trip} />
                 ))}
@@ -710,7 +711,7 @@ function getCities(trip: Trip): CityObj[] {
     .filter((c) => c.name.length > 0);
 }
 
-// ── Favorite card (compact horizontal: info left, square image right) ──────
+// ── Favorite card (square thumbnail left, all info to the right) ─────────
 function FavoriteCard({ trip }: { trip: Trip }) {
   const { i18n } = useTranslation();
   const navigate = useNavigate();
@@ -725,6 +726,7 @@ function FavoriteCard({ trip }: { trip: Trip }) {
   const flagStr = countries.length > 0 ? countries.slice(0, 3).map(flagOf).join(" ") : "✈️";
   const isWishlist = trip.start_date >= "2099-01-01";
   const cities = getCities(trip);
+  const coverEmoji = (trip as unknown as { cover_emoji?: string | null }).cover_emoji;
 
   const [signed, setSigned] = useState<string | null>(null);
   useEffect(() => {
@@ -757,31 +759,32 @@ function FavoriteCard({ trip }: { trip: Trip }) {
       to="/trips/$tripId"
       params={{ tripId: trip.id }}
       onClick={handleClick}
-      className="flex w-[210px] shrink-0 items-center gap-3 rounded-2xl bg-card p-3 ring-1 ring-border/50 shadow-sm transition hover:shadow-md hover:ring-border"
+      className="flex items-center gap-3 rounded-2xl bg-card p-3 ring-1 ring-border/50 shadow-sm transition hover:shadow-md hover:ring-border"
     >
-      {/* Left: text info */}
+      {/* Left: square cover thumbnail */}
+      <div className="h-16 w-16 shrink-0 overflow-hidden rounded-xl">
+        <CityCover src={inlineSrc} gradient={gradient} className="h-full w-full object-cover" />
+      </div>
+
+      {/* Right: all trip info outside the thumbnail */}
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <p className="text-sm leading-none">{flagStr}</p>
         <p className="mt-1 truncate text-sm font-semibold leading-tight">
-          {(trip as unknown as { cover_emoji?: string | null }).cover_emoji
-            ? <span className="mr-1">{(trip as unknown as { cover_emoji: string }).cover_emoji}</span>
-            : null}
+          {coverEmoji ? <span className="mr-1">{coverEmoji}</span> : null}
           {trip.title}
         </p>
         {cities.length > 0 && (
-          <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
+          <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+            <MapPin className="mr-0.5 inline h-3 w-3" />
             {cities.map((c) => cityNameLocalized(c.name, lang)).join(" · ")}
           </p>
         )}
         {!isWishlist && (
-          <p className="mt-0.5 text-[10px] text-muted-foreground/70">
-            {fmt(trip.start_date)}
+          <p className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground/70">
+            <Calendar className="h-3 w-3 shrink-0" />
+            {fmt(trip.start_date)} → {fmt(trip.end_date)}
           </p>
         )}
-      </div>
-      {/* Right: square cover */}
-      <div className="h-16 w-16 shrink-0 overflow-hidden rounded-xl">
-        <CityCover src={inlineSrc} gradient={gradient} className="h-full w-full" />
       </div>
     </Link>
   );
