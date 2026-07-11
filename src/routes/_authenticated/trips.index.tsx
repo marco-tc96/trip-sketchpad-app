@@ -133,7 +133,7 @@ function CountdownCard({
     <Link
       to="/trips/$tripId"
       params={{ tripId: trip.id }}
-      className="group overflow-hidden rounded-3xl border border-border shadow-soft transition hover:shadow-md"
+      className="group overflow-hidden rounded-3xl shadow-soft ring-1 ring-border/40 transition hover:shadow-md"
     >
       {/* Gradient hero */}
       <div className="relative p-5" style={{ background: gradient }}>
@@ -299,18 +299,6 @@ function TripsList() {
     return seen.size;
   }, [past]);
 
-  const totalDays = useMemo(() => {
-    const days = new Set<string>();
-    for (const tr of past) {
-      const start = new Date(tr.start_date);
-      const end = new Date(tr.end_date);
-      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        days.add(d.toISOString().slice(0, 10));
-      }
-    }
-    return days.size;
-  }, [past]);
-
   // ── Stats: this year ─────────────────────────────────────────────────────
   const countriesThisYear = useMemo(() => {
     const set = new Set<string>();
@@ -395,7 +383,6 @@ function TripsList() {
                 label={t("days_traveled")}
                 value={daysThisYear}
                 max={Math.max(dayOfYear, daysThisYear, 1)}
-                sublabel={`${totalDays} ${t("total").toLowerCase()}`}
                 color="oklch(0.62 0.16 255)"
               />
             </div>
@@ -409,9 +396,6 @@ function TripsList() {
         <EmptyState />
       ) : (
         <div className="mt-8 space-y-8">
-          {favoriteTrips.length > 0 && (
-            <Section title={t("favorites")} trips={favoriteTrips} accent="favorites" />
-          )}
           {ongoing.length > 0 && (
             <Section title={t("ongoing")} trips={ongoing} accent="ongoing" />
           )}
@@ -420,6 +404,9 @@ function TripsList() {
           )}
           {past.length > 0 && (
             <Section title={t("past")} trips={past} accent="past" withYearSelector />
+          )}
+          {favoriteTrips.length > 0 && (
+            <Section title={t("favorites")} trips={favoriteTrips} accent="favorites" />
           )}
           {wishlistTrips.length > 0 && (
             <Section title={t("wishlist")} trips={wishlistTrips} accent="wishlist" />

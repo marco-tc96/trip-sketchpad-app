@@ -181,14 +181,6 @@ function MapPage() {
       return true;
     }
   });
-  const [showSubdivisions, setShowSubdivisions] = useState(() => {
-    try {
-      return localStorage.getItem("map_showSubdivisions") === "true";
-    } catch {
-      return false;
-    }
-  });
-
   useEffect(() => {
     try {
       localStorage.setItem("map_showPins", String(showPins));
@@ -196,13 +188,6 @@ function MapPage() {
       /* ignore */
     }
   }, [showPins]);
-  useEffect(() => {
-    try {
-      localStorage.setItem("map_showSubdivisions", String(showSubdivisions));
-    } catch {
-      /* ignore */
-    }
-  }, [showSubdivisions]);
 
   return (
     <main className="flex h-[100svh] flex-col">
@@ -219,10 +204,6 @@ function MapPage() {
             {showPins ? <Pin className="h-3.5 w-3.5" /> : <PinOff className="h-3.5 w-3.5" />}
             <span className="hidden sm:inline">{t("show_pins")}</span>
             <Switch checked={showPins} onCheckedChange={setShowPins} />
-          </label>
-          <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
-            <span className="hidden sm:inline">{t("show_subdivisions")}</span>
-            <Switch checked={showSubdivisions} onCheckedChange={setShowSubdivisions} />
           </label>
         </div>
       </div>
@@ -245,7 +226,7 @@ function MapPage() {
             wishlistCities={wishlistCities}
             homeCountry={homeCountry}
             showPins={showPins}
-            showSubdivisions={showSubdivisions}
+            showSubdivisions={false}
             lang={lang}
             className="h-full w-full"
           />
