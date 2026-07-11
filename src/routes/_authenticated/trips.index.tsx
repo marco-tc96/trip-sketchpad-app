@@ -775,17 +775,17 @@ function CompactTripCard({ trip }: { trip: Trip }) {
       to="/trips/$tripId"
       params={{ tripId: trip.id }}
       onClick={handleClick}
-      className="flex items-center gap-3 rounded-2xl bg-card p-3 ring-1 ring-border/50 shadow-sm transition hover:shadow-md hover:ring-border"
+      className="relative flex min-h-[96px] items-center overflow-hidden rounded-2xl bg-card ring-1 ring-border/50 shadow-sm transition hover:shadow-md hover:ring-border"
     >
-      {/* Left: square cover thumbnail — `relative` anchors CityCover's absolute inset-0 */}
-      <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-xl">
+      {/* Trip photo as the background of the card — bleeds from the left edge
+          across, then fades into the base card colour so the text stays readable */}
+      <div className="pointer-events-none absolute inset-y-0 left-0 w-36 sm:w-44">
         <CityCover src={inlineSrc} gradient={gradient} className="h-full w-full object-cover" />
-        {/* Fade the right edge into the card background */}
-        <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-card to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-r from-transparent to-card" />
       </div>
 
-      {/* Right: all trip info outside the thumbnail */}
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+      {/* Info — sits on the solid side of the card, clear of the photo */}
+      <div className="relative z-10 flex min-w-0 flex-1 flex-col justify-center gap-0.5 py-3 pl-[9.5rem] pr-3 sm:pl-[11.5rem]">
         <p className="text-sm leading-none">{flagStr}</p>
         <p className="mt-1 truncate text-sm font-semibold leading-tight">
           {coverEmoji ? <span className="mr-1">{coverEmoji}</span> : null}

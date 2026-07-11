@@ -1621,25 +1621,17 @@ function AddItemDialog({
                       placeholder={t("vehicle_name").split("(")[0].trim()}
                     />
                   )}
-                  {/* Stops — full width stacked, combobox with city-filtered suggestions */}
-                  <div className="space-y-2">
-                    <StopCombobox
-                      mode={leg.mode}
-                      city={form.location}
-                      countries={tripCountries}
-                      value={leg.from_stop}
-                      onChange={(v) => updateMixedLeg(i, { from_stop: v })}
-                      placeholder={t("boarding_stop")}
-                    />
-                    <StopCombobox
-                      mode={leg.mode}
-                      city={form.location}
-                      countries={tripCountries}
-                      value={leg.to_stop}
-                      onChange={(v) => updateMixedLeg(i, { to_stop: v })}
-                      placeholder={t("alighting_stop")}
-                    />
-                  </div>
+                  {/* Stops — suggestions limited to the selected line's stops */}
+                  <MixedLegStops
+                    mode={leg.mode}
+                    city={form.location}
+                    vehicle={leg.vehicle}
+                    countries={tripCountries}
+                    fromStop={leg.from_stop}
+                    toStop={leg.to_stop}
+                    onFrom={(v) => updateMixedLeg(i, { from_stop: v })}
+                    onTo={(v) => updateMixedLeg(i, { to_stop: v })}
+                  />
                   {/* Times — 2 columns are fine since time inputs are compact */}
                   <div className="grid grid-cols-2 gap-2">
                     <div className="space-y-1">
@@ -1794,6 +1786,73 @@ function fmtDT(s: string, lang?: string) {
 }
 
 // Autocomplete for transit stops filtered by city + mode
+// Boarding/alighting stops for one multi-modal leg. Fetches the selected
+// line's stops so the suggestions are limited to that line (not other lines).
+function MixedLegStops({
+  mode, city, vehicle, countries, fromStop, toStop, onFrom, onTo,
+}: {
+  mode: MixedLeg["mode"];
+  city: string;
+  vehicle: string;
+  countries: string[];
+  fromStop: string;
+  toStop: string;
+  onFrom: (v: string) => void;
+  onTo: (v: string) => void;
+}) {
+  const { t } = useTranslation();
+  const [lineStops, setLineStops] = useState<string[]>([]);
+
+  useEffect(() => {
+    const osmMode = OSM_ROUTE_MODE[mode];
+    const ref = vehicle.trim();
+    if (!osmMode || !city || !ref) { setLineStops([]); return; }
+    let cancelled = false;
+    fetchLineStops(city, osmMode, ref)
+      .then((stops) => { if (!cancelled) setLineStops(stops); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [mode, city, vehicle]);
+
+  return (
+    <div className="space-y-2">
+      <StopCombobox
+        mode={mode}
+        city={city}
+        countries={countries}
+        value={fromStop}
+        onChange={onFrom}
+        placeholder={t("boarding_stop")}
+        extraOptions={lineStops}
+      />
+      <StopCombobox
+        mode={mode}
+        city={city}
+        countries={countries}
+        value={toStop}
+        onChange={onTo}
+        placeholder={t("alighting_stop")}
+        extraOptions={lineStops}
+      />
+    </div>
+  );
+}
+
+// Accent/diacritic-insensitive normalisation: "Koz" matches "Központ"
+const norm = (s: string) =>
+  (s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+
+// Drop a leading line ref from an OSM route name so it isn't repeated
+// (the ref is already shown in bold). "220 => Újpest…" → "Újpest…"
+function stripLineRef(name: string, ref: string): string {
+  let n = (name ?? "").trim();
+  const r = (ref ?? "").trim();
+  if (r && n.toLowerCase().startsWith(r.toLowerCase())) {
+    n = n.slice(r.length).replace(/^[\s:=>~·|/\\–—-]+/, "").trim();
+  }
+  return n;
+}
+
 function StopCombobox({
   mode, city, countries, value, onChange, placeholder, extraOptions,
 }: {
@@ -1830,55 +1889,53 @@ function StopCombobox({
     [allHubs, cityLower],
   );
 
-  const q = value.trim().toLowerCase();
+  const nq = norm(value);
+  const nCity = norm(city);
+  const hasLineStops = (extraOptions?.length ?? 0) > 0;
+
   const localFiltered = useMemo(
     () =>
-      q && q !== cityLower
+      nq && nq !== nCity
         ? cityHubs.filter(
-            (h) =>
-              h.name.toLowerCase().includes(q) ||
-              (h.city ?? "").toLowerCase().includes(q),
+            (h) => norm(h.name).includes(nq) || norm(h.city ?? "").includes(nq),
           )
         : cityHubs.slice(0, 40),
-    [cityHubs, q, cityLower],
+    [cityHubs, nq, nCity],
   );
 
   const remoteFiltered = useMemo(
     () =>
-      cityLower
+      nCity
         ? (remote.data ?? []).filter(
             (r) =>
-              !localFiltered.some((f) => f.name.toLowerCase() === r.name.toLowerCase()) &&
-              (
-                (r.city ?? "").toLowerCase().includes(cityLower) ||
-                r.name.toLowerCase().includes(cityLower)
-              ),
+              !localFiltered.some((f) => norm(f.name) === norm(r.name)) &&
+              (norm(r.city ?? "").includes(nCity) || norm(r.name).includes(nCity)),
           )
         : [],
-    [remote.data, localFiltered, cityLower],
+    [remote.data, localFiltered, nCity],
   );
 
-  // Line-specific stops (from Overpass) — filtered by what the user types, shown first
+  // Line-specific stops (from Overpass) — accent-insensitive filter by typed text
   const extraFiltered = useMemo(() => {
     const opts = extraOptions ?? [];
-    return q && q !== cityLower ? opts.filter((o) => o.toLowerCase().includes(q)) : opts;
-  }, [extraOptions, q, cityLower]);
+    return nq ? opts.filter((o) => norm(o).includes(nq)) : opts;
+  }, [extraOptions, nq]);
 
+  // When a line is selected, show ONLY that line's stops (not other lines' /
+  // city-wide stations). Otherwise fall back to city hub suggestions.
   const suggestions = useMemo(() => {
+    if (hasLineStops) {
+      return extraFiltered.slice(0, 60).map((name) => ({ name }) as { name: string; city?: string });
+    }
     const seen = new Set<string>();
     const out: Array<{ name: string; city?: string }> = [];
-    for (const name of extraFiltered) {
-      const k = name.toLowerCase();
-      if (seen.has(k)) continue;
-      seen.add(k); out.push({ name });
-    }
     for (const h of [...localFiltered, ...remoteFiltered]) {
-      const k = h.name.toLowerCase();
+      const k = norm(h.name);
       if (seen.has(k)) continue;
       seen.add(k); out.push({ name: h.name, city: h.city });
     }
     return out.slice(0, 60);
-  }, [extraFiltered, localFiltered, remoteFiltered]);
+  }, [hasLineStops, extraFiltered, localFiltered, remoteFiltered]);
 
   return (
     <div className="relative">
@@ -1890,7 +1947,7 @@ function StopCombobox({
         onChange={(e) => { onChange(e.target.value); setOpen(true); }}
         autoComplete="off"
       />
-      {open && (suggestions.length > 0 || remote.isFetching) && (
+      {open && (suggestions.length > 0 || (!hasLineStops && remote.isFetching)) && (
         <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-52 overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
           {suggestions.map((h, idx) => (
             <button
@@ -1907,7 +1964,7 @@ function StopCombobox({
               </span>
             </button>
           ))}
-          {remote.isFetching && suggestions.length === 0 && (
+          {!hasLineStops && remote.isFetching && suggestions.length === 0 && (
             <div className="px-2 py-1.5 text-xs text-muted-foreground">{t("global_search")}</div>
           )}
         </div>
@@ -1944,13 +2001,13 @@ function LineCombobox({
     return () => { cancelled = true; };
   }, [mode, city]);
 
-  const q = value.trim().toLowerCase();
+  const nq = norm(value);
   const suggestions = useMemo(
-    () => (q
-      ? lines.filter(l => l.ref.toLowerCase().includes(q) || l.name.toLowerCase().includes(q))
+    () => (nq
+      ? lines.filter(l => norm(l.ref).includes(nq) || norm(l.name).includes(nq))
       : lines
     ).slice(0, 60),
-    [lines, q],
+    [lines, nq],
   );
 
   return (
@@ -1966,19 +2023,22 @@ function LineCombobox({
       />
       {open && (suggestions.length > 0 || loading) && (
         <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-60 overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
-          {suggestions.map(line => (
-            <button
-              type="button"
-              key={line.ref}
-              onMouseDown={(e) => { e.preventDefault(); onChange(line.ref); setOpen(false); }}
-              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
-            >
-              <span className="shrink-0 font-semibold">{line.ref}</span>
-              {line.name !== line.ref && (
-                <span className="min-w-0 flex-1 truncate text-xs opacity-55">{line.name}</span>
-              )}
-            </button>
-          ))}
+          {suggestions.map(line => {
+            const desc = stripLineRef(line.name, line.ref);
+            return (
+              <button
+                type="button"
+                key={line.ref}
+                onMouseDown={(e) => { e.preventDefault(); onChange(line.ref); setOpen(false); }}
+                className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+              >
+                <span className="shrink-0 font-semibold">{line.ref}</span>
+                {desc && (
+                  <span className="min-w-0 flex-1 truncate text-xs opacity-55">{desc}</span>
+                )}
+              </button>
+            );
+          })}
           {loading && (
             <div className="px-2 py-1.5 text-xs text-muted-foreground animate-pulse">{t("loading")}</div>
           )}
