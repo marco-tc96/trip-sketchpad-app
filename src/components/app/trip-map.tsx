@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { MapContainer, TileLayer, Marker, Popup, Tooltip, useMap } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Popup, Tooltip, Polyline, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { geocodeCity } from "@/lib/country-data";
 
 export type MapCity = { name: string; country: string; lat?: number; lng?: number };
+export type MapRoute = { from: string; to: string; mode: string; country?: string };
 
 // Approximate country centroids (lat, lng) keyed by ISO-2.
 // Used as a fallback when no city coordinates are available.
@@ -76,6 +77,20 @@ const COUNTRY_CENTROIDS: Record<string, [number, number]> = {
   ZM: [-13.134, 27.849], ZW: [-19.015, 29.155],
 };
 
+// Colour (and optional dash pattern) per transport mode for the route lines.
+const MODE_STYLE: Record<string, { color: string; dash?: string }> = {
+  plane:    { color: "#0ea5e9", dash: "2 8" },   // sky, dotted
+  ferry:    { color: "#06b6d4", dash: "8 6" },   // cyan, dashed
+  train:    { color: "#f59e0b" },                // amber
+  bus:      { color: "#3b82f6" },                // blue
+  metro:    { color: "#8b5cf6" },                // violet
+  tram:     { color: "#10b981" },                // emerald
+  car:      { color: "#f97316" },                // orange
+  moto:     { color: "#f97316" },                // orange
+  transfer: { color: "#94a3b8" },                // slate
+};
+const modeStyle = (mode: string) => MODE_STYLE[mode] ?? MODE_STYLE.transfer;
+
 // Custom pin so we don't depend on Leaflet's default marker images.
 const pinIcon = L.divIcon({
   className: "voyager-pin",
@@ -83,6 +98,15 @@ const pinIcon = L.divIcon({
   iconSize: [18, 18],
   iconAnchor: [9, 9],
 });
+
+// Strip IATA airport codes so a leg endpoint like "FCO - Roma" or
+// "Bologna Guglielmo Marconi Airport (BLQ)" geocodes on its real place name.
+function cleanPlace(s: string): string {
+  return (s ?? "")
+    .replace(/\s*\([A-Z]{3}\)\s*$/, "")
+    .replace(/^[A-Z]{3}\s*-\s*/, "")
+    .trim();
+}
 
 function FitBounds({ points }: { points: [number, number][] }) {
   const map = useMap();
@@ -101,32 +125,55 @@ function FitBounds({ points }: { points: [number, number][] }) {
 export function TripMap({
   cities,
   countries,
+  routes,
+  showRoutes,
   className,
   noTiles,
   compact,
 }: {
   cities: MapCity[];
   countries?: string[];
+  routes?: MapRoute[];
+  showRoutes?: boolean;
   className?: string;
   noTiles?: boolean;
   compact?: boolean;
 }) {
-  // Async geocoding cache for cities without stored coordinates.
+  // Async geocoding cache for cities + route endpoints without stored coords.
   // Value is null when geocoding failed (explicit failure, not "pending").
   const [geoCache, setGeoCache] = useState<Record<string, { lat: number; lng: number } | null>>({});
 
+  // Unique route endpoints that need geocoding (only when routes are shown).
+  const routeEndpoints = useMemo<Array<{ name: string; country?: string }>>(() => {
+    if (!showRoutes || !routes || routes.length === 0) return [];
+    const seen = new Map<string, { name: string; country?: string }>();
+    for (const r of routes) {
+      for (const raw of [r.from, r.to]) {
+        const name = cleanPlace(raw);
+        if (!name) continue;
+        const key = `${r.country ?? ""}|${name}`;
+        if (!seen.has(key)) seen.set(key, { name, country: r.country });
+      }
+    }
+    return [...seen.values()];
+  }, [routes, showRoutes]);
+
   useEffect(() => {
-    const missing = cities.filter(
-      (c) => typeof c.lat !== "number" || typeof c.lng !== "number",
-    );
+    const targets: Array<{ name: string; country?: string }> = [
+      ...cities
+        .filter((c) => typeof c.lat !== "number" || typeof c.lng !== "number")
+        .map((c) => ({ name: c.name, country: c.country })),
+      ...routeEndpoints,
+    ];
+    const missing = targets.filter((t) => !(`${t.country ?? ""}|${t.name}` in geoCache));
     if (missing.length === 0) return;
     let cancelled = false;
     (async () => {
       const updates: Record<string, { lat: number; lng: number } | null> = {};
-      for (const city of missing) {
-        const key = `${city.country}|${city.name}`;
-        if (key in geoCache) continue;
-        const result = await geocodeCity(city.name, city.country);
+      for (const tgt of missing) {
+        const key = `${tgt.country ?? ""}|${tgt.name}`;
+        if (key in geoCache || key in updates) continue;
+        const result = await geocodeCity(tgt.name, tgt.country ?? "");
         updates[key] = result; // null on failure — stored explicitly
       }
       if (!cancelled && Object.keys(updates).length > 0) {
@@ -137,18 +184,15 @@ export function TripMap({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cities]);
+  }, [cities, routeEndpoints]);
 
   // Enrich cities with geocoded coordinates when stored coords are missing.
-  // If geocoding returned null (failed), fall back to the country centroid.
   const enrichedCities = useMemo<MapCity[]>(() => {
     return cities.map((c) => {
       if (typeof c.lat === "number" && typeof c.lng === "number") return c;
       const key = `${c.country}|${c.name}`;
       const cached = geoCache[key];
-      // Geocoding succeeded
       if (cached) return { ...c, lat: cached.lat, lng: cached.lng };
-      // Geocoding explicitly failed (null stored) → use country centroid
       if (key in geoCache && geoCache[key] === null) {
         const centroid = COUNTRY_CENTROIDS[c.country?.toUpperCase()];
         if (centroid) return { ...c, lat: centroid[0], lng: centroid[1] };
@@ -168,6 +212,33 @@ export function TripMap({
     [enrichedCities],
   );
 
+  // Resolve a route endpoint to coordinates (geocode → centroid fallback).
+  const resolve = useMemo(() => {
+    return (raw: string, country?: string): [number, number] | null => {
+      const name = cleanPlace(raw);
+      const key = `${country ?? ""}|${name}`;
+      const cached = geoCache[key];
+      if (cached) return [cached.lat, cached.lng];
+      if (key in geoCache && geoCache[key] === null && country) {
+        const centroid = COUNTRY_CENTROIDS[country.toUpperCase()];
+        if (centroid) return centroid;
+      }
+      return null;
+    };
+  }, [geoCache]);
+
+  // Build the polylines for the legs that could be geocoded.
+  const routeLines = useMemo(() => {
+    if (!showRoutes || !routes) return [] as Array<{ a: [number, number]; b: [number, number]; mode: string; key: string }>;
+    const out: Array<{ a: [number, number]; b: [number, number]; mode: string; key: string }> = [];
+    routes.forEach((r, i) => {
+      const a = resolve(r.from, r.country);
+      const b = resolve(r.to, r.country);
+      if (a && b) out.push({ a, b, mode: r.mode, key: `${i}-${r.from}-${r.to}` });
+    });
+    return out;
+  }, [routes, showRoutes, resolve]);
+
   // Country centroid fallback when ALL cities have no coordinates.
   const fallbackPoints = useMemo<[number, number][]>(() => {
     if (points.length > 0) return [];
@@ -181,9 +252,14 @@ export function TripMap({
   }, [points.length, countries, enrichedCities]);
 
   const ref = useRef<L.Map | null>(null);
-  const effective = points.length > 0 ? points : fallbackPoints;
+  const cityPoints = points.length > 0 ? points : fallbackPoints;
+  // When showing routes, fit the view to include every leg endpoint too.
+  const boundsPoints = useMemo<[number, number][]>(
+    () => (showRoutes ? [...cityPoints, ...routeLines.flatMap((l) => [l.a, l.b])] : cityPoints),
+    [cityPoints, routeLines, showRoutes],
+  );
 
-  if (effective.length === 0) {
+  if (boundsPoints.length === 0) {
     return (
       <div
         className={`grid place-items-center bg-muted text-xs text-muted-foreground ${className ?? ""}`}
@@ -196,7 +272,7 @@ export function TripMap({
   return (
     <MapContainer
       ref={ref}
-      center={effective[0]}
+      center={boundsPoints[0]}
       zoom={5}
       scrollWheelZoom
       dragging
@@ -212,6 +288,19 @@ export function TripMap({
       {!noTiles && (
         <TileLayer url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" />
       )}
+
+      {showRoutes &&
+        routeLines.map((l) => {
+          const st = modeStyle(l.mode);
+          return (
+            <Polyline
+              key={l.key}
+              positions={[l.a, l.b]}
+              pathOptions={{ color: st.color, weight: 3, opacity: 0.9, dashArray: st.dash }}
+            />
+          );
+        })}
+
       {enrichedCities
         .filter(
           (c): c is Required<Pick<MapCity, "lat" | "lng">> & MapCity =>
@@ -231,7 +320,7 @@ export function TripMap({
             </Tooltip>
           </Marker>
         ))}
-      <FitBounds points={effective} />
+      <FitBounds points={boundsPoints} />
     </MapContainer>
   );
 }

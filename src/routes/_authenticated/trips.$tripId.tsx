@@ -1,11 +1,12 @@
 import { createFileRoute, Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowLeft, Trash2, Image as ImageIcon, Map as MapIcon, Sparkles, Upload, Palette, Check, Pencil, X, Plus, ChevronsUpDown, Briefcase, Palmtree, Footprints, CalendarDays, Wallet, Clock, Move, Menu, ChevronUp, Heart } from "lucide-react";
+import { ArrowLeft, Trash2, Image as ImageIcon, Map as MapIcon, Sparkles, Upload, Palette, Check, Pencil, X, Plus, ChevronsUpDown, Briefcase, Palmtree, Footprints, CalendarDays, Wallet, Clock, Move, Menu, ChevronUp, Heart, MapPin, Route as RouteIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getTrip, deleteTrip, updateTrip } from "@/lib/trips.functions";
+import { listItems } from "@/lib/itinerary.functions";
 import { getProfile } from "@/lib/profile.functions";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -16,7 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { FxAverageWidget } from "@/components/app/fx-avg-widget";
 import { CityCover } from "@/components/app/city-cover";
-import { TripMap } from "@/components/app/trip-map";
+import { TripMap, type MapRoute } from "@/components/app/trip-map";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { cn } from "@/lib/utils";
@@ -27,6 +28,50 @@ import { flagGradient } from "@/lib/flag-gradient";
 export const Route = createFileRoute("/_authenticated/trips/$tripId")({
   component: TripLayout,
 });
+
+// Build the map's route lines from the itinerary items. Covers:
+//  • outbound/return (and any transport with meta.legs) → each leg from→to
+//  • multi-modal transfers (meta.mixed_legs) → each leg from_stop→to_stop
+//  • single stop-based transit (meta.from_stop/to_stop)
+// Intra-city legs get the trip country as a geocoding hint; inter-city legs
+// (flights, etc.) are geocoded by place name only.
+function buildMapRoutes(
+  items: Array<{ kind: string; meta?: unknown }>,
+  tripData: unknown,
+): MapRoute[] {
+  const countries = Array.isArray((tripData as { countries?: string[] } | undefined)?.countries)
+    ? (tripData as { countries: string[] }).countries
+    : [];
+  const singleCountry = countries.length === 1 ? countries[0] : undefined;
+  const out: MapRoute[] = [];
+  for (const it of items) {
+    const meta = (it.meta ?? {}) as {
+      mode?: string;
+      legs?: Array<{ from?: string; to?: string }>;
+      mixed_legs?: Array<{ mode?: string; from_stop?: string; to_stop?: string }>;
+      from_stop?: string;
+      to_stop?: string;
+    };
+    if (Array.isArray(meta.legs) && meta.legs.length > 0) {
+      for (const l of meta.legs) {
+        if (l.from && l.to) out.push({ from: l.from, to: l.to, mode: meta.mode ?? it.kind });
+      }
+      continue;
+    }
+    if (Array.isArray(meta.mixed_legs) && meta.mixed_legs.length > 0) {
+      for (const l of meta.mixed_legs) {
+        if (l.from_stop && l.to_stop) {
+          out.push({ from: l.from_stop, to: l.to_stop, mode: l.mode ?? it.kind, country: singleCountry });
+        }
+      }
+      continue;
+    }
+    if (meta.from_stop && meta.to_stop) {
+      out.push({ from: meta.from_stop, to: meta.to_stop, mode: it.kind, country: singleCountry });
+    }
+  }
+  return out;
+}
 
 function TripLayout() {
   const { tripId } = Route.useParams();
@@ -42,6 +87,10 @@ function TripLayout() {
   const profile = useQuery({ queryKey: ["profile"], queryFn: () => profileFn() });
   const delFn = useServerFn(deleteTrip);
   const updateFn = useServerFn(updateTrip);
+  const itemsFn = useServerFn(listItems);
+  const items = useQuery({ queryKey: ["items", tripId], queryFn: () => itemsFn({ data: { trip_id: tripId } }) });
+  const [mapMode, setMapMode] = useState<"cities" | "routes">("cities");
+  const mapRoutes = useMemo(() => buildMapRoutes(items.data ?? [], trip.data), [items.data, trip.data]);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = useState(false);
   const [signedPhoto, setSignedPhoto] = useState<string | null>(null);
@@ -513,9 +562,38 @@ function TripLayout() {
             <TripMap
               cities={cities}
               countries={countries}
+              routes={mapRoutes}
+              showRoutes={mapMode === "routes"}
               className="absolute inset-0 h-full w-full"
               compact
             />
+            {/* Switch: fixed city map vs. all travelled routes/legs */}
+            {mapRoutes.length > 0 && (
+              <div className="absolute right-3 top-3 z-[1000] flex rounded-full border border-border/60 bg-background/85 p-0.5 text-xs shadow-soft backdrop-blur">
+                <button
+                  type="button"
+                  onClick={() => setMapMode("cities")}
+                  className={cn(
+                    "flex items-center gap-1 rounded-full px-2.5 py-1 transition",
+                    mapMode === "cities" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  <MapPin className="h-3.5 w-3.5" />
+                  {t("map_view_cities", { defaultValue: "Città" })}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMapMode("routes")}
+                  className={cn(
+                    "flex items-center gap-1 rounded-full px-2.5 py-1 transition",
+                    mapMode === "routes" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  <RouteIcon className="h-3.5 w-3.5" />
+                  {t("map_view_routes", { defaultValue: "Tratte" })}
+                </button>
+              </div>
+            )}
           </div>
         )}
 
