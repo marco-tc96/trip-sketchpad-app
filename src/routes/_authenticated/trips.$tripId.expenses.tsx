@@ -12,7 +12,8 @@ import { listItems } from "@/lib/itinerary.functions";
 import { getTrip } from "@/lib/trips.functions";
 import { getProfile } from "@/lib/profile.functions";
 import { getFxRate } from "@/lib/fx.functions";
-import { CURRENCIES, formatMoney } from "@/lib/currencies";
+import { formatMoney } from "@/lib/currencies";
+import { currencyForCountryAt } from "@/lib/country-data";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,6 +24,10 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+
+// Fallback "major" currencies offered as a secondary (dimmed) option even when
+// they are not part of the trip. Kept small on purpose.
+const SECONDARY_CURRENCIES = ["USD", "GBP", "JPY"];
 
 export const Route = createFileRoute("/_authenticated/trips/$tripId/expenses")({
   component: ExpensesView,
@@ -48,6 +53,21 @@ function ExpensesView() {
     0,
   );
 
+  // Primary currencies = the trip's countries' currencies + the trip's own
+  // local currency + the user's home currency. These are shown prominently.
+  const tripCountries: string[] = Array.isArray((trip.data as unknown as { countries?: string[] }).countries)
+    ? (trip.data as unknown as { countries: string[] }).countries
+    : [];
+  const primaryCurrencies = Array.from(
+    new Set(
+      [
+        trip.data.local_currency,
+        ...tripCountries.map((iso) => currencyForCountryAt(iso, trip.data!.start_date)),
+        homeCcy,
+      ].filter(Boolean) as string[],
+    ),
+  );
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -59,6 +79,7 @@ function ExpensesView() {
           tripId={tripId}
           tripCurrency={trip.data.local_currency}
           homeCurrency={homeCcy}
+          primaryCurrencies={primaryCurrencies}
         />
       </div>
 
@@ -105,9 +126,9 @@ function ExpensesView() {
 }
 
 function AddExpenseDialog({
-  tripId, tripCurrency, homeCurrency,
+  tripId, tripCurrency, homeCurrency, primaryCurrencies,
 }: {
-  tripId: string; tripCurrency: string; homeCurrency: string;
+  tripId: string; tripCurrency: string; homeCurrency: string; primaryCurrencies: string[];
 }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
@@ -123,11 +144,14 @@ function AddExpenseDialog({
     category: "food" as (typeof EXPENSE_CATEGORIES)[number],
     title: "",
     amount: "",
-    currency: tripCurrency,
+    currency: tripCurrency || primaryCurrencies[0] || homeCurrency,
     spent_on: new Date().toISOString().slice(0, 10),
     note: "",
     itinerary_item_id: "",
   });
+
+  // Major currencies shown dimmed, only if not already in the primary list.
+  const secondaryCurrencies = SECONDARY_CURRENCIES.filter((c) => !primaryCurrencies.includes(c));
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -208,7 +232,12 @@ function AddExpenseDialog({
               <Select value={form.currency} onValueChange={(v) => setForm({ ...form, currency: v })}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent className="max-h-60">
-                  {CURRENCIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                  {/* Trip + home currencies — prominent */}
+                  {primaryCurrencies.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                  {/* Major world currencies — dimmed, secondary */}
+                  {secondaryCurrencies.map((c) => (
+                    <SelectItem key={c} value={c} className="text-muted-foreground">{c}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

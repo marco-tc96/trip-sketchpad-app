@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, Fragment } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Plane, Bus, Car, CarTaxiFront, Bike, Ship, Hotel, MapPin, Sparkles, ArrowRightLeft,
@@ -575,24 +575,27 @@ function TimelineView() {
                         {/* Vehicle legs — each on its own row: coloured mode icon
                             beside its line/stops, highlighted in the mode colour */}
                         {mixedLegs.length > 0 && (
-                          <div className="mt-2 space-y-2">
+                          // One shared grid for all legs → line refs, times and
+                          // stops line up in fixed columns (no jagged in/out).
+                          <div className="mt-2 grid grid-cols-[auto_auto_1fr] items-start gap-x-2 gap-y-1 text-xs">
                             {mixedLegs.map((leg, i) => {
                               const LIcon = TRANSIT_ICON[leg.mode] ?? Bus;
                               const color = TRANSIT_TEXT[leg.mode] ?? "text-muted-foreground";
                               return (
-                                <div key={i} className="flex items-start gap-1.5 text-xs">
-                                  {/* Line ref + departure time (fixed prefix) */}
-                                  <div className="flex shrink-0 items-center gap-1.5">
+                                <Fragment key={i}>
+                                  {/* Column 1 — icon + line ref */}
+                                  <div className="flex items-center gap-1.5">
                                     <LIcon className={cn("h-4 w-4 shrink-0", color)} />
                                     {leg.vehicle && <span className={cn("font-semibold", color)}>{leg.vehicle}</span>}
-                                    {leg.depart_at && <span className="tabular-nums text-muted-foreground">{leg.depart_at}</span>}
                                   </div>
-                                  {/* Boarding + alighting stops, aligned on top of each other */}
-                                  <div className="min-w-0 flex-1 space-y-0.5 text-muted-foreground">
+                                  {/* Column 2 — departure time */}
+                                  <div className="tabular-nums text-muted-foreground">{leg.depart_at || ""}</div>
+                                  {/* Column 3 — boarding + alighting stops, stacked */}
+                                  <div className="min-w-0 space-y-0.5 text-muted-foreground">
                                     {leg.from_stop && <ScrollText>{leg.from_stop}</ScrollText>}
                                     {leg.to_stop && <ScrollText>→ {leg.to_stop}</ScrollText>}
                                   </div>
-                                </div>
+                                </Fragment>
                               );
                             })}
                           </div>
