@@ -335,13 +335,19 @@ function TripLayout() {
           type="button"
           aria-label={t("back")}
           onClick={() => {
-            const doNav = () => { void nav({ to: "/trips" }); };
+            // Await the navigation inside the transition callback so the home
+            // list is fully rendered AND its scroll position restored BEFORE the
+            // view transition captures the "new" snapshot. Otherwise the home
+            // would appear at the top and then jump/scroll onto the target card
+            // while the closing animation plays. Awaiting means the page is
+            // already in the right position to receive the shrink-into-card.
+            const doNav = async () => { await nav({ to: "/trips" }); };
             if (typeof document.startViewTransition === "function") {
               document.documentElement.dataset.vtDir = "back";
               const vt = document.startViewTransition(doNav);
               vt.finished.finally(() => { delete document.documentElement.dataset.vtDir; });
             } else {
-              doNav();
+              void doNav();
             }
           }}
           className="shrink-0 inline-flex h-9 w-9 items-center justify-center rounded-full bg-background/60 text-foreground backdrop-blur hover:bg-background/80"

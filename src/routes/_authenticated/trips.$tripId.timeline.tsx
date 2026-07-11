@@ -580,22 +580,18 @@ function TimelineView() {
                               const LIcon = TRANSIT_ICON[leg.mode] ?? Bus;
                               const color = TRANSIT_TEXT[leg.mode] ?? "text-muted-foreground";
                               return (
-                                <div key={i} className="text-xs">
-                                  {/* Line ref + departure time + boarding stop, all on one line */}
-                                  <div className="flex items-center gap-1.5">
+                                <div key={i} className="flex items-start gap-1.5 text-xs">
+                                  {/* Line ref + departure time (fixed prefix) */}
+                                  <div className="flex shrink-0 items-center gap-1.5">
                                     <LIcon className={cn("h-4 w-4 shrink-0", color)} />
-                                    {leg.vehicle && <span className={cn("shrink-0 font-semibold", color)}>{leg.vehicle}</span>}
-                                    {leg.depart_at && <span className="shrink-0 tabular-nums text-muted-foreground">{leg.depart_at}</span>}
-                                    {leg.from_stop && (
-                                      <ScrollText className="min-w-0 flex-1 text-muted-foreground">{leg.from_stop}</ScrollText>
-                                    )}
+                                    {leg.vehicle && <span className={cn("font-semibold", color)}>{leg.vehicle}</span>}
+                                    {leg.depart_at && <span className="tabular-nums text-muted-foreground">{leg.depart_at}</span>}
                                   </div>
-                                  {/* Alighting stop on its own line */}
-                                  {leg.to_stop && (
-                                    <div className="mt-0.5 pl-[1.375rem]">
-                                      <ScrollText className="text-muted-foreground">→ {leg.to_stop}</ScrollText>
-                                    </div>
-                                  )}
+                                  {/* Boarding + alighting stops, aligned on top of each other */}
+                                  <div className="min-w-0 flex-1 space-y-0.5 text-muted-foreground">
+                                    {leg.from_stop && <ScrollText>{leg.from_stop}</ScrollText>}
+                                    {leg.to_stop && <ScrollText>→ {leg.to_stop}</ScrollText>}
+                                  </div>
                                 </div>
                               );
                             })}
