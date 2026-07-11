@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Plane, Bus, Car, CarTaxiFront, Bike, Ship, Hotel, MapPin, Sparkles, ArrowRightLeft,
@@ -306,6 +306,55 @@ function kindClasses(kind: string) {
   };
 }
 
+// Auto-scrolling text: if the content is wider than its container it slides
+// back and forth (ping-pong) so long stop names stay fully readable; if it
+// fits, it stays put.
+function ScrollText({ children, className }: { children: React.ReactNode; className?: string }) {
+  const boxRef = useRef<HTMLSpanElement>(null);
+  const textRef = useRef<HTMLSpanElement>(null);
+  const [shift, setShift] = useState(0);
+  useEffect(() => {
+    if (typeof document !== "undefined" && !document.getElementById("marquee-pingpong-style")) {
+      const s = document.createElement("style");
+      s.id = "marquee-pingpong-style";
+      s.textContent = "@keyframes marquee-pingpong{from{transform:translateX(0)}to{transform:translateX(var(--marquee-shift))}}";
+      document.head.appendChild(s);
+    }
+    const measure = () => {
+      const box = boxRef.current, txt = textRef.current;
+      if (!box || !txt) return;
+      const diff = txt.scrollWidth - box.clientWidth;
+      setShift(diff > 4 ? diff : 0);
+    };
+    measure();
+    let ro: ResizeObserver | undefined;
+    if (typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver(measure);
+      if (boxRef.current) ro.observe(boxRef.current);
+      if (textRef.current) ro.observe(textRef.current);
+    }
+    return () => ro?.disconnect();
+  }, [children]);
+  return (
+    <span ref={boxRef} className={cn("block overflow-hidden whitespace-nowrap", className)}>
+      <span
+        ref={textRef}
+        className="inline-block will-change-transform"
+        style={shift ? ({
+          animationName: "marquee-pingpong",
+          animationDuration: `${Math.max(4, shift / 25)}s`,
+          animationTimingFunction: "ease-in-out",
+          animationIterationCount: "infinite",
+          animationDirection: "alternate",
+          ["--marquee-shift" as string]: `-${shift}px`,
+        } as React.CSSProperties) : undefined}
+      >
+        {children}
+      </span>
+    </span>
+  );
+}
+
 function TimelineView() {
   const { tripId } = Route.useParams();
   const { t, i18n } = useTranslation();
@@ -463,9 +512,9 @@ function TimelineView() {
                               <p className="text-xs text-muted-foreground">{cityNameLocalized(it.location, lang)}</p>
                             )}
                             {mixedLegs.length === 0 && STOP_KINDS.has(it.kind) && stopMeta?.from_stop && (
-                              <p className="text-xs text-muted-foreground">
+                              <ScrollText className="text-xs text-muted-foreground">
                                 {stopMeta.from_stop}{stopMeta.to_stop ? ` → ${stopMeta.to_stop}` : ""}
-                              </p>
+                              </ScrollText>
                             )}
                             {it.notes && <p className="mt-1 text-xs text-muted-foreground">{it.notes}</p>}
                             <TransportLegs meta={it.meta as TransportMeta | null} />
@@ -532,17 +581,19 @@ function TimelineView() {
                               const color = TRANSIT_TEXT[leg.mode] ?? "text-muted-foreground";
                               return (
                                 <div key={i} className="text-xs">
-                                  {/* Line ref + departure time, right after it */}
+                                  {/* Line ref + departure time + boarding stop, all on one line */}
                                   <div className="flex items-center gap-1.5">
                                     <LIcon className={cn("h-4 w-4 shrink-0", color)} />
-                                    {leg.vehicle && <span className={cn("font-semibold", color)}>{leg.vehicle}</span>}
-                                    {leg.depart_at && <span className="tabular-nums text-muted-foreground">{leg.depart_at}</span>}
+                                    {leg.vehicle && <span className={cn("shrink-0 font-semibold", color)}>{leg.vehicle}</span>}
+                                    {leg.depart_at && <span className="shrink-0 tabular-nums text-muted-foreground">{leg.depart_at}</span>}
+                                    {leg.from_stop && (
+                                      <ScrollText className="min-w-0 flex-1 text-muted-foreground">{leg.from_stop}</ScrollText>
+                                    )}
                                   </div>
-                                  {/* Boarding / alighting stop on their own lines */}
-                                  {(leg.from_stop || leg.to_stop) && (
-                                    <div className="mt-0.5 space-y-0.5 pl-[1.375rem] text-muted-foreground">
-                                      {leg.from_stop && <p>{leg.from_stop}</p>}
-                                      {leg.to_stop && <p>→ {leg.to_stop}</p>}
+                                  {/* Alighting stop on its own line */}
+                                  {leg.to_stop && (
+                                    <div className="mt-0.5 pl-[1.375rem]">
+                                      <ScrollText className="text-muted-foreground">→ {leg.to_stop}</ScrollText>
                                     </div>
                                   )}
                                 </div>
