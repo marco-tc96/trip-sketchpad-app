@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Wallet, Bus, Hotel, Utensils, Gift, Sparkles, MoreHorizontal } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -29,6 +29,19 @@ import {
 // they are not part of the trip. Kept small on purpose.
 const SECONDARY_CURRENCIES = ["USD", "GBP", "JPY"];
 
+// One colour + icon per expense category. The hex is used by the pie chart and
+// the legend dots; the bg class colours the matching icon in the list — so the
+// list icons and the pie slices always share the same colour.
+type Category = (typeof EXPENSE_CATEGORIES)[number];
+const CATEGORY_STYLE: Record<Category, { hex: string; bg: string; icon: React.ComponentType<{ className?: string }> }> = {
+  transport: { hex: "#0ea5e9", bg: "bg-sky-500",     icon: Bus },
+  lodging:   { hex: "#6366f1", bg: "bg-indigo-500",  icon: Hotel },
+  food:      { hex: "#f59e0b", bg: "bg-amber-500",   icon: Utensils },
+  souvenir:  { hex: "#f43f5e", bg: "bg-rose-500",    icon: Gift },
+  activity:  { hex: "#10b981", bg: "bg-emerald-500", icon: Sparkles },
+  other:     { hex: "#64748b", bg: "bg-slate-500",   icon: MoreHorizontal },
+};
+
 export const Route = createFileRoute("/_authenticated/trips/$tripId/expenses")({
   component: ExpensesView,
 });
@@ -48,10 +61,14 @@ function ExpensesView() {
   if (!trip.data || !profile.data) return <p className="text-sm text-muted-foreground">{t("loading")}</p>;
   const homeCcy = profile.data.home_currency;
   const expenses = list.data ?? [];
-  const total = expenses.reduce(
-    (s, e) => s + Number(e.amount_home ?? (e.currency === homeCcy ? e.amount : 0)),
-    0,
-  );
+  const toHome = (e: { amount: number | string; amount_home?: number | string | null; currency: string }) =>
+    Number(e.amount_home ?? (e.currency === homeCcy ? e.amount : 0));
+  const total = expenses.reduce((s, e) => s + toHome(e), 0);
+
+  // Totals per category (in home currency) — drives the pie chart + legend.
+  const catTotals = EXPENSE_CATEGORIES
+    .map((cat) => ({ cat, value: expenses.filter((e) => e.category === cat).reduce((s, e) => s + toHome(e), 0) }))
+    .filter((x) => x.value > 0);
 
   // Primary currencies = the trip's countries' currencies + the trip's own
   // local currency + the user's home currency. These are shown prominently.
@@ -70,11 +87,7 @@ function ExpensesView() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="text-xs uppercase tracking-wider text-muted-foreground">{t("total")}</p>
-          <p className="font-serif text-2xl font-semibold tabular-nums">{formatMoney(total, homeCcy)}</p>
-        </div>
+      <div className="flex items-center justify-end">
         <AddExpenseDialog
           tripId={tripId}
           tripCurrency={trip.data.local_currency}
@@ -83,45 +96,106 @@ function ExpensesView() {
         />
       </div>
 
+      {/* Total + breakdown, both in Timeline-style stat cards */}
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="rounded-2xl border border-border bg-card p-4 shadow-soft">
+          <Wallet className="h-5 w-5 text-primary" />
+          <p className="mt-2 text-[10px] uppercase tracking-wider text-muted-foreground">{t("total")}</p>
+          <p className="mt-0.5 font-serif text-2xl font-semibold tabular-nums">{formatMoney(total, homeCcy)}</p>
+        </div>
+
+        {catTotals.length > 0 && (
+          <div className="rounded-2xl border border-border bg-card p-4 shadow-soft">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{t("expense_breakdown")}</p>
+            <div className="mt-2 flex items-center gap-3">
+              <CategoryPie segments={catTotals.map((x) => ({ hex: CATEGORY_STYLE[x.cat].hex, value: x.value }))} />
+              <ul className="min-w-0 flex-1 space-y-1">
+                {catTotals.map((x) => (
+                  <li key={x.cat} className="flex items-center gap-1.5 text-xs">
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: CATEGORY_STYLE[x.cat].hex }} />
+                    <span className="truncate text-muted-foreground">{t(x.cat)}</span>
+                    <span className="ml-auto shrink-0 tabular-nums font-medium">{formatMoney(x.value, homeCcy)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
+      </div>
+
       {expenses.length === 0 ? (
         <p className="rounded-2xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
           {t("no_expenses")}
         </p>
       ) : (
         <ul className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card shadow-soft">
-          {expenses.map((e) => (
-            <li key={e.id} className="flex items-center gap-3 p-4">
-              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-secondary text-xs font-medium uppercase">
-                {e.category.slice(0, 2)}
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">{e.title || t(e.category)}</p>
-                <p className="text-xs text-muted-foreground">{t(e.category)} · {fmtDate(e.spent_on)}</p>
-              </div>
-              <div className="text-right">
-                <p className="text-sm font-semibold tabular-nums">{formatMoney(Number(e.amount), e.currency)}</p>
-                {e.amount_home && e.currency !== homeCcy && (
-                  <p className="text-xs text-muted-foreground tabular-nums">
-                    ≈ {formatMoney(Number(e.amount_home), homeCcy)}
-                  </p>
-                )}
-              </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={async () => {
-                  if (!confirm(t("delete_confirm"))) return;
-                  await delFn({ data: { id: e.id } });
-                  qc.invalidateQueries({ queryKey: ["expenses", tripId] });
-                }}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
-            </li>
-          ))}
+          {expenses.map((e) => {
+            const st = CATEGORY_STYLE[e.category as Category] ?? CATEGORY_STYLE.other;
+            const Icon = st.icon;
+            return (
+              <li key={e.id} className="flex items-center gap-3 p-4">
+                <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-full text-white ${st.bg}`}>
+                  <Icon className="h-4 w-4" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{e.title || t(e.category)}</p>
+                  <p className="text-xs text-muted-foreground">{t(e.category)} · {fmtDate(e.spent_on)}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-semibold tabular-nums">{formatMoney(Number(e.amount), e.currency)}</p>
+                  {e.amount_home && e.currency !== homeCcy && (
+                    <p className="text-xs text-muted-foreground tabular-nums">
+                      ≈ {formatMoney(Number(e.amount_home), homeCcy)}
+                    </p>
+                  )}
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={async () => {
+                    if (!confirm(t("delete_confirm"))) return;
+                    await delFn({ data: { id: e.id } });
+                    qc.invalidateQueries({ queryKey: ["expenses", tripId] });
+                  }}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
+  );
+}
+
+// Donut pie chart (same visual style as the profile page) for an arbitrary set
+// of coloured segments, drawn clockwise from the top.
+function CategoryPie({ segments }: { segments: Array<{ hex: string; value: number }> }) {
+  const total = segments.reduce((s, x) => s + x.value, 0);
+  if (total === 0) return null;
+  const r = 38;
+  const c = 2 * Math.PI * r;
+  let acc = 0;
+  return (
+    <svg viewBox="0 0 100 100" className="h-24 w-24 shrink-0 -rotate-90">
+      <circle cx="50" cy="50" r={r} fill="none" className="stroke-muted/30" strokeWidth="20" />
+      {segments.map((seg, i) => {
+        const len = (seg.value / total) * c;
+        const circle = (
+          <circle
+            key={i}
+            cx="50" cy="50" r={r} fill="none"
+            stroke={seg.hex}
+            strokeWidth="20"
+            strokeDasharray={`${len} ${c - len}`}
+            strokeDashoffset={-acc}
+          />
+        );
+        acc += len;
+        return circle;
+      })}
+    </svg>
   );
 }
 
