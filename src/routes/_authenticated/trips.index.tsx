@@ -133,7 +133,7 @@ function CountdownCard({
     <Link
       to="/trips/$tripId"
       params={{ tripId: trip.id }}
-      className="group overflow-hidden rounded-3xl shadow-soft ring-1 ring-border/40 transition hover:shadow-md"
+      className="group block overflow-hidden rounded-3xl shadow-md ring-1 ring-border/60 transition hover:shadow-lg"
     >
       {/* Gradient hero */}
       <div className="relative p-5" style={{ background: gradient }}>
