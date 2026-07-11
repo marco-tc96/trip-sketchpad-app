@@ -278,7 +278,9 @@ function TimelineView() {
                           <div className="flex items-start gap-2 p-3">
                             <Icon className="mt-0.5 h-5 w-5 shrink-0" />
                             <div className={cn("min-w-0 flex-1 transition-opacity", done && "opacity-40")}>
-                              <p className={cn("text-[10px] uppercase tracking-widest", cls.sub)}>{t(it.kind)}</p>
+                              {(it.kind === "outbound" || it.kind === "return") && (
+                                <p className={cn("text-[10px] uppercase tracking-widest", cls.sub)}>{t(it.kind)}</p>
+                              )}
                               <p className={cn("truncate font-medium", done && "line-through")}>{it.title}</p>
                               {it.location && (
                                 <p className={cn("text-xs", cls.sub)}>{cityNameLocalized(it.location, lang)}</p>
@@ -662,7 +664,6 @@ function LodgingCard({
       <div className="relative flex items-start gap-3 p-4">
         <Hotel className="mt-0.5 h-5 w-5 shrink-0" />
         <div className="min-w-0 flex-1">
-          <p className="text-[10px] uppercase tracking-widest opacity-80">{t("lodging")}</p>
           <p className="truncate font-medium">{item.title}</p>
           <p className="text-xs opacity-85">
             {item.location && <>{cityNameLocalized(item.location, lang)} · </>}
