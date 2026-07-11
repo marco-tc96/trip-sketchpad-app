@@ -1126,19 +1126,22 @@ function AddItemDialog({
   const [locOpen, setLocOpen] = useState(false);
   const [locQuery, setLocQuery] = useState("");
 
-  const CATEGORY_BUTTONS: { kind: (typeof ITEM_KINDS)[number]; icon: React.ComponentType<{ className?: string }>; label: string }[] = [
+  type CatBtn = { kind: (typeof ITEM_KINDS)[number]; icon: React.ComponentType<{ className?: string }>; label: string };
+  const ACTIVITY_CATS: CatBtn[] = [
     { kind: "activity", icon: Sparkles, label: t("activity") },
+    { kind: "zone", icon: MapPin, label: t("zone") },
     { kind: "lodging", icon: Hotel, label: t("lodging") },
+    { kind: "other", icon: MapPin, label: t("other") },
+  ];
+  const TRANSPORT_CATS: CatBtn[] = [
     { kind: "flight", icon: Plane, label: t("flight") },
     { kind: "train", icon: TrainFront, label: t("train") },
     { kind: "bus", icon: Bus, label: t("bus") },
-    { kind: "metro" as (typeof ITEM_KINDS)[number], icon: Zap, label: t("metro") },
-    { kind: "tram" as (typeof ITEM_KINDS)[number], icon: TramFront, label: t("tram") },
+    { kind: "metro" as (typeof ITEM_KINDS)[number], icon: TramFront, label: t("metro") },
+    { kind: "tram" as (typeof ITEM_KINDS)[number], icon: Train, label: t("tram") },
     { kind: "car", icon: Car, label: t("car") },
+    { kind: "moto" as (typeof ITEM_KINDS)[number], icon: Bike, label: t("moto") },
     { kind: "ferry", icon: Ship, label: t("ferry") },
-    { kind: "transfer", icon: ArrowRightLeft, label: t("transfer") },
-    { kind: "zone", icon: MapPin, label: t("zone") },
-    { kind: "other", icon: MapPin, label: t("other") },
   ];
 
   const isMultiModal = form.selectedTransit.length >= 2;
@@ -1224,57 +1227,64 @@ function AddItemDialog({
             }
           }}
         >
-          <div className="space-y-1.5">
-            <Label>
-              {t("category")}
-              {isMultiModal && (
-                <span className="ml-2 text-[10px] font-normal text-primary opacity-80">✕ {t("multi_modal")}</span>
-              )}
-            </Label>
-            <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-5">
-              {CATEGORY_BUTTONS.map(({ kind, icon: Icon, label }) => {
-                const isTransit = STOP_KINDS.has(kind);
-                const active = isTransit
-                  ? form.selectedTransit.includes(kind)
-                  : (form.kind === kind && form.selectedTransit.length === 0);
-                return (
-                  <button
-                    type="button"
-                    key={kind}
-                    onClick={() => {
-                      if (isTransit) {
-                        const already = form.selectedTransit.includes(kind);
-                        const nextTransit = already
-                          ? form.selectedTransit.filter((m) => m !== kind)
-                          : [...form.selectedTransit, kind];
-                        const nextMulti = nextTransit.length >= 2;
-                        setForm((f) => ({
-                          ...f,
-                          kind: nextTransit.length === 1
-                            ? nextTransit[0] as (typeof ITEM_KINDS)[number]
-                            : nextTransit.length === 0 ? "activity" : f.kind,
-                          selectedTransit: nextTransit,
-                          mixedLegs: nextMulti && f.mixedLegs.length < 2
-                            ? nextTransit.slice(0, 2).map((m) => ({ ...emptyMixedLeg(), mode: m as MixedLeg["mode"] }))
-                            : !nextMulti ? [] : f.mixedLegs,
-                        }));
-                      } else {
-                        setForm((f) => ({ ...f, kind, selectedTransit: [], mixedLegs: [] }));
-                      }
-                    }}
-                    className={cn(
-                      "flex flex-col items-center gap-1 rounded-xl border p-2 text-[11px] transition",
-                      active
-                        ? (isTransit ? TRANSIT_COLOR_ACTIVE[kind] : "border-primary bg-primary text-primary-foreground")
-                        : (isTransit ? TRANSIT_COLOR_INACTIVE[kind] : "border-border bg-card hover:bg-muted"),
-                    )}
-                  >
-                    <Icon className="h-4 w-4" />
-                    <span className="truncate">{label}</span>
-                  </button>
-                );
-              })}
-            </div>
+          <div className="space-y-3">
+            {isMultiModal && (
+              <p className="text-[10px] font-medium text-primary opacity-80">✕ {t("multi_modal")}</p>
+            )}
+            {([
+              { label: t("activity"), cats: ACTIVITY_CATS },
+              { label: t("transport"), cats: TRANSPORT_CATS },
+            ] as { label: string; cats: CatBtn[] }[]).map(({ label: groupLabel, cats }) => (
+              <div key={groupLabel}>
+                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                  {groupLabel}
+                </p>
+                <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-5">
+                  {cats.map(({ kind, icon: Icon, label }) => {
+                    const isTransit = STOP_KINDS.has(kind);
+                    const active = isTransit
+                      ? form.selectedTransit.includes(kind)
+                      : (form.kind === kind && form.selectedTransit.length === 0);
+                    return (
+                      <button
+                        type="button"
+                        key={kind}
+                        onClick={() => {
+                          if (isTransit) {
+                            const already = form.selectedTransit.includes(kind);
+                            const nextTransit = already
+                              ? form.selectedTransit.filter((m) => m !== kind)
+                              : [...form.selectedTransit, kind];
+                            const nextMulti = nextTransit.length >= 2;
+                            setForm((f) => ({
+                              ...f,
+                              kind: nextTransit.length === 1
+                                ? nextTransit[0] as (typeof ITEM_KINDS)[number]
+                                : nextTransit.length === 0 ? "activity" : f.kind,
+                              selectedTransit: nextTransit,
+                              mixedLegs: nextMulti && f.mixedLegs.length < 2
+                                ? nextTransit.slice(0, 2).map((m) => ({ ...emptyMixedLeg(), mode: m as MixedLeg["mode"] }))
+                                : !nextMulti ? [] : f.mixedLegs,
+                            }));
+                          } else {
+                            setForm((f) => ({ ...f, kind, selectedTransit: [], mixedLegs: [] }));
+                          }
+                        }}
+                        className={cn(
+                          "flex flex-col items-center gap-1 rounded-xl border p-2 text-[11px] transition",
+                          active
+                            ? (isTransit ? TRANSIT_COLOR_ACTIVE[kind] : "border-primary bg-primary text-primary-foreground")
+                            : (isTransit ? TRANSIT_COLOR_INACTIVE[kind] : "border-border bg-card hover:bg-muted"),
+                        )}
+                      >
+                        <Icon className="h-4 w-4" />
+                        <span className="truncate">{label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
           <div className="space-y-1.5">
             <Label>{t("title")}</Label>
