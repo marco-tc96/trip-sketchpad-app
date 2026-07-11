@@ -95,6 +95,33 @@ const MODE_STYLE: Record<string, { color: string; dash?: string }> = {
 };
 const modeStyle = (mode: string) => MODE_STYLE[mode] ?? { color: PRIMARY };
 
+// Ground modes whose path we snap to real roads via OSRM; plane/ferry stay
+// straight (dotted/dashed) since there are no roads to follow.
+const GROUND_MODES = new Set(["car", "moto", "bus", "metro", "tram", "train", "transfer"]);
+
+// Ask OSRM for a road-following geometry between two points. Returns the full
+// polyline ([lat,lng][]) or null on failure (caller falls back to a straight line).
+async function fetchRoadPath(
+  a: [number, number],
+  b: [number, number],
+): Promise<[number, number][] | null> {
+  try {
+    const url =
+      `https://router.project-osrm.org/route/v1/driving/` +
+      `${a[1]},${a[0]};${b[1]},${b[0]}?overview=full&geometries=geojson`;
+    const r = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!r.ok) return null;
+    const data = (await r.json()) as {
+      routes?: Array<{ geometry?: { coordinates?: [number, number][] } }>;
+    };
+    const coords = data.routes?.[0]?.geometry?.coordinates;
+    if (Array.isArray(coords) && coords.length > 1) {
+      return coords.map(([lng, lat]) => [lat, lng] as [number, number]);
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
 // Free-form geocoder for route endpoints (airports, stations, stops, streets).
 // geocodeCity() is city-structured and fails on these, so we hit Nominatim's
 // search endpoint with the full place name (+ an optional country filter).
@@ -172,6 +199,8 @@ export function TripMap({
   const [geoCache, setGeoCache] = useState<Record<string, { lat: number; lng: number } | null>>({});
   // Separate cache for route endpoints (geocoded free-form via geocodePlace).
   const [routeGeo, setRouteGeo] = useState<Record<string, { lat: number; lng: number } | null>>({});
+  // Road-snapped geometries per leg (keyed by the leg key), from OSRM.
+  const [pathCache, setPathCache] = useState<Record<string, [number, number][]>>({});
 
   // Unique route endpoints that need geocoding (only when routes are shown).
   const routeEndpoints = useMemo<Array<{ name: string; country?: string }>>(() => {
@@ -284,6 +313,26 @@ export function TripMap({
     return out;
   }, [routes, showRoutes, resolve]);
 
+  // Snap ground legs (car/moto/bus/metro/tram/train/transfer) to real roads via
+  // OSRM so they follow streets instead of drawing straight, angular lines.
+  useEffect(() => {
+    const pending = routeLines.filter((l) => GROUND_MODES.has(l.mode) && !(l.key in pathCache));
+    if (pending.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const updates: Record<string, [number, number][]> = {};
+      for (const l of pending) {
+        const path = await fetchRoadPath(l.a, l.b);
+        if (path) updates[l.key] = path;
+      }
+      if (!cancelled && Object.keys(updates).length > 0) {
+        setPathCache((prev) => ({ ...prev, ...updates }));
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeLines]);
+
   // Country centroid fallback when ALL cities have no coordinates.
   const fallbackPoints = useMemo<[number, number][]>(() => {
     if (points.length > 0) return [];
@@ -340,7 +389,7 @@ export function TripMap({
           return (
             <Polyline
               key={l.key}
-              positions={[l.a, l.b]}
+              positions={pathCache[l.key] ?? [l.a, l.b]}
               pathOptions={{ color: st.color, weight: 3, opacity: 0.9, dashArray: st.dash }}
             />
           );
