@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { MapContainer, TileLayer, Marker, Popup, Tooltip, Polyline, useMap } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Popup, Tooltip, Polyline, CircleMarker, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { geocodeCity } from "@/lib/country-data";
@@ -436,13 +436,13 @@ export function TripMap({
 
   // Build the polylines for the legs that could be geocoded.
   const routeLines = useMemo(() => {
-    type Line = { a: [number, number]; b: [number, number]; mode: string; line?: string; city?: string; key: string };
+    type Line = { a: [number, number]; b: [number, number]; mode: string; from: string; to: string; line?: string; city?: string; key: string };
     if (!showRoutes || !routes) return [] as Line[];
     const out: Line[] = [];
     routes.forEach((r, i) => {
       const a = resolve(r.from, r.country);
       const b = resolve(r.to, r.country);
-      if (a && b) out.push({ a, b, mode: r.mode, line: r.line, city: r.city, key: `${i}-${r.from}-${r.to}` });
+      if (a && b) out.push({ a, b, mode: r.mode, from: r.from, to: r.to, line: r.line, city: r.city, key: `${i}-${r.from}-${r.to}` });
     });
     return out;
   }, [routes, showRoutes, resolve]);
@@ -561,6 +561,29 @@ export function TripMap({
               pathOptions={{ color: st.color, weight: 3, opacity: 0.9, dashArray: st.dash }}
             />
           );
+        })}
+
+      {/* Stop pins — one dot per leg endpoint, coloured like its mode */}
+      {showRoutes &&
+        routeLines.flatMap((l) => {
+          const color = modeStyle(l.mode).color;
+          return [
+            { pt: l.a, name: cleanPlace(l.from), key: `${l.key}-a` },
+            { pt: l.b, name: cleanPlace(l.to), key: `${l.key}-b` },
+          ].map((s) => (
+            <CircleMarker
+              key={s.key}
+              center={s.pt}
+              radius={5}
+              pathOptions={{ color: "#ffffff", weight: 2, fillColor: color, fillOpacity: 1 }}
+            >
+              {s.name && (
+                <Tooltip direction="top" offset={[0, -6]}>
+                  {s.name}
+                </Tooltip>
+              )}
+            </CircleMarker>
+          ));
         })}
 
       {enrichedCities
