@@ -277,11 +277,11 @@ function TimelineView() {
                         <div className={cn("overflow-hidden rounded-xl", cls.card)}>
                           <div className="flex items-start gap-2 p-3">
                             <Icon className="mt-0.5 h-5 w-5 shrink-0" />
-                            <div className={cn("min-w-0 flex-1 transition-opacity", done && "opacity-40")}>
+                            <div className="min-w-0 flex-1">
                               {(it.kind === "outbound" || it.kind === "return") && (
                                 <p className={cn("text-[10px] uppercase tracking-widest", cls.sub)}>{t(it.kind)}</p>
                               )}
-                              <p className={cn("truncate font-medium", done && "line-through")}>{it.title}</p>
+                              <p className="truncate font-medium">{it.title}</p>
                               {it.location && (
                                 <p className={cn("text-xs", cls.sub)}>{cityNameLocalized(it.location, lang)}</p>
                               )}
@@ -333,9 +333,7 @@ function TimelineView() {
                                 className={cn(
                                   "flex h-7 w-7 items-center justify-center rounded-full transition",
                                   done
-                                    ? dark
-                                      ? "bg-white/25 text-white"
-                                      : "bg-emerald-500/20 text-emerald-600"
+                                    ? "bg-emerald-500 text-white"
                                     : dark
                                       ? "bg-white/10 text-white/70 hover:bg-white/20"
                                       : "bg-foreground/8 text-foreground/60 hover:bg-foreground/15",
@@ -343,17 +341,34 @@ function TimelineView() {
                               >
                                 <Check className="h-3.5 w-3.5" />
                               </button>
-                              <AddItemDialog
-                                tripId={tripId}
-                                tripCities={tripCities}
-                                tripCountries={tripCountries}
-                                existing={it as ItemRow}
-                                isWishlist={isWishlist}
-                                maxDayIndex={maxDayIndex}
-                                trigger={
+                              {!done && (
+                                <>
+                                  <AddItemDialog
+                                    tripId={tripId}
+                                    tripCities={tripCities}
+                                    tripCountries={tripCountries}
+                                    existing={it as ItemRow}
+                                    isWishlist={isWishlist}
+                                    maxDayIndex={maxDayIndex}
+                                    trigger={
+                                      <button
+                                        type="button"
+                                        aria-label={t("edit")}
+                                        className={cn(
+                                          "flex h-7 w-7 items-center justify-center rounded-full transition",
+                                          dark
+                                            ? "bg-white/10 text-white/70 hover:bg-white/20"
+                                            : "bg-foreground/8 text-foreground/60 hover:bg-foreground/15",
+                                        )}
+                                      >
+                                        <Pencil className="h-3.5 w-3.5" />
+                                      </button>
+                                    }
+                                  />
                                   <button
                                     type="button"
-                                    aria-label={t("edit")}
+                                    onClick={() => del(it.id)}
+                                    aria-label={t("delete")}
                                     className={cn(
                                       "flex h-7 w-7 items-center justify-center rounded-full transition",
                                       dark
@@ -361,23 +376,10 @@ function TimelineView() {
                                         : "bg-foreground/8 text-foreground/60 hover:bg-foreground/15",
                                     )}
                                   >
-                                    <Pencil className="h-3.5 w-3.5" />
+                                    <X className="h-3.5 w-3.5" />
                                   </button>
-                                }
-                              />
-                              <button
-                                type="button"
-                                onClick={() => del(it.id)}
-                                aria-label={t("delete")}
-                                className={cn(
-                                  "flex h-7 w-7 items-center justify-center rounded-full transition",
-                                  dark
-                                    ? "bg-white/10 text-white/70 hover:bg-white/20"
-                                    : "bg-foreground/8 text-foreground/60 hover:bg-foreground/15",
-                                )}
-                              >
-                                <X className="h-3.5 w-3.5" />
-                              </button>
+                                </>
+                              )}
                             </div>
                           </div>
                         </div>
