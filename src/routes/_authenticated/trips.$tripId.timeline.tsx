@@ -533,7 +533,7 @@ function JourneyLeg({
                   </span>
                 </div>
 
-                <div className="mt-4 grid grid-cols-[1fr_auto_1fr] items-end gap-2 sm:gap-3">
+                <div className="mt-4 grid grid-cols-[1fr_auto_1fr] items-start gap-2 sm:gap-3">
                   <div className="min-w-0">
                     <p className="font-mono text-2xl font-bold tabular-nums tracking-tight sm:text-3xl">
                       {fmtTime(departISO, lang) || "—"}
@@ -548,7 +548,7 @@ function JourneyLeg({
                     </p>
                   </div>
 
-                  <div className="flex w-20 flex-col items-center gap-1 text-center text-[11px] opacity-90 sm:w-28">
+                  <div className="flex w-20 flex-col items-center gap-1 self-center text-center text-[11px] opacity-90 sm:w-28">
                     <span className="whitespace-nowrap">{durationLabel(departISO, arriveISO) || "—"}</span>
                     <div className="flex items-center gap-1">
                       <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-white/70" />
