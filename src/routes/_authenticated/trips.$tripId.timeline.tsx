@@ -99,6 +99,42 @@ const TRANSPORT_KINDS = new Set([
   "outbound", "return", "flight", "train", "bus", "car", "moto", "ferry", "transfer", "metro", "tram",
 ]);
 const STOP_KINDS = new Set(["train", "bus", "metro", "tram"]);
+const PT_TRANSIT_KINDS = new Set(["bus", "metro", "tram"]);
+const OSM_ROUTE_MODE: Record<string, string> = { bus: "bus", metro: "subway", tram: "tram" };
+
+async function fetchTransitLines(city: string, osmMode: string): Promise<Array<{ ref: string; name: string }>> {
+  const q = `[out:json][timeout:30];area["name"="${city}"]->.c;relation["type"="route"]["route"="${osmMode}"](area.c);out tags;`;
+  const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`);
+  const data = await res.json() as { elements: Array<{ tags: Record<string, string> }> };
+  const seen = new Set<string>();
+  const lines: Array<{ ref: string; name: string }> = [];
+  for (const el of data.elements) {
+    const ref = el.tags?.ref ?? "";
+    if (!ref || seen.has(ref)) continue;
+    seen.add(ref);
+    lines.push({ ref, name: el.tags?.name ?? ref });
+  }
+  lines.sort((a, b) => {
+    const na = parseFloat(a.ref), nb = parseFloat(b.ref);
+    if (!isNaN(na) && !isNaN(nb)) return na - nb;
+    return a.ref.localeCompare(b.ref);
+  });
+  return lines;
+}
+
+async function fetchLineStops(city: string, osmMode: string, lineRef: string): Promise<string[]> {
+  const q = `[out:json][timeout:30];area["name"="${city}"]->.c;relation["type"="route"]["route"="${osmMode}"]["ref"="${lineRef}"](area.c)->.r;node(r.r:"stop");out tags;`;
+  const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`);
+  const data = await res.json() as { elements: Array<{ tags: Record<string, string> }> };
+  const seen = new Set<string>();
+  const stops: string[] = [];
+  for (const el of data.elements) {
+    const name = el.tags?.name;
+    if (!name || seen.has(name)) continue;
+    seen.add(name); stops.push(name);
+  }
+  return stops;
+}
 
 const TRANSIT_COLOR_ACTIVE: Record<string, string> = {
   train: "border-amber-500 bg-amber-500 text-white",
@@ -1122,78 +1158,25 @@ function AddItemDialog({
   };
   const [form, setForm] = useState(seedForm);
 
-  // ── Transit line/stop data (bus, metro, tram) ────────────────────────────
-  const PT_KINDS = new Set(["bus", "metro", "tram"]);
-  const OSM_MODE: Record<string, string> = { bus: "bus", metro: "subway", tram: "tram" };
-  type TransitLine = { ref: string; name: string };
-  const [transitLines, setTransitLines] = useState<TransitLine[]>([]);
-  const [transitLinesLoading, setTransitLinesLoading] = useState(false);
+  // ── Transit stop data for single-mode PT (populated after line selection) ─
   const [selectedLineRef, setSelectedLineRef] = useState("");
   const [transitStops, setTransitStops] = useState<string[]>([]);
   const [transitStopsLoading, setTransitStopsLoading] = useState(false);
-  const [lineOpen, setLineOpen] = useState(false);
   const [fromStopOpen, setFromStopOpen] = useState(false);
   const [toStopOpen, setToStopOpen] = useState(false);
 
-  const singlePTMode = form.selectedTransit.length === 1 && PT_KINDS.has(form.selectedTransit[0])
+  const singlePTMode = form.selectedTransit.length === 1 && PT_TRANSIT_KINDS.has(form.selectedTransit[0])
     ? form.selectedTransit[0]
     : null;
 
-  // Fetch lines from Overpass when city + PT mode is set
-  useEffect(() => {
-    if (!singlePTMode || !form.location) {
-      setTransitLines([]); setSelectedLineRef(""); setTransitStops([]); return;
-    }
-    let cancelled = false;
-    setTransitLinesLoading(true);
-    setTransitLines([]); setSelectedLineRef(""); setTransitStops([]);
-    const osmMode = OSM_MODE[singlePTMode];
-    const q = `[out:json][timeout:30];area["name"="${form.location}"]->.c;relation["type"="route"]["route"="${osmMode}"](area.c);out tags;`;
-    fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`)
-      .then(r => r.json() as Promise<{ elements: Array<{ tags: Record<string, string> }> }>)
-      .then(data => {
-        if (cancelled) return;
-        const seen = new Set<string>();
-        const lines: TransitLine[] = [];
-        for (const el of data.elements) {
-          const ref = el.tags?.ref ?? "";
-          if (!ref || seen.has(ref)) continue;
-          seen.add(ref);
-          lines.push({ ref, name: el.tags?.name ?? ref });
-        }
-        lines.sort((a, b) => {
-          const na = parseFloat(a.ref), nb = parseFloat(b.ref);
-          if (!isNaN(na) && !isNaN(nb)) return na - nb;
-          return a.ref.localeCompare(b.ref);
-        });
-        setTransitLines(lines);
-      })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setTransitLinesLoading(false); });
-    return () => { cancelled = true; };
-  }, [singlePTMode, form.location]); // eslint-disable-line
-
-  // Fetch stops when a line ref is selected
+  // Fetch stops when a line ref is selected (single-mode only)
   useEffect(() => {
     if (!selectedLineRef || !singlePTMode || !form.location) { setTransitStops([]); return; }
     let cancelled = false;
     setTransitStopsLoading(true);
     setTransitStops([]);
-    const osmMode = OSM_MODE[singlePTMode];
-    const q = `[out:json][timeout:30];area["name"="${form.location}"]->.c;relation["type"="route"]["route"="${osmMode}"]["ref"="${selectedLineRef}"](area.c)->.r;node(r.r:"stop");out tags;`;
-    fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`)
-      .then(r => r.json() as Promise<{ elements: Array<{ tags: Record<string, string> }> }>)
-      .then(data => {
-        if (cancelled) return;
-        const seen = new Set<string>();
-        const stops: string[] = [];
-        for (const el of data.elements) {
-          const name = el.tags?.name;
-          if (!name || seen.has(name)) continue;
-          seen.add(name); stops.push(name);
-        }
-        setTransitStops(stops);
-      })
+    fetchLineStops(form.location, OSM_ROUTE_MODE[singlePTMode], selectedLineRef)
+      .then(stops => { if (!cancelled) setTransitStops(stops); })
       .catch(() => {})
       .finally(() => { if (!cancelled) setTransitStopsLoading(false); });
     return () => { cancelled = true; };
@@ -1202,7 +1185,7 @@ function AddItemDialog({
   function handleOpenChange(v: boolean) {
     if (v) {
       setForm(seedForm());
-      setSelectedLineRef(""); setTransitLines([]); setTransitStops([]);
+      setSelectedLineRef(""); setTransitStops([]);
     }
     setOpen(v);
   }
@@ -1461,53 +1444,16 @@ function AddItemDialog({
               {/* Line selector — bus / metro / tram with city set */}
               {singlePTMode && form.location && (
                 <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <Label>{t("line")}</Label>
-                    {transitLinesLoading && (
-                      <span className="animate-pulse text-[11px] text-muted-foreground">{t("loading")}</span>
-                    )}
-                  </div>
-                  {transitLines.length > 0 && (
-                    <Popover open={lineOpen} onOpenChange={setLineOpen}>
-                      <PopoverTrigger asChild>
-                        <Button type="button" variant="outline" className="w-full justify-between font-normal">
-                          <span className={cn("truncate", !selectedLineRef && "text-muted-foreground")}>
-                            {selectedLineRef
-                              ? (transitLines.find(l => l.ref === selectedLineRef)?.name ?? `Linea ${selectedLineRef}`)
-                              : t("select_line")}
-                          </span>
-                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-                        <Command>
-                          <CommandInput placeholder={t("search_type")} />
-                          <CommandList className="max-h-60">
-                            <CommandEmpty>{t("no_results")}</CommandEmpty>
-                            <CommandGroup>
-                              {transitLines.map(line => (
-                                <CommandItem
-                                  key={line.ref}
-                                  value={`${line.ref} ${line.name}`}
-                                  onSelect={() => {
-                                    setSelectedLineRef(line.ref);
-                                    setLineOpen(false);
-                                    setForm(f => ({ ...f, from_stop: "", to_stop: "" }));
-                                  }}
-                                >
-                                  <Check className={cn("mr-2 h-4 w-4 shrink-0", selectedLineRef === line.ref ? "opacity-100" : "opacity-0")} />
-                                  <span className="mr-2 font-semibold">{line.ref}</span>
-                                  {line.name !== line.ref && (
-                                    <span className="truncate text-xs text-muted-foreground">{line.name}</span>
-                                  )}
-                                </CommandItem>
-                              ))}
-                            </CommandGroup>
-                          </CommandList>
-                        </Command>
-                      </PopoverContent>
-                    </Popover>
-                  )}
+                  <Label>{t("line")}</Label>
+                  <LineCombobox
+                    mode={singlePTMode}
+                    city={form.location}
+                    value={selectedLineRef}
+                    onChange={(ref) => {
+                      setSelectedLineRef(ref);
+                      setForm(f => ({ ...f, from_stop: "", to_stop: "" }));
+                    }}
+                  />
                 </div>
               )}
 
@@ -1639,12 +1585,21 @@ function AddItemDialog({
                       </button>
                     )}
                   </div>
-                  {/* Vehicle name — no example placeholder */}
-                  <Input
-                    value={leg.vehicle}
-                    onChange={(e) => updateMixedLeg(i, { vehicle: e.target.value })}
-                    placeholder={t("vehicle_name").split("(")[0].trim()}
-                  />
+                  {/* Line / vehicle picker */}
+                  {PT_TRANSIT_KINDS.has(leg.mode) && form.location ? (
+                    <LineCombobox
+                      mode={leg.mode}
+                      city={form.location}
+                      value={leg.vehicle}
+                      onChange={(ref) => updateMixedLeg(i, { vehicle: ref })}
+                    />
+                  ) : (
+                    <Input
+                      value={leg.vehicle}
+                      onChange={(e) => updateMixedLeg(i, { vehicle: e.target.value })}
+                      placeholder={t("vehicle_name").split("(")[0].trim()}
+                    />
+                  )}
                   {/* Stops — full width stacked, combobox with city-filtered suggestions */}
                   <div className="space-y-2">
                     <StopCombobox
@@ -1915,6 +1870,85 @@ function StopCombobox({
         </div>
       )}
     </div>
+  );
+}
+
+// Dropdown per selezionare una linea di trasporto pubblico (bus/metro/tram)
+// via Overpass API (OpenStreetMap), con ricerca integrata e stato di caricamento.
+function LineCombobox({
+  mode, city, value, onChange,
+}: {
+  mode: string;
+  city: string;
+  value: string;
+  onChange: (ref: string) => void;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const [lines, setLines] = useState<Array<{ ref: string; name: string }>>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const osmMode = OSM_ROUTE_MODE[mode];
+    if (!osmMode || !city) { setLines([]); return; }
+    let cancelled = false;
+    setLoading(true);
+    setLines([]);
+    fetchTransitLines(city, osmMode)
+      .then(result => { if (!cancelled) setLines(result); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [mode, city]);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full justify-between font-normal"
+          disabled={!city}
+        >
+          <span className={cn("truncate", !value && "text-muted-foreground")}>
+            {value
+              ? (lines.find(l => l.ref === value)?.name ?? value)
+              : loading
+                ? t("loading")
+                : t("select_line")}
+          </span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+        <Command>
+          <CommandInput placeholder={t("search_type")} />
+          <CommandList className="max-h-60">
+            {loading ? (
+              <div className="py-6 text-center text-sm text-muted-foreground animate-pulse">{t("loading")}</div>
+            ) : lines.length === 0 ? (
+              <CommandEmpty>{t("no_results")}</CommandEmpty>
+            ) : (
+              <CommandGroup>
+                {lines.map(line => (
+                  <CommandItem
+                    key={line.ref}
+                    value={`${line.ref} ${line.name}`}
+                    onSelect={() => { onChange(line.ref); setOpen(false); }}
+                  >
+                    <Check className={cn("mr-2 h-4 w-4 shrink-0", value === line.ref ? "opacity-100" : "opacity-0")} />
+                    <span className="mr-2 font-semibold">{line.ref}</span>
+                    {line.name !== line.ref && (
+                      <span className="truncate text-xs text-muted-foreground">{line.name}</span>
+                    )}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
   );
 }
 
