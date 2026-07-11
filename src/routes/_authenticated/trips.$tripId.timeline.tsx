@@ -1243,8 +1243,6 @@ function AddItemDialog({
   const [selectedLineRef, setSelectedLineRef] = useState("");
   const [transitStops, setTransitStops] = useState<string[]>([]);
   const [transitStopsLoading, setTransitStopsLoading] = useState(false);
-  const [fromStopOpen, setFromStopOpen] = useState(false);
-  const [toStopOpen, setToStopOpen] = useState(false);
 
   const singlePTMode = form.selectedTransit.length === 1 && PT_TRANSIT_KINDS.has(form.selectedTransit[0])
     ? form.selectedTransit[0]
@@ -1538,7 +1536,7 @@ function AddItemDialog({
                 </div>
               )}
 
-              {/* Boarding stop */}
+              {/* Boarding stop — free text with line-stop + city suggestions */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <Label>{t("boarding_stop")}</Label>
@@ -1546,87 +1544,29 @@ function AddItemDialog({
                     <span className="animate-pulse text-[11px] text-muted-foreground">{t("loading")}</span>
                   )}
                 </div>
-                {transitStops.length > 0 ? (
-                  <Popover open={fromStopOpen} onOpenChange={setFromStopOpen}>
-                    <PopoverTrigger asChild>
-                      <Button type="button" variant="outline" className="w-full justify-between font-normal">
-                        <span className={cn("truncate", !form.from_stop && "text-muted-foreground")}>
-                          {form.from_stop || t("boarding_stop")}
-                        </span>
-                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-                      <Command>
-                        <CommandInput placeholder={t("search_type")} />
-                        <CommandList className="max-h-52">
-                          <CommandEmpty>{t("no_results")}</CommandEmpty>
-                          <CommandGroup>
-                            {transitStops.map(stop => (
-                              <CommandItem
-                                key={stop}
-                                value={stop}
-                                onSelect={() => { setForm(f => ({ ...f, from_stop: stop })); setFromStopOpen(false); }}
-                              >
-                                <Check className={cn("mr-2 h-4 w-4 shrink-0", form.from_stop === stop ? "opacity-100" : "opacity-0")} />
-                                {stop}
-                              </CommandItem>
-                            ))}
-                          </CommandGroup>
-                        </CommandList>
-                      </Command>
-                    </PopoverContent>
-                  </Popover>
-                ) : (
-                  <Input
-                    value={form.from_stop}
-                    onChange={(e) => setForm({ ...form, from_stop: e.target.value })}
-                    placeholder={t("boarding_stop")}
-                  />
-                )}
+                <StopCombobox
+                  mode={singlePTMode as MixedLeg["mode"]}
+                  city={form.location}
+                  countries={tripCountries}
+                  value={form.from_stop}
+                  onChange={(v) => setForm(f => ({ ...f, from_stop: v }))}
+                  placeholder={t("boarding_stop")}
+                  extraOptions={transitStops}
+                />
               </div>
 
-              {/* Alighting stop */}
+              {/* Alighting stop — free text with line-stop + city suggestions */}
               <div className="space-y-1.5">
                 <Label>{t("alighting_stop")}</Label>
-                {transitStops.length > 0 ? (
-                  <Popover open={toStopOpen} onOpenChange={setToStopOpen}>
-                    <PopoverTrigger asChild>
-                      <Button type="button" variant="outline" className="w-full justify-between font-normal">
-                        <span className={cn("truncate", !form.to_stop && "text-muted-foreground")}>
-                          {form.to_stop || t("alighting_stop")}
-                        </span>
-                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-                      <Command>
-                        <CommandInput placeholder={t("search_type")} />
-                        <CommandList className="max-h-52">
-                          <CommandEmpty>{t("no_results")}</CommandEmpty>
-                          <CommandGroup>
-                            {transitStops.map(stop => (
-                              <CommandItem
-                                key={stop}
-                                value={stop}
-                                onSelect={() => { setForm(f => ({ ...f, to_stop: stop })); setToStopOpen(false); }}
-                              >
-                                <Check className={cn("mr-2 h-4 w-4 shrink-0", form.to_stop === stop ? "opacity-100" : "opacity-0")} />
-                                {stop}
-                              </CommandItem>
-                            ))}
-                          </CommandGroup>
-                        </CommandList>
-                      </Command>
-                    </PopoverContent>
-                  </Popover>
-                ) : (
-                  <Input
-                    value={form.to_stop}
-                    onChange={(e) => setForm({ ...form, to_stop: e.target.value })}
-                    placeholder={t("alighting_stop")}
-                  />
-                )}
+                <StopCombobox
+                  mode={singlePTMode as MixedLeg["mode"]}
+                  city={form.location}
+                  countries={tripCountries}
+                  value={form.to_stop}
+                  onChange={(v) => setForm(f => ({ ...f, to_stop: v }))}
+                  placeholder={t("alighting_stop")}
+                  extraOptions={transitStops}
+                />
               </div>
             </div>
           )}
@@ -1855,7 +1795,7 @@ function fmtDT(s: string, lang?: string) {
 
 // Autocomplete for transit stops filtered by city + mode
 function StopCombobox({
-  mode, city, countries, value, onChange, placeholder,
+  mode, city, countries, value, onChange, placeholder, extraOptions,
 }: {
   mode: MixedLeg["mode"];
   city: string;
@@ -1863,6 +1803,8 @@ function StopCombobox({
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
+  /** Line-specific stops (from Overpass) shown first among suggestions. */
+  extraOptions?: string[];
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -1916,7 +1858,27 @@ function StopCombobox({
     [remote.data, localFiltered, cityLower],
   );
 
-  const suggestions = [...localFiltered, ...remoteFiltered].slice(0, 50);
+  // Line-specific stops (from Overpass) — filtered by what the user types, shown first
+  const extraFiltered = useMemo(() => {
+    const opts = extraOptions ?? [];
+    return q && q !== cityLower ? opts.filter((o) => o.toLowerCase().includes(q)) : opts;
+  }, [extraOptions, q, cityLower]);
+
+  const suggestions = useMemo(() => {
+    const seen = new Set<string>();
+    const out: Array<{ name: string; city?: string }> = [];
+    for (const name of extraFiltered) {
+      const k = name.toLowerCase();
+      if (seen.has(k)) continue;
+      seen.add(k); out.push({ name });
+    }
+    for (const h of [...localFiltered, ...remoteFiltered]) {
+      const k = h.name.toLowerCase();
+      if (seen.has(k)) continue;
+      seen.add(k); out.push({ name: h.name, city: h.city });
+    }
+    return out.slice(0, 60);
+  }, [extraFiltered, localFiltered, remoteFiltered]);
 
   return (
     <div className="relative">
