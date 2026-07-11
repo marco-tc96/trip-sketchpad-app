@@ -785,13 +785,13 @@ function CompactTripCard({ trip }: { trip: Trip }) {
       </div>
 
       {/* Info — sits on the solid side of the card, clear of the photo */}
-      <div className="relative z-10 flex min-w-0 flex-1 flex-col justify-center gap-0.5 py-3 pl-[7.5rem] pr-3 sm:pl-[9.5rem]">
-        <p className="truncate text-sm font-semibold leading-tight">
+      <div className="relative z-10 flex min-w-0 flex-1 flex-col justify-center gap-0.5 pt-3 pb-8 pl-[7.5rem] pr-3 sm:pl-[9.5rem]">
+        <p className="line-clamp-2 text-sm font-semibold leading-snug">
           {coverEmoji ? <span className="mr-1">{coverEmoji}</span> : null}
           {trip.title}
         </p>
         {cities.length > 0 && (
-          <p className="mt-0.5 truncate text-xs text-muted-foreground">
+          <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
             <MapPin className="mr-0.5 inline h-3.5 w-3.5" />
             {cities.map((c) => cityNameLocalized(c.name, lang)).join(" · ")}
           </p>

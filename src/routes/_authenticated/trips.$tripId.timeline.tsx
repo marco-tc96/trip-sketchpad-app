@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import {
   Plane, Bus, Car, CarTaxiFront, Bike, Ship, Hotel, MapPin, Sparkles, ArrowRightLeft,
   PlaneTakeoff, PlaneLanding, Plus, Trash2, ChevronsUpDown, Check, Clock,
-  CalendarDays, Wallet, Pencil, X, TramFront, TrainFront, Train,
+  CalendarDays, Wallet, Pencil, X, Menu, TramFront, TrainFront, Train,
 } from "lucide-react";
 import { toast } from "sonner";
 import { listItems, createItem, updateItem, deleteItem, ITEM_KINDS } from "@/lib/itinerary.functions";
@@ -268,6 +268,14 @@ const TRANSIT_ICON: Record<string, React.ComponentType<{ className?: string }>> 
   metro: TramFront,
   tram:  Train,
 };
+// Colour per transit mode — mirrors the edit screen's mode picker
+// (amber/sky/violet/emerald) so the timeline legs match those colours.
+const TRANSIT_TEXT: Record<string, string> = {
+  train: "text-amber-500",
+  bus:   "text-sky-500",
+  metro: "text-violet-500",
+  tram:  "text-emerald-500",
+};
 
 function kindClasses(kind: string) {
   if (TRANSPORT_KINDS.has(kind)) {
@@ -364,6 +372,8 @@ function TimelineView() {
     qc.invalidateQueries({ queryKey: ["items", tripId] });
   }
 
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [editItem, setEditItem] = useState<ItemRow | null>(null);
   const [completedIds, setCompletedIds] = useState<Set<string>>(() => {
     try {
       const stored = localStorage.getItem(`completed_${tripId}`);
@@ -415,42 +425,29 @@ function TimelineView() {
               {g.items.length === 0 ? (
                 <p className="text-sm text-muted-foreground">—</p>
               ) : (
-                <ul className="space-y-3">
+                <ul className="divide-y divide-border/60">
                   {g.items.map((it) => {
                     const Icon = KIND_ICON[it.kind as keyof typeof KIND_ICON] ?? MapPin;
                     const cls = kindClasses(it.kind);
                     const done = completedIds.has(it.id);
                     const stopMeta = it.meta as { from_stop?: string; to_stop?: string } | null;
+                    const mixedLegs = (it.meta as { mixed_legs?: MixedLeg[] } | null)?.mixed_legs ?? [];
+                    const menuOpen = openMenuId === it.id;
                     return (
-                      <li key={it.id}>
+                      <li key={it.id} className="py-3 first:pt-0 last:pb-0">
                         <div className="flex items-start gap-3">
-                          {/* Kind icon in a coloured circle; small transport-mode
-                              icons stack directly beneath it */}
-                          <div className="flex shrink-0 flex-col items-center gap-1">
-                            <div className={cn("flex h-11 w-11 items-center justify-center rounded-full", cls.dot)}>
-                              <Icon className="h-5 w-5" />
-                            </div>
-                            {(() => {
-                              const mixedLegs = (it.meta as { mixed_legs?: MixedLeg[] } | null)?.mixed_legs;
-                              if (!mixedLegs?.length) return null;
-                              return (
-                                <div className="flex flex-col items-center gap-1">
-                                  {mixedLegs.map((leg, i) => {
-                                    const LIcon = TRANSIT_ICON[leg.mode] ?? Bus;
-                                    return <LIcon key={i} className="h-3.5 w-3.5 text-muted-foreground" />;
-                                  })}
-                                </div>
-                              );
-                            })()}
+                          {/* Kind icon in a coloured circle — sized to match the time */}
+                          <div className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-full", cls.dot)}>
+                            <Icon className="h-4 w-4" />
                           </div>
 
                           {(fmtTime(it.start_at) || fmtTime(it.end_at)) && (
                             <div className="shrink-0 leading-none">
-                              <p className="font-mono text-2xl font-bold tabular-nums tracking-tight sm:text-3xl">
+                              <p className="font-mono text-base font-bold tabular-nums tracking-tight">
                                 {fmtTime(it.start_at) || fmtTime(it.end_at)}
                               </p>
                               {fmtTime(it.start_at) && fmtTime(it.end_at) && (
-                                <p className="mt-1 text-xs font-medium tabular-nums text-muted-foreground">
+                                <p className="text-xs font-medium tabular-nums text-foreground">
                                   → {fmtTime(it.end_at)}
                                 </p>
                               )}
@@ -461,84 +458,92 @@ function TimelineView() {
                             {(it.kind === "outbound" || it.kind === "return") && (
                               <p className="text-[10px] uppercase tracking-widest text-muted-foreground">{t(it.kind)}</p>
                             )}
-                            <p className="truncate font-medium">{it.title}</p>
+                            <p className="font-medium leading-snug">{it.title}</p>
                             {it.location && (
                               <p className="text-xs text-muted-foreground">{cityNameLocalized(it.location, lang)}</p>
                             )}
-                            {(() => {
-                              const mixedLegs = (it.meta as { mixed_legs?: MixedLeg[] } | null)?.mixed_legs;
-                              if (mixedLegs?.length) {
-                                return (
-                                  <div className="mt-0.5 space-y-0.5">
-                                    {mixedLegs.map((leg, i) => (
-                                      <p key={i} className="truncate text-xs text-muted-foreground">
-                                        {leg.vehicle && <span className="font-medium">{leg.vehicle}</span>}
-                                        {leg.from_stop && <span> · {leg.from_stop}</span>}
-                                        {leg.to_stop && <span> → {leg.to_stop}</span>}
-                                        {leg.depart_at && <span className="opacity-75"> {leg.depart_at}</span>}
-                                      </p>
-                                    ))}
-                                  </div>
-                                );
-                              }
-                              if (STOP_KINDS.has(it.kind) && stopMeta?.from_stop) {
-                                return (
-                                  <p className="text-xs text-muted-foreground">
-                                    {stopMeta.from_stop}{stopMeta.to_stop ? ` → ${stopMeta.to_stop}` : ""}
-                                  </p>
-                                );
-                              }
-                              return null;
-                            })()}
+                            {mixedLegs.length === 0 && STOP_KINDS.has(it.kind) && stopMeta?.from_stop && (
+                              <p className="text-xs text-muted-foreground">
+                                {stopMeta.from_stop}{stopMeta.to_stop ? ` → ${stopMeta.to_stop}` : ""}
+                              </p>
+                            )}
                             {it.notes && <p className="mt-1 text-xs text-muted-foreground">{it.notes}</p>}
                             <TransportLegs meta={it.meta as TransportMeta | null} />
                           </div>
 
-                          <div className="flex shrink-0 flex-col items-center gap-1.5 pl-1">
-                            <button
-                              type="button"
-                              onClick={() => toggleCompleted(it.id)}
-                              aria-label={t("completed")}
-                              className={cn(
-                                "flex h-7 w-7 items-center justify-center rounded-full transition",
-                                done
-                                  ? "bg-emerald-500 text-white"
-                                  : "bg-foreground/8 text-foreground/60 hover:bg-foreground/15",
-                              )}
-                            >
-                              <Check className="h-3.5 w-3.5" />
-                            </button>
-                            {!done && (
+                          {/* Actions — hamburger menu; once completed it becomes the green check */}
+                          <div className="relative shrink-0">
+                            {done ? (
+                              <button
+                                type="button"
+                                onClick={() => toggleCompleted(it.id)}
+                                aria-label={t("completed")}
+                                className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500 text-white transition"
+                              >
+                                <Check className="h-4 w-4" />
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setOpenMenuId(menuOpen ? null : it.id)}
+                                aria-label={t("edit")}
+                                className="flex h-8 w-8 items-center justify-center rounded-full bg-foreground/8 text-foreground/60 transition hover:bg-foreground/15"
+                              >
+                                <Menu className="h-4 w-4" />
+                              </button>
+                            )}
+                            {menuOpen && !done && (
                               <>
-                                <AddItemDialog
-                                  tripId={tripId}
-                                  tripCities={tripCities}
-                                  tripCountries={tripCountries}
-                                  existing={it as ItemRow}
-                                  isWishlist={isWishlist}
-                                  maxDayIndex={maxDayIndex}
-                                  trigger={
-                                    <button
-                                      type="button"
-                                      aria-label={t("edit")}
-                                      className="flex h-7 w-7 items-center justify-center rounded-full bg-foreground/8 text-foreground/60 transition hover:bg-foreground/15"
-                                    >
-                                      <Pencil className="h-3.5 w-3.5" />
-                                    </button>
-                                  }
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => del(it.id)}
-                                  aria-label={t("delete")}
-                                  className="flex h-7 w-7 items-center justify-center rounded-full bg-foreground/8 text-foreground/60 transition hover:bg-foreground/15"
-                                >
-                                  <X className="h-3.5 w-3.5" />
-                                </button>
+                                <div className="fixed inset-0 z-20" onClick={() => setOpenMenuId(null)} />
+                                <div className="absolute right-0 top-9 z-30 w-40 overflow-hidden rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-lg">
+                                  <button
+                                    type="button"
+                                    onClick={() => { toggleCompleted(it.id); setOpenMenuId(null); }}
+                                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm hover:bg-accent"
+                                  >
+                                    <Check className="h-4 w-4 text-emerald-500" /> {t("completed")}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => { setOpenMenuId(null); setEditItem(it as ItemRow); }}
+                                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm hover:bg-accent"
+                                  >
+                                    <Pencil className="h-4 w-4" /> {t("edit")}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => { setOpenMenuId(null); del(it.id); }}
+                                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-destructive hover:bg-destructive/10"
+                                  >
+                                    <X className="h-4 w-4" /> {t("delete")}
+                                  </button>
+                                </div>
                               </>
                             )}
                           </div>
                         </div>
+
+                        {/* Vehicle legs — each on its own row: coloured mode icon
+                            beside its line/stops, highlighted in the mode colour */}
+                        {mixedLegs.length > 0 && (
+                          <div className="mt-2 space-y-1 pl-11">
+                            {mixedLegs.map((leg, i) => {
+                              const LIcon = TRANSIT_ICON[leg.mode] ?? Bus;
+                              const color = TRANSIT_TEXT[leg.mode] ?? "text-muted-foreground";
+                              return (
+                                <div key={i} className="flex items-center gap-1.5 text-xs">
+                                  <LIcon className={cn("h-4 w-4 shrink-0", color)} />
+                                  <span className="min-w-0 truncate">
+                                    {leg.vehicle && <span className={cn("font-semibold", color)}>{leg.vehicle}</span>}
+                                    {leg.from_stop && <span className="text-muted-foreground"> · {leg.from_stop}</span>}
+                                    {leg.to_stop && <span className="text-muted-foreground"> → {leg.to_stop}</span>}
+                                    {leg.depart_at && <span className="text-muted-foreground opacity-75"> {leg.depart_at}</span>}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </li>
                     );
                   })}
@@ -547,6 +552,19 @@ function TimelineView() {
             </section>
           ))}
         </div>
+
+        {editItem && (
+          <AddItemDialog
+            tripId={tripId}
+            tripCities={tripCities}
+            tripCountries={tripCountries}
+            existing={editItem}
+            isWishlist={isWishlist}
+            maxDayIndex={maxDayIndex}
+            open
+            onOpenChange={(v) => { if (!v) setEditItem(null); }}
+          />
+        )}
       </div>
     </div>
   );
@@ -1237,6 +1255,8 @@ function AddItemDialog({
   maxDayIndex = 0,
   defaultDayIndex = null,
   defaultStartDate = null,
+  open: controlledOpen,
+  onOpenChange,
 }: {
   tripId: string;
   defaultKind?: (typeof ITEM_KINDS)[number];
@@ -1248,13 +1268,17 @@ function AddItemDialog({
   maxDayIndex?: number;
   defaultDayIndex?: number | null;
   defaultStartDate?: string | null;
+  open?: boolean;
+  onOpenChange?: (v: boolean) => void;
 }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const createFn = useServerFn(createItem);
   const updateFn = useServerFn(updateItem);
   const delFn = useServerFn(deleteItem);
-  const [open, setOpen] = useState(false);
+  const [openState, setOpenState] = useState(false);
+  const open = controlledOpen ?? openState;
+  const setOpen = (v: boolean) => { if (onOpenChange) onOpenChange(v); else setOpenState(v); };
   const seedForm = () => {
     const exMeta = existing?.meta as { from_stop?: string; to_stop?: string; mixed_legs?: MixedLeg[] } | null;
     const exLegs = exMeta?.mixed_legs;
@@ -1347,11 +1371,13 @@ function AddItemDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger asChild>
-        {trigger ?? (
-          <Button className="rounded-full"><Plus className="mr-1.5 h-4 w-4" />{t("add_item")}</Button>
-        )}
-      </DialogTrigger>
+      {(trigger !== undefined || controlledOpen === undefined) && (
+        <DialogTrigger asChild>
+          {trigger ?? (
+            <Button className="rounded-full"><Plus className="mr-1.5 h-4 w-4" />{t("add_item")}</Button>
+          )}
+        </DialogTrigger>
+      )}
       <DialogContent className="flex max-h-[90dvh] flex-col gap-0 overflow-hidden p-0">
         <DialogHeader className="shrink-0 border-b border-border px-5 pb-3 pt-5">
           <DialogTitle>{existing ? t("edit_trip") : t("add_item")}</DialogTitle>
