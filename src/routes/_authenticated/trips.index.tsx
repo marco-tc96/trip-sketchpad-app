@@ -406,7 +406,27 @@ function TripsList() {
             <Section title={t("past")} trips={past} accent="past" withYearSelector />
           )}
           {favoriteTrips.length > 0 && (
-            <Section title={t("favorites")} trips={favoriteTrips} accent="favorites" />
+            <section>
+              <div className="mb-3 flex items-center gap-2">
+                <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                  {t("favorites")}
+                </h2>
+                <span
+                  className="flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold text-white"
+                  style={{ backgroundColor: ACCENT_COLORS.favorites }}
+                >
+                  {favoriteTrips.length}
+                </span>
+              </div>
+              <div
+                className="-mx-4 flex gap-3 overflow-x-auto px-4 pb-2"
+                style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" } as React.CSSProperties}
+              >
+                {favoriteTrips.map((trip) => (
+                  <FavoriteCard key={trip.id} trip={trip} />
+                ))}
+              </div>
+            </section>
           )}
           {wishlistTrips.length > 0 && (
             <Section title={t("wishlist")} trips={wishlistTrips} accent="wishlist" />
@@ -693,6 +713,82 @@ function getCities(trip: Trip): CityObj[] {
       lng: typeof c.lng === "number" ? c.lng : undefined,
     }))
     .filter((c) => c.name.length > 0);
+}
+
+// ── Favorite card (compact horizontal: info left, square image right) ──────
+function FavoriteCard({ trip }: { trip: Trip }) {
+  const { i18n } = useTranslation();
+  const navigate = useNavigate();
+  const lang = i18n.language ?? "en";
+
+  const countries: string[] = Array.isArray((trip as unknown as { countries?: string[] }).countries)
+    ? (trip as unknown as { countries: string[] }).countries : [];
+  const storedCover = (trip as unknown as { cover_url?: string | null }).cover_url ?? null;
+  const coverType = (trip as unknown as { cover_type?: string }).cover_type ?? "auto";
+  const coverBg = (trip as unknown as { cover_bg?: string | null }).cover_bg ?? null;
+  const gradient = coverType === "color" && coverBg ? coverBg : flagGradient(countries);
+  const flagStr = countries.length > 0 ? countries.slice(0, 3).map(flagOf).join(" ") : "✈️";
+  const isWishlist = trip.start_date >= "2099-01-01";
+  const cities = getCities(trip);
+
+  const [signed, setSigned] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setSigned(null);
+    if (storedCover && !/^https?:\/\//i.test(storedCover)) {
+      supabase.storage.from("trip-covers").createSignedUrl(storedCover, 60 * 60).then(({ data }) => {
+        if (!cancelled) setSigned(data?.signedUrl ?? null);
+      });
+    }
+    return () => { cancelled = true; };
+  }, [storedCover]);
+  const inlineSrc = storedCover && /^https?:\/\//i.test(storedCover) ? storedCover : signed;
+
+  function handleClick(e: React.MouseEvent) {
+    e.preventDefault();
+    const doNav = () => { void navigate({ to: "/trips/$tripId", params: { tripId: trip.id } }); };
+    if (typeof document.startViewTransition === "function") {
+      document.documentElement.dataset.vtDir = "forward";
+      const vt = document.startViewTransition(doNav);
+      vt.finished.finally(() => { delete document.documentElement.dataset.vtDir; });
+    } else {
+      doNav();
+    }
+  }
+
+  return (
+    <Link
+      to="/trips/$tripId"
+      params={{ tripId: trip.id }}
+      onClick={handleClick}
+      className="flex w-[210px] shrink-0 items-center gap-3 rounded-2xl bg-card p-3 ring-1 ring-border/50 shadow-sm transition hover:shadow-md hover:ring-border"
+    >
+      {/* Left: text info */}
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <p className="text-sm leading-none">{flagStr}</p>
+        <p className="mt-1 truncate text-sm font-semibold leading-tight">
+          {(trip as unknown as { cover_emoji?: string | null }).cover_emoji
+            ? <span className="mr-1">{(trip as unknown as { cover_emoji: string }).cover_emoji}</span>
+            : null}
+          {trip.title}
+        </p>
+        {cities.length > 0 && (
+          <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
+            {cities.map((c) => cityNameLocalized(c.name, lang)).join(" · ")}
+          </p>
+        )}
+        {!isWishlist && (
+          <p className="mt-0.5 text-[10px] text-muted-foreground/70">
+            {fmt(trip.start_date)}
+          </p>
+        )}
+      </div>
+      {/* Right: square cover */}
+      <div className="h-16 w-16 shrink-0 overflow-hidden rounded-xl">
+        <CityCover src={inlineSrc} gradient={gradient} className="h-full w-full" />
+      </div>
+    </Link>
+  );
 }
 
 function TripCard({
