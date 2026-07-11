@@ -52,6 +52,7 @@ function TripLayout() {
   const [repositioning, setRepositioning] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const titleSentinelRef = useRef<HTMLDivElement | null>(null);
+  const tabsSectionRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     const row = trip.data as { cover_type?: string; cover_bg?: string | null } | undefined;
     if (!row) return;
@@ -76,6 +77,80 @@ function TripLayout() {
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
+  }, [trip.data]);
+
+  // ── Decisive "swipe-up" snap: hero → tabs slider ─────────────────────────
+  // On a full-viewport cover (photo/map), a small upward swipe near the top
+  // must NOT be a soft momentum scroll — it should jump rapidly to the
+  // Panoramica/Spese slider and push the title block out of view.
+  useEffect(() => {
+    const row = trip.data as { cover_type?: string } | undefined;
+    const ct = row?.cover_type ?? "auto";
+    if (ct !== "photo" && ct !== "map") return; // only when hero fills the screen
+    const scroller = document.querySelector<HTMLElement>("[data-trip-scroller]");
+    const tabs = tabsSectionRef.current;
+    if (!scroller || !tabs) return;
+
+    let animating = false;
+    let triggered = false;
+    let touchStartY = 0;
+    let startScroll = 0;
+    const TOP_BAR = 64; // leave the tabs just under the fixed top bar
+
+    const foldTarget = () => {
+      const sRect = scroller.getBoundingClientRect();
+      const tRect = tabs.getBoundingClientRect();
+      return scroller.scrollTop + (tRect.top - sRect.top) - TOP_BAR;
+    };
+
+    const animateTo = (target: number, duration = 240) => {
+      animating = true;
+      const start = scroller.scrollTop;
+      const dist = target - start;
+      const t0 = performance.now();
+      const step = (now: number) => {
+        const p = Math.min(1, (now - t0) / duration);
+        const eased = 1 - Math.pow(1 - p, 3); // easeOutCubic → fast + decisive
+        scroller.scrollTop = start + dist * eased;
+        if (p < 1) requestAnimationFrame(step);
+        else animating = false;
+      };
+      requestAnimationFrame(step);
+    };
+
+    const onWheel = (e: WheelEvent) => {
+      if (animating) { e.preventDefault(); return; }
+      const target = foldTarget();
+      if (scroller.scrollTop < target - 4 && e.deltaY > 0) {
+        e.preventDefault();
+        animateTo(target);
+      }
+    };
+    const onTouchStart = (e: TouchEvent) => {
+      touchStartY = e.touches[0].clientY;
+      startScroll = scroller.scrollTop;
+      triggered = false;
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (animating) { e.preventDefault(); return; }
+      if (triggered) return;
+      const target = foldTarget();
+      const dy = touchStartY - e.touches[0].clientY; // >0 = swipe up
+      if (startScroll < target - 4 && dy > 20) {
+        triggered = true;
+        e.preventDefault();
+        animateTo(target);
+      }
+    };
+
+    scroller.addEventListener("wheel", onWheel, { passive: false });
+    scroller.addEventListener("touchstart", onTouchStart, { passive: true });
+    scroller.addEventListener("touchmove", onTouchMove, { passive: false });
+    return () => {
+      scroller.removeEventListener("wheel", onWheel);
+      scroller.removeEventListener("touchstart", onTouchStart);
+      scroller.removeEventListener("touchmove", onTouchMove);
+    };
   }, [trip.data]);
 
   const [isFavorite, setIsFavorite] = useState(() => {
@@ -526,7 +601,7 @@ function TripLayout() {
         <div ref={titleSentinelRef} aria-hidden className="h-px w-full" />
         </section>
 
-      <section className="flex flex-col pt-2">
+      <section ref={tabsSectionRef} className="flex flex-col pt-2">
       <nav
         aria-label={t("trip_sections")}
         className="mx-auto flex w-fit items-center gap-1 rounded-full border border-border/60 bg-background/70 p-1 text-xs shadow-soft backdrop-blur"
