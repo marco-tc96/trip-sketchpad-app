@@ -1954,8 +1954,8 @@ function StopCombobox({
   );
 }
 
-// Dropdown per selezionare una linea di trasporto pubblico (bus/metro/tram)
-// via Overpass API (OpenStreetMap), con ricerca integrata e stato di caricamento.
+// Campo linea di trasporto pubblico (bus/metro/tram): input di testo libero —
+// quello che scrivi È il valore salvato — con suggerimenti da Overpass (OSM) sotto.
 function LineCombobox({
   mode, city, value, onChange,
 }: {
@@ -1968,7 +1968,6 @@ function LineCombobox({
   const [open, setOpen] = useState(false);
   const [lines, setLines] = useState<Array<{ ref: string; name: string }>>([]);
   const [loading, setLoading] = useState(false);
-  const [query, setQuery] = useState("");
 
   useEffect(() => {
     const osmMode = OSM_ROUTE_MODE[mode];
@@ -1983,75 +1982,47 @@ function LineCombobox({
     return () => { cancelled = true; };
   }, [mode, city]);
 
-  // Own filtering (shouldFilter={false}) so we can always offer a free-text entry
-  const trimmed = query.trim();
-  const qLower = trimmed.toLowerCase();
-  const filteredLines = useMemo(
-    () => qLower
-      ? lines.filter(l => l.ref.toLowerCase().includes(qLower) || l.name.toLowerCase().includes(qLower))
-      : lines,
-    [lines, qLower],
+  const q = value.trim().toLowerCase();
+  const suggestions = useMemo(
+    () => (q
+      ? lines.filter(l => l.ref.toLowerCase().includes(q) || l.name.toLowerCase().includes(q))
+      : lines
+    ).slice(0, 60),
+    [lines, q],
   );
-  const showCustom = trimmed.length > 0 && !lines.some(l => l.ref.toLowerCase() === qLower);
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          className="w-full justify-between font-normal"
-          disabled={!city}
-        >
-          <span className={cn("truncate", !value && "text-muted-foreground")}>
-            {value
-              ? (lines.find(l => l.ref === value)?.name ?? value)
-              : t("select_line")}
-          </span>
-          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-        <Command shouldFilter={false}>
-          <CommandInput placeholder={t("search_type")} value={query} onValueChange={setQuery} />
-          <CommandList className="max-h-60">
-            <CommandGroup>
-              {/* Free-text entry — always usable, even while OSM is still loading */}
-              {showCustom && (
-                <CommandItem
-                  key="__custom__"
-                  value={`custom-${trimmed}`}
-                  onSelect={() => { onChange(trimmed); setOpen(false); }}
-                >
-                  <Check className="mr-2 h-4 w-4 shrink-0 opacity-0" />
-                  <span className="mr-2 font-semibold">{trimmed}</span>
-                  <span className="truncate text-xs text-muted-foreground">{t("use_value", { name: trimmed })}</span>
-                </CommandItem>
+    <div className="relative">
+      <Input
+        value={value}
+        placeholder={loading ? t("loading") : t("select_line")}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+        autoComplete="off"
+        disabled={!city}
+      />
+      {open && (suggestions.length > 0 || loading) && (
+        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-60 overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+          {suggestions.map(line => (
+            <button
+              type="button"
+              key={line.ref}
+              onMouseDown={(e) => { e.preventDefault(); onChange(line.ref); setOpen(false); }}
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+            >
+              <span className="shrink-0 font-semibold">{line.ref}</span>
+              {line.name !== line.ref && (
+                <span className="min-w-0 flex-1 truncate text-xs opacity-55">{line.name}</span>
               )}
-              {filteredLines.map(line => (
-                <CommandItem
-                  key={line.ref}
-                  value={line.ref}
-                  onSelect={() => { onChange(line.ref); setOpen(false); }}
-                >
-                  <Check className={cn("mr-2 h-4 w-4 shrink-0", value === line.ref ? "opacity-100" : "opacity-0")} />
-                  <span className="mr-2 font-semibold">{line.ref}</span>
-                  {line.name !== line.ref && (
-                    <span className="truncate text-xs text-muted-foreground">{line.name}</span>
-                  )}
-                </CommandItem>
-              ))}
-            </CommandGroup>
-            {loading && (
-              <div className="py-3 text-center text-xs text-muted-foreground animate-pulse">{t("loading")}</div>
-            )}
-            {!loading && filteredLines.length === 0 && !showCustom && (
-              <div className="py-6 text-center text-sm text-muted-foreground">{t("no_results")}</div>
-            )}
-          </CommandList>
-        </Command>
-      </PopoverContent>
-    </Popover>
+            </button>
+          ))}
+          {loading && (
+            <div className="px-2 py-1.5 text-xs text-muted-foreground animate-pulse">{t("loading")}</div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
