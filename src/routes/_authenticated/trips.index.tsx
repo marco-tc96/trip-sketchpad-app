@@ -398,34 +398,16 @@ function TripsList() {
             <Section title={t("ongoing")} trips={ongoing} accent="ongoing" />
           )}
           {planned.length > 0 && (
-            <Section title={t("planned")} trips={planned} accent="planned" />
+            <CompactSection title={t("planned")} trips={planned} accentColor={ACCENT_COLORS.planned} />
           )}
           {past.length > 0 && (
             <Section title={t("past")} trips={past} accent="past" withYearSelector />
           )}
           {favoriteTrips.length > 0 && (
-            <section>
-              <div className="mb-3 flex items-center gap-2">
-                <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-                  {t("favorites")}
-                </h2>
-                <span
-                  className="flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold text-white"
-                  style={{ backgroundColor: ACCENT_COLORS.favorites }}
-                >
-                  {favoriteTrips.length}
-                </span>
-              </div>
-              {/* Vertical list — no horizontal scroll */}
-              <div className="flex flex-col gap-3">
-                {favoriteTrips.map((trip) => (
-                  <FavoriteCard key={trip.id} trip={trip} />
-                ))}
-              </div>
-            </section>
+            <CompactSection title={t("favorites")} trips={favoriteTrips} accentColor={ACCENT_COLORS.favorites} />
           )}
           {wishlistTrips.length > 0 && (
-            <Section title={t("wishlist")} trips={wishlistTrips} accent="wishlist" />
+            <CompactSection title={t("wishlist")} trips={wishlistTrips} accentColor={ACCENT_COLORS.wishlist} />
           )}
         </div>
       )}
@@ -711,8 +693,42 @@ function getCities(trip: Trip): CityObj[] {
     .filter((c) => c.name.length > 0);
 }
 
-// ── Favorite card (square thumbnail left, all info to the right) ─────────
-function FavoriteCard({ trip }: { trip: Trip }) {
+// ── Compact section (vertical list of compact cards) ────────────────────
+// Shared by Favorites, Planned (prossimi viaggi) and Wishlist.
+function CompactSection({
+  title,
+  trips,
+  accentColor,
+}: {
+  title: string;
+  trips: Trip[];
+  accentColor: string;
+}) {
+  return (
+    <section>
+      <div className="mb-3 flex items-center gap-2">
+        <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+          {title}
+        </h2>
+        <span
+          className="flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold text-white"
+          style={{ backgroundColor: accentColor }}
+        >
+          {trips.length}
+        </span>
+      </div>
+      {/* Vertical list — no horizontal scroll */}
+      <div className="flex flex-col gap-3">
+        {trips.map((trip) => (
+          <CompactTripCard key={trip.id} trip={trip} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// ── Compact trip card (square thumbnail left, all info to the right) ─────
+function CompactTripCard({ trip }: { trip: Trip }) {
   const { i18n } = useTranslation();
   const navigate = useNavigate();
   const lang = i18n.language ?? "en";
