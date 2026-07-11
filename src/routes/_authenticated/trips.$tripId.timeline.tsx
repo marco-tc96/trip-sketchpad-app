@@ -1275,8 +1275,8 @@ function AddItemDialog({
                         className={cn(
                           "flex flex-col items-center gap-1 rounded-xl border p-2 text-[11px] transition",
                           active
-                            ? (isTransit ? TRANSIT_COLOR_ACTIVE[kind] : "border-primary bg-primary text-primary-foreground")
-                            : (isTransit ? TRANSIT_COLOR_INACTIVE[kind] : "border-border bg-card hover:bg-muted"),
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-border bg-card hover:bg-muted",
                         )}
                       >
                         <Icon className="h-4 w-4" />
