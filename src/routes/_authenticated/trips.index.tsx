@@ -785,25 +785,31 @@ function CompactTripCard({ trip }: { trip: Trip }) {
       </div>
 
       {/* Info — sits on the solid side of the card, clear of the photo */}
-      <div className="relative z-10 flex min-w-0 flex-1 flex-col justify-center gap-0.5 py-3 pl-[9.5rem] pr-3 sm:pl-[11.5rem]">
-        <p className="text-sm leading-none">{flagStr}</p>
-        <p className="mt-1 truncate text-sm font-semibold leading-tight">
+      <div className="relative z-10 flex min-w-0 flex-1 flex-col justify-center gap-0.5 py-3 pl-[9.5rem] pr-2 sm:pl-[11.5rem]">
+        <p className="truncate text-base font-semibold leading-tight">
           {coverEmoji ? <span className="mr-1">{coverEmoji}</span> : null}
           {trip.title}
         </p>
         {cities.length > 0 && (
-          <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-            <MapPin className="mr-0.5 inline h-3 w-3" />
+          <p className="mt-0.5 truncate text-xs text-muted-foreground">
+            <MapPin className="mr-0.5 inline h-3.5 w-3.5" />
             {cities.map((c) => cityNameLocalized(c.name, lang)).join(" · ")}
           </p>
         )}
         {!isWishlist && (
-          <p className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground/70">
-            <Calendar className="h-3 w-3 shrink-0" />
+          <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground/70">
+            <Calendar className="h-3.5 w-3.5 shrink-0" />
             {fmt(trip.start_date)} → {fmt(trip.end_date)}
           </p>
         )}
       </div>
+
+      {/* Right: flag(s) inside a pill — same style as the historic trip cards */}
+      {flagStr && (
+        <div className="relative z-10 mr-3 shrink-0 rounded-full bg-black/45 px-2 py-0.5 text-sm leading-none text-white backdrop-blur">
+          {flagStr}
+        </div>
+      )}
     </Link>
   );
 }
