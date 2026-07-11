@@ -205,17 +205,49 @@ async function fetchLineStops(city: string, osmMode: string, lineRef: string): P
   const routeClauses = modes.map(m =>
     `relation["type"="route"]["route"="${m}"]["ref"="${lineRef}"](area.c)`
   ).join(";");
-  const q = `[out:json][timeout:40];${areaQ};(${routeClauses};)->.r;node(r.r:"stop");out tags;`;
-  const data = await overpassFetch(q) as { elements: Array<{ tags: Record<string, string> }> };
-  const seen = new Set<string>();
-  const stops: string[] = [];
+  // Fetch the matching route relation(s) with their ORDERED members, plus the
+  // tags of every member node/way so we can resolve stop names. The member
+  // lookups (node(r.r)/way(r.r)) are NOT limited to the search area, so a route
+  // that leaves the city (e.g. a bus crossing into other towns) keeps every
+  // stop from the first to the last. Bus routes expose stops as "platform"
+  // members — often ways — not just "stop" nodes, so we read both.
+  const q = `[out:json][timeout:60];${areaQ};(${routeClauses};)->.r;.r out body;node(r.r);out tags;way(r.r);out tags;`;
+  const data = await overpassFetch(q) as {
+    elements: Array<{
+      type: string;
+      id: number;
+      tags?: Record<string, string>;
+      members?: Array<{ type: string; ref: number; role: string }>;
+    }>;
+  };
+  // Resolve member id → official stop name (keyed by type-initial + id)
+  const nameById = new Map<string, string>();
+  const relations: Array<Array<{ type: string; ref: number; role: string }>> = [];
   for (const el of data.elements) {
-    const name = el.tags?.name;
-    if (!name || seen.has(name)) continue;
-    seen.add(name); stops.push(name);
+    if (el.type === "relation" && el.members) relations.push(el.members);
+    else if ((el.type === "node" || el.type === "way") && el.tags?.name) {
+      nameById.set(`${el.type[0]}${el.id}`, el.tags.name);
+    }
   }
-  _stopCache.set(key, stops);
-  return stops;
+  // Pick the route variant that yields the most named stops (usually the full
+  // one-way itinerary), preserving the order the members appear in.
+  const isStopRole = (role: string) => role.startsWith("stop") || role.startsWith("platform");
+  let best: string[] = [];
+  for (const members of relations) {
+    const seen = new Set<string>();
+    const names: string[] = [];
+    for (const m of members) {
+      if (!isStopRole(m.role)) continue;
+      const nm = nameById.get(`${m.type[0]}${m.ref}`);
+      if (!nm) continue;
+      const k = nm.toLowerCase();
+      if (seen.has(k)) continue; // collapse stop_position + platform of the same stop
+      seen.add(k); names.push(nm);
+    }
+    if (names.length > best.length) best = names;
+  }
+  _stopCache.set(key, best);
+  return best;
 }
 
 const TRANSIT_COLOR_ACTIVE: Record<string, string> = {
@@ -387,124 +419,124 @@ function TimelineView() {
                   {g.items.map((it) => {
                     const Icon = KIND_ICON[it.kind as keyof typeof KIND_ICON] ?? MapPin;
                     const cls = kindClasses(it.kind);
-                    const dark = TRANSPORT_KINDS.has(it.kind) || it.kind === "activity";
                     const done = completedIds.has(it.id);
                     const stopMeta = it.meta as { from_stop?: string; to_stop?: string } | null;
                     return (
                       <li key={it.id}>
-                        <div className={cn("overflow-hidden rounded-xl", cls.card)}>
-                          <div className="flex items-start gap-2.5 p-3">
-                            <Icon className="mt-0.5 h-5 w-5 shrink-0" />
-                            {(fmtTime(it.start_at) || fmtTime(it.end_at)) && (
-                              <div className="shrink-0 leading-none">
-                                <p className="font-mono text-2xl font-bold tabular-nums tracking-tight sm:text-3xl">
-                                  {fmtTime(it.start_at) || fmtTime(it.end_at)}
+                        <div className="flex items-start gap-3">
+                          {/* Kind icon in a coloured circle; small transport-mode
+                              icons stack directly beneath it */}
+                          <div className="flex shrink-0 flex-col items-center gap-1">
+                            <div className={cn("flex h-11 w-11 items-center justify-center rounded-full", cls.dot)}>
+                              <Icon className="h-5 w-5" />
+                            </div>
+                            {(() => {
+                              const mixedLegs = (it.meta as { mixed_legs?: MixedLeg[] } | null)?.mixed_legs;
+                              if (!mixedLegs?.length) return null;
+                              return (
+                                <div className="flex flex-col items-center gap-1">
+                                  {mixedLegs.map((leg, i) => {
+                                    const LIcon = TRANSIT_ICON[leg.mode] ?? Bus;
+                                    return <LIcon key={i} className="h-3.5 w-3.5 text-muted-foreground" />;
+                                  })}
+                                </div>
+                              );
+                            })()}
+                          </div>
+
+                          {(fmtTime(it.start_at) || fmtTime(it.end_at)) && (
+                            <div className="shrink-0 leading-none">
+                              <p className="font-mono text-2xl font-bold tabular-nums tracking-tight sm:text-3xl">
+                                {fmtTime(it.start_at) || fmtTime(it.end_at)}
+                              </p>
+                              {fmtTime(it.start_at) && fmtTime(it.end_at) && (
+                                <p className="mt-1 text-xs font-medium tabular-nums text-muted-foreground">
+                                  → {fmtTime(it.end_at)}
                                 </p>
-                                {fmtTime(it.start_at) && fmtTime(it.end_at) && (
-                                  <p className={cn("mt-1 text-xs font-medium tabular-nums", cls.sub)}>
-                                    → {fmtTime(it.end_at)}
-                                  </p>
-                                )}
-                              </div>
+                              )}
+                            </div>
+                          )}
+
+                          <div className="min-w-0 flex-1">
+                            {(it.kind === "outbound" || it.kind === "return") && (
+                              <p className="text-[10px] uppercase tracking-widest text-muted-foreground">{t(it.kind)}</p>
                             )}
-                            <div className="min-w-0 flex-1">
-                              {(it.kind === "outbound" || it.kind === "return") && (
-                                <p className={cn("text-[10px] uppercase tracking-widest", cls.sub)}>{t(it.kind)}</p>
+                            <p className="truncate font-medium">{it.title}</p>
+                            {it.location && (
+                              <p className="text-xs text-muted-foreground">{cityNameLocalized(it.location, lang)}</p>
+                            )}
+                            {(() => {
+                              const mixedLegs = (it.meta as { mixed_legs?: MixedLeg[] } | null)?.mixed_legs;
+                              if (mixedLegs?.length) {
+                                return (
+                                  <div className="mt-0.5 space-y-0.5">
+                                    {mixedLegs.map((leg, i) => (
+                                      <p key={i} className="truncate text-xs text-muted-foreground">
+                                        {leg.vehicle && <span className="font-medium">{leg.vehicle}</span>}
+                                        {leg.from_stop && <span> · {leg.from_stop}</span>}
+                                        {leg.to_stop && <span> → {leg.to_stop}</span>}
+                                        {leg.depart_at && <span className="opacity-75"> {leg.depart_at}</span>}
+                                      </p>
+                                    ))}
+                                  </div>
+                                );
+                              }
+                              if (STOP_KINDS.has(it.kind) && stopMeta?.from_stop) {
+                                return (
+                                  <p className="text-xs text-muted-foreground">
+                                    {stopMeta.from_stop}{stopMeta.to_stop ? ` → ${stopMeta.to_stop}` : ""}
+                                  </p>
+                                );
+                              }
+                              return null;
+                            })()}
+                            {it.notes && <p className="mt-1 text-xs text-muted-foreground">{it.notes}</p>}
+                            <TransportLegs meta={it.meta as TransportMeta | null} />
+                          </div>
+
+                          <div className="flex shrink-0 flex-col items-center gap-1.5 pl-1">
+                            <button
+                              type="button"
+                              onClick={() => toggleCompleted(it.id)}
+                              aria-label={t("completed")}
+                              className={cn(
+                                "flex h-7 w-7 items-center justify-center rounded-full transition",
+                                done
+                                  ? "bg-emerald-500 text-white"
+                                  : "bg-foreground/8 text-foreground/60 hover:bg-foreground/15",
                               )}
-                              <p className="truncate font-medium">{it.title}</p>
-                              {it.location && (
-                                <p className={cn("text-xs", cls.sub)}>{cityNameLocalized(it.location, lang)}</p>
-                              )}
-                              {(() => {
-                                const mixedLegs = (it.meta as { mixed_legs?: MixedLeg[] } | null)?.mixed_legs;
-                                if (mixedLegs?.length) {
-                                  return (
-                                    <div className="mt-0.5 space-y-0.5">
-                                      {mixedLegs.map((leg, i) => {
-                                        const LIcon = TRANSIT_ICON[leg.mode] ?? Bus;
-                                        return (
-                                          <p key={i} className={cn("flex items-center gap-1 text-xs", cls.sub)}>
-                                            <LIcon className="h-3 w-3 shrink-0 opacity-75" />
-                                            <span className="truncate">
-                                              {leg.vehicle && <span className="font-medium">{leg.vehicle}</span>}
-                                              {leg.from_stop && <span> · {leg.from_stop}</span>}
-                                              {leg.to_stop && <span> → {leg.to_stop}</span>}
-                                              {leg.depart_at && <span className="opacity-75"> {leg.depart_at}</span>}
-                                            </span>
-                                          </p>
-                                        );
-                                      })}
-                                    </div>
-                                  );
-                                }
-                                if (STOP_KINDS.has(it.kind) && stopMeta?.from_stop) {
-                                  return (
-                                    <p className={cn("text-xs", cls.sub)}>
-                                      {stopMeta.from_stop}{stopMeta.to_stop ? ` → ${stopMeta.to_stop}` : ""}
-                                    </p>
-                                  );
-                                }
-                                return null;
-                              })()}
-                              {it.notes && <p className={cn("mt-1 text-xs", cls.sub)}>{it.notes}</p>}
-                              <TransportLegs meta={it.meta as TransportMeta | null} />
-                            </div>
-                            <div className="flex shrink-0 flex-col items-center gap-1.5 pl-1">
-                              <button
-                                type="button"
-                                onClick={() => toggleCompleted(it.id)}
-                                aria-label={t("completed")}
-                                className={cn(
-                                  "flex h-7 w-7 items-center justify-center rounded-full transition",
-                                  done
-                                    ? "bg-emerald-500 text-white"
-                                    : dark
-                                      ? "bg-white/10 text-white/70 hover:bg-white/20"
-                                      : "bg-foreground/8 text-foreground/60 hover:bg-foreground/15",
-                                )}
-                              >
-                                <Check className="h-3.5 w-3.5" />
-                              </button>
-                              {!done && (
-                                <>
-                                  <AddItemDialog
-                                    tripId={tripId}
-                                    tripCities={tripCities}
-                                    tripCountries={tripCountries}
-                                    existing={it as ItemRow}
-                                    isWishlist={isWishlist}
-                                    maxDayIndex={maxDayIndex}
-                                    trigger={
-                                      <button
-                                        type="button"
-                                        aria-label={t("edit")}
-                                        className={cn(
-                                          "flex h-7 w-7 items-center justify-center rounded-full transition",
-                                          dark
-                                            ? "bg-white/10 text-white/70 hover:bg-white/20"
-                                            : "bg-foreground/8 text-foreground/60 hover:bg-foreground/15",
-                                        )}
-                                      >
-                                        <Pencil className="h-3.5 w-3.5" />
-                                      </button>
-                                    }
-                                  />
-                                  <button
-                                    type="button"
-                                    onClick={() => del(it.id)}
-                                    aria-label={t("delete")}
-                                    className={cn(
-                                      "flex h-7 w-7 items-center justify-center rounded-full transition",
-                                      dark
-                                        ? "bg-white/10 text-white/70 hover:bg-white/20"
-                                        : "bg-foreground/8 text-foreground/60 hover:bg-foreground/15",
-                                    )}
-                                  >
-                                    <X className="h-3.5 w-3.5" />
-                                  </button>
-                                </>
-                              )}
-                            </div>
+                            >
+                              <Check className="h-3.5 w-3.5" />
+                            </button>
+                            {!done && (
+                              <>
+                                <AddItemDialog
+                                  tripId={tripId}
+                                  tripCities={tripCities}
+                                  tripCountries={tripCountries}
+                                  existing={it as ItemRow}
+                                  isWishlist={isWishlist}
+                                  maxDayIndex={maxDayIndex}
+                                  trigger={
+                                    <button
+                                      type="button"
+                                      aria-label={t("edit")}
+                                      className="flex h-7 w-7 items-center justify-center rounded-full bg-foreground/8 text-foreground/60 transition hover:bg-foreground/15"
+                                    >
+                                      <Pencil className="h-3.5 w-3.5" />
+                                    </button>
+                                  }
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => del(it.id)}
+                                  aria-label={t("delete")}
+                                  className="flex h-7 w-7 items-center justify-center rounded-full bg-foreground/8 text-foreground/60 transition hover:bg-foreground/15"
+                                >
+                                  <X className="h-3.5 w-3.5" />
+                                </button>
+                              </>
+                            )}
                           </div>
                         </div>
                       </li>
@@ -1966,9 +1998,6 @@ function StopCombobox({
             >
               <span className="min-w-0 flex-1 truncate">
                 <span className="font-medium">{h.name}</span>
-                {h.city && h.city !== h.name && (
-                  <span className="ml-1.5 text-xs opacity-55">· {h.city}</span>
-                )}
               </span>
             </button>
           ))}

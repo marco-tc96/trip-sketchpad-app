@@ -779,14 +779,14 @@ function CompactTripCard({ trip }: { trip: Trip }) {
     >
       {/* Trip photo as the background of the card — bleeds from the left edge
           across, then fades into the base card colour so the text stays readable */}
-      <div className="pointer-events-none absolute inset-y-0 left-0 w-36 sm:w-44">
+      <div className="pointer-events-none absolute inset-y-0 left-0 w-28 sm:w-36">
         <CityCover src={inlineSrc} gradient={gradient} className="h-full w-full object-cover" />
         <div className="absolute inset-0 bg-gradient-to-r from-transparent to-card" />
       </div>
 
       {/* Info — sits on the solid side of the card, clear of the photo */}
-      <div className="relative z-10 flex min-w-0 flex-1 flex-col justify-center gap-0.5 py-3 pl-[9.5rem] pr-2 sm:pl-[11.5rem]">
-        <p className="truncate text-base font-semibold leading-tight">
+      <div className="relative z-10 flex min-w-0 flex-1 flex-col justify-center gap-0.5 py-3 pl-[7.5rem] pr-3 sm:pl-[9.5rem]">
+        <p className="truncate text-sm font-semibold leading-tight">
           {coverEmoji ? <span className="mr-1">{coverEmoji}</span> : null}
           {trip.title}
         </p>
@@ -804,9 +804,9 @@ function CompactTripCard({ trip }: { trip: Trip }) {
         )}
       </div>
 
-      {/* Right: flag(s) inside a pill — same style as the historic trip cards */}
+      {/* Flag(s) inside a pill — bottom-right corner, like the historic trip cards */}
       {flagStr && (
-        <div className="relative z-10 mr-3 shrink-0 rounded-full bg-black/45 px-2 py-0.5 text-sm leading-none text-white backdrop-blur">
+        <div className="absolute bottom-2 right-2 z-20 rounded-full bg-black/45 px-2 py-0.5 text-sm leading-none text-white backdrop-blur">
           {flagStr}
         </div>
       )}
