@@ -4,9 +4,9 @@ import { useServerFn } from "@tanstack/react-start";
 import { useState, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  Plane, Zap, Bus, Car, Bike, Ship, Hotel, MapPin, Sparkles, ArrowRightLeft,
+  Plane, Bus, Car, Bike, Ship, Hotel, MapPin, Sparkles, ArrowRightLeft,
   PlaneTakeoff, PlaneLanding, Plus, Trash2, ChevronsUpDown, Check, Clock,
-  CalendarDays, Wallet, Pencil, X, TramFront, TrainFront,
+  CalendarDays, Wallet, Pencil, X, TramFront, TrainFront, Train,
 } from "lucide-react";
 import { toast } from "sonner";
 import { listItems, createItem, updateItem, deleteItem, ITEM_KINDS } from "@/lib/itinerary.functions";
@@ -70,7 +70,7 @@ const emptyMixedLeg = (): MixedLeg => ({
   mode: "bus", vehicle: "", from_stop: "", to_stop: "", depart_at: "", arrive_at: "",
 });
 const MODE_ICON: Record<TransportMode, React.ComponentType<{ className?: string }>> = {
-  car: Car, moto: Bike, train: TrainFront, plane: Plane, ferry: Ship, bus: Bus, metro: Zap, tram: TramFront,
+  car: Car, moto: Bike, train: TrainFront, plane: Plane, ferry: Ship, bus: Bus, metro: TramFront, tram: Train,
 };
 
 export const Route = createFileRoute("/_authenticated/trips/$tripId/timeline")({
@@ -91,8 +91,8 @@ const KIND_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   activity: Sparkles,
   zone: MapPin,
   other: MapPin,
-  metro: Zap,
-  tram: TramFront,
+  metro: TramFront,
+  tram: Train,
 };
 
 const TRANSPORT_KINDS = new Set([
@@ -115,8 +115,8 @@ const TRANSIT_COLOR_INACTIVE: Record<string, string> = {
 const TRANSIT_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   train: TrainFront,
   bus:   Bus,
-  metro: Zap,
-  tram:  TramFront,
+  metro: TramFront,
+  tram:  Train,
 };
 
 function kindClasses(kind: string) {
