@@ -787,12 +787,12 @@ export function TripMap({
   // For transit-with-line legs `center` is the geocoded CITY (reliable), never the
   // stop names (which can collide with far-away towns, e.g. "Roses" → Girona).
   const routeLines = useMemo(() => {
-    type Via = { ll: LL; enter: boolean; name: string };
+    type WP = { ll: LL; enter: boolean; name: string };
     type Line = {
       a: LL | null; b: LL | null; mode: string; from: string; to: string;
       line?: string; city?: string; country?: string; key: string;
       center: LL | null; radiusM: number; cacheKey: string;
-      vias: Via[]; viasReady: boolean; pathKey: string;
+      wps: WP[]; vias: WP[]; viasReady: boolean; pathKey: string;
     };
     if (!showRoutes || !routes) return [] as Line[];
     return routes.map((r, i) => {
@@ -803,9 +803,12 @@ export function TripMap({
         if (g) center = [g.lat, g.lng];
       }
       const ck = center ? `${Math.round(center[0] * 100) / 100},${Math.round(center[1] * 100) / 100}` : "";
-      // Resolve road-leg waypoints to coordinates (car/moto). `viasReady` is false
-      // while any waypoint is still being geocoded, so we don't route prematurely.
-      const vias: Via[] = [];
+      // Resolve road-leg waypoints to coordinates (car/moto). Only "enter the
+      // city" waypoints (enter=true) become OSRM vias — those pull the route off
+      // the motorway into the town. "Transit" waypoints keep the fastest road and
+      // are only shown as a hollow pin. `viasReady` gates routing until every
+      // ENTER waypoint has coordinates.
+      const wps: WP[] = [];
       let viasReady = true;
       if (r.mode === "car" || r.mode === "moto") {
         for (const w of (r.waypoints ?? [])) {
@@ -813,15 +816,16 @@ export function TripMap({
           if (!nm) continue;
           // Prefer coordinates stored when the city was picked from suggestions.
           if (typeof w.lat === "number" && typeof w.lng === "number") {
-            vias.push({ ll: [w.lat, w.lng], enter: !!w.enter, name: nm });
+            wps.push({ ll: [w.lat, w.lng], enter: !!w.enter, name: nm });
             continue;
           }
           const gk = `${r.country ?? ""}|${nm}`;
-          if (!(gk in routeGeo)) { viasReady = false; continue; } // still pending
+          if (!(gk in routeGeo)) { if (w.enter) viasReady = false; continue; } // enter pending → wait
           const g = routeGeo[gk];
-          if (g) vias.push({ ll: [g.lat, g.lng], enter: !!w.enter, name: nm }); // null → failed geocode, skip
+          if (g) wps.push({ ll: [g.lat, g.lng], enter: !!w.enter, name: nm }); // null → failed geocode, skip
         }
       }
+      const vias = wps.filter((w) => w.enter);
       const key = `${i}-${r.from}-${r.to}`;
       return {
         a: resolve(r.from, r.country),
@@ -836,6 +840,7 @@ export function TripMap({
         center,
         radiusM,
         cacheKey: `${r.mode}|${r.line ?? ""}|${ck}`,
+        wps,
         vias,
         viasReady,
         pathKey: `${key}|${vias.map((v) => v.name).join(">")}`,
@@ -1007,7 +1012,7 @@ export function TripMap({
   // from transitResolved (relation stops); ground legs use the OSRM road path;
   // everything else is a straight line between geocoded endpoints.
   const drawn = useMemo(() => {
-    type Pin = { ll: LL; name: string; big: boolean };
+    type Pin = { ll: LL; name: string; big: boolean; hollow?: boolean };
     type Drawn = { key: string; color: string; dash?: string; positions: LL[]; pins: Pin[] };
     if (!showRoutes || !routes) return [] as Drawn[];
     const out: Drawn[] = [];
@@ -1029,15 +1034,18 @@ export function TripMap({
       }
 
       // Non-transit legs → geocoded endpoints, snapped to roads (car/moto via OSRM,
-      // through waypoints) or to the railway (train, via BRouter) when available.
+      // through the "enter" waypoints) or to the railway (train, via BRouter).
       const a = l.a, b = l.b;
       if (!a || !b) return;
       let positions: LL[] = [a, b];
       if (GROUND_MODES.has(l.mode) && pathCache[l.pathKey]) positions = pathCache[l.pathKey];
       else if (l.mode === "train" && railCache[key]) positions = railCache[key];
+      // Endpoints (departure/arrival) are FILLED pins. Waypoints are HOLLOW pins so
+      // filled ones stay reserved for the trip's own cities + start/end. "Enter the
+      // city" waypoints sit on the (detoured) route; "transit" ones are snapped to
+      // the point on the fast route nearest the town.
       const pins: Pin[] = [{ ll: positions[0], name: cleanPlace(l.from), big: true }];
-      // A pin for each "enter the city" waypoint, snapped onto the drawn route.
-      for (const v of l.vias) if (v.enter) pins.push({ ll: projectOnPath(positions, v.ll), name: v.name, big: true });
+      for (const w of l.wps) pins.push({ ll: projectOnPath(positions, w.ll), name: w.name, big: w.enter, hollow: true });
       pins.push({ ll: positions[positions.length - 1], name: cleanPlace(l.to), big: true });
       out.push({ key, color, dash, positions, pins });
     });
@@ -1142,8 +1150,8 @@ export function TripMap({
           />
         ))}
 
-      {/* Stop pins — mode colour. Boarding/alighting are larger; intermediate
-          stops along the leg are small dots. */}
+      {/* Stop / waypoint pins — mode colour. Filled pins mark real trip cities and
+          the departure/arrival of each leg; HOLLOW pins mark road waypoints. */}
       {showRoutes &&
         drawn.flatMap((d) =>
           d.pins.map((p, idx) => (
@@ -1151,7 +1159,11 @@ export function TripMap({
               key={`${d.key}-p${idx}`}
               center={p.ll}
               radius={p.big ? 6.5 : 3.5}
-              pathOptions={{ color: "#ffffff", weight: p.big ? 2 : 1.5, fillColor: d.color, fillOpacity: 1 }}
+              pathOptions={
+                p.hollow
+                  ? { color: d.color, weight: 2.5, fillColor: "#ffffff", fillOpacity: 1 }
+                  : { color: "#ffffff", weight: p.big ? 2 : 1.5, fillColor: d.color, fillOpacity: 1 }
+              }
             >
               {p.name && (
                 <Tooltip direction="top" offset={[0, -6]}>

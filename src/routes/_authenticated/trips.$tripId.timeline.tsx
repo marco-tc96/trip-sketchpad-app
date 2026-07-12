@@ -64,16 +64,16 @@ const emptyLeg = (): Leg => ({
 
 // Small localized labels for the road-leg waypoint editor (kept local so we don't
 // have to touch the global i18n bundle for these few strings).
-const WP_LABELS: Record<string, { title: string; place: string; enter: string; add: string; via: string }> = {
-  it: { title: "Tappe / deviazioni", place: "Città o luogo", enter: "Entra in città", add: "Aggiungi tappa", via: "via" },
-  en: { title: "Stops / detours", place: "City or place", enter: "Enter the city", add: "Add stop", via: "via" },
-  es: { title: "Paradas / desvíos", place: "Ciudad o lugar", enter: "Entrar en la ciudad", add: "Añadir parada", via: "vía" },
-  fr: { title: "Étapes / détours", place: "Ville ou lieu", enter: "Entrer dans la ville", add: "Ajouter une étape", via: "via" },
-  de: { title: "Stopps / Umwege", place: "Stadt oder Ort", enter: "In die Stadt fahren", add: "Stopp hinzufügen", via: "über" },
-  pt: { title: "Paradas / desvios", place: "Cidade ou lugar", enter: "Entrar na cidade", add: "Adicionar parada", via: "via" },
-  ja: { title: "経由地 / 迂回", place: "都市または場所", enter: "市内に入る", add: "経由地を追加", via: "経由" },
-  ko: { title: "경유지 / 우회", place: "도시 또는 장소", enter: "도심 진입", add: "경유지 추가", via: "경유" },
-  zh: { title: "途经 / 绕行", place: "城市或地点", enter: "进入城市", add: "添加途经点", via: "途经" },
+const WP_LABELS: Record<string, { title: string; place: string; enter: string; transit: string; add: string; via: string }> = {
+  it: { title: "Tappe / deviazioni", place: "Città o luogo", enter: "Entra in città", transit: "Transito", add: "Aggiungi tappa", via: "via" },
+  en: { title: "Stops / detours", place: "City or place", enter: "Enter the city", transit: "Transit", add: "Add stop", via: "via" },
+  es: { title: "Paradas / desvíos", place: "Ciudad o lugar", enter: "Entrar en la ciudad", transit: "Tránsito", add: "Añadir parada", via: "vía" },
+  fr: { title: "Étapes / détours", place: "Ville ou lieu", enter: "Entrer dans la ville", transit: "Transit", add: "Ajouter une étape", via: "via" },
+  de: { title: "Stopps / Umwege", place: "Stadt oder Ort", enter: "In die Stadt fahren", transit: "Durchfahrt", add: "Stopp hinzufügen", via: "über" },
+  pt: { title: "Paradas / desvios", place: "Cidade ou lugar", enter: "Entrar na cidade", transit: "Trânsito", add: "Adicionar parada", via: "via" },
+  ja: { title: "経由地 / 迂回", place: "都市または場所", enter: "市内に入る", transit: "通過", add: "経由地を追加", via: "経由" },
+  ko: { title: "경유지 / 우회", place: "도시 또는 장소", enter: "도심 진입", transit: "통과", add: "경유지 추가", via: "경유" },
+  zh: { title: "途经 / 绕行", place: "城市或地点", enter: "进入城市", transit: "经过", add: "添加途经点", via: "途经" },
 };
 const wpL = (lang: string | undefined) => WP_LABELS[(lang || "it").slice(0, 2)] ?? WP_LABELS.it;
 type MixedLeg = {
@@ -1354,18 +1354,21 @@ function TransportDialog({
                             updateLeg(i, { waypoints: (leg.waypoints ?? []).map((x, xi) => (xi === wi ? { ...x, name: s.name, lat: s.lat, lng: s.lng, country: s.country } : x)) })
                           }
                         />
-                        <label className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-                          <input
-                            type="checkbox"
-                            className="h-3.5 w-3.5 accent-primary"
-                            checked={!!w.enter}
-                            onChange={(e) => {
-                              const enter = e.target.checked;
-                              updateLeg(i, { waypoints: (leg.waypoints ?? []).map((x, xi) => (xi === wi ? { ...x, enter } : x)) });
-                            }}
-                          />
-                          {wpL(lang).enter}
-                        </label>
+                        <div className="flex shrink-0 overflow-hidden rounded-md border border-border text-xs">
+                          {[false, true].map((val) => {
+                            const active = !!w.enter === val;
+                            return (
+                              <button
+                                type="button"
+                                key={String(val)}
+                                onClick={() => updateLeg(i, { waypoints: (leg.waypoints ?? []).map((x, xi) => (xi === wi ? { ...x, enter: val } : x)) })}
+                                className={`px-2 py-1 transition ${active ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:bg-muted"}`}
+                              >
+                                {val ? wpL(lang).enter : wpL(lang).transit}
+                              </button>
+                            );
+                          })}
+                        </div>
                         <Button
                           type="button"
                           variant="ghost"
@@ -2315,7 +2318,7 @@ function WaypointCombobox({
     const timer = setTimeout(async () => {
       const res = await searchCorridorCities(q, box, lang);
       if (alive) { setItems(res); setLoading(false); }
-    }, 350);
+    }, 250);
     return () => { alive = false; clearTimeout(timer); };
   }, [value, box, lang]);
 
