@@ -1025,6 +1025,34 @@ export function TripMap({
   }, [points.length, countries, enrichedCities]);
 
   const ref = useRef<L.Map | null>(null);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  // Mobile: while the user manipulates the map with a finger, keep the gesture on
+  // the map and stop the page from scrolling away — UNLESS the swipe starts from
+  // the bottom band of the screen, which stays a deliberate "scroll the page up"
+  // handle. (Skipped for compact previews, which should scroll natively.)
+  useEffect(() => {
+    if (compact) return;
+    const el = wrapRef.current;
+    if (!el) return;
+    const BOTTOM_BAND = 110; // px from the screen bottom that still scrolls the page
+    let allowPage = false;
+    const onStart = (e: TouchEvent) => {
+      const t = e.touches[0];
+      allowPage = !!t && t.clientY >= window.innerHeight - BOTTOM_BAND;
+    };
+    const onMove = (e: TouchEvent) => {
+      if (allowPage) return;                 // bottom-edge swipe → let the page scroll
+      if (e.cancelable) e.preventDefault();  // otherwise the map keeps the gesture
+    };
+    el.addEventListener("touchstart", onStart, { passive: true });
+    el.addEventListener("touchmove", onMove, { passive: false });
+    return () => {
+      el.removeEventListener("touchstart", onStart);
+      el.removeEventListener("touchmove", onMove);
+    };
+  }, [compact]);
+
   const cityPoints = points.length > 0 ? points : fallbackPoints;
   // When showing routes, fit the view to include every leg endpoint too.
   const boundsPoints = useMemo<[number, number][]>(
@@ -1043,7 +1071,7 @@ export function TripMap({
   }
 
   return (
-    <div className={className}>
+    <div className={className} ref={wrapRef}>
     <MapContainer
       ref={ref}
       center={boundsPoints[0]}
