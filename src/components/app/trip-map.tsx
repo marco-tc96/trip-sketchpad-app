@@ -134,6 +134,12 @@ const OSM_ROUTE_MODES: Record<string, string[]> = {
   tram: ["tram", "light_rail"],
   train: ["train", "light_rail"],
 };
+// A transit leg with a known line ref is located from its OSM relation (not by
+// geocoding its stop names, which can collide with far-away towns).
+const isTransitWithLine = (r: MapRoute) => TRANSIT_MODES.has(r.mode) && !!r.line;
+// Radius (m) of the Overpass `around:` search per mode — a metro/tram network
+// spans a metro area, regional trains reach much further.
+const TRANSIT_RADIUS: Record<string, number> = { metro: 45000, tram: 30000, bus: 40000, train: 130000 };
 
 // Normalise a line ref/name for tolerant comparison.
 const _normRef = (s?: string | null) => (s ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -187,13 +193,6 @@ async function overpassFetch(query: string, timeoutMs = 25000): Promise<{ elemen
 
 type LL = [number, number];
 const _near = (p: LL, q: LL) => Math.abs(p[0] - q[0]) < 1e-4 && Math.abs(p[1] - q[1]) < 1e-4;
-
-// Rough great-circle distance in metres (good enough for radius sizing).
-function metersBetween(a: LL, b: LL): number {
-  const dLat = (b[0] - a[0]) * 111000;
-  const dLng = (b[1] - a[1]) * 111000 * Math.cos(((a[0] + b[0]) / 2) * Math.PI / 180);
-  return Math.hypot(dLat, dLng);
-}
 
 // Stitch the route's way segments into one continuous ordered polyline,
 // flipping ways whose direction doesn't match so the path stays connected.
@@ -318,6 +317,25 @@ function sameStop(a: string, b: string): boolean {
   if (!x || !y) return false;
   return x === y || x.includes(y) || y.includes(x);
 }
+// True when two strings differ by at most one edit (insertion/deletion/substitution).
+function _within1(a: string, b: string): boolean {
+  if (a === b) return true;
+  const la = a.length, lb = b.length;
+  if (Math.abs(la - lb) > 1) return false;
+  let i = 0, j = 0, diff = 0;
+  while (i < la && j < lb) {
+    if (a[i] === b[j]) { i++; j++; continue; }
+    if (++diff > 1) return false;
+    if (la > lb) i++; else if (lb > la) j++; else { i++; j++; }
+  }
+  return diff + (la - i) + (lb - j) <= 1;
+}
+// Looser match for spelling variants of the same stop (e.g. "Roses"/"Rosas").
+function similarStop(a: string, b: string): boolean {
+  const x = _normName(cleanPlace(a)), y = _normName(cleanPlace(b));
+  if (x.length < 5 || y.length < 5) return false;
+  return _within1(x, y);
+}
 function nearestIdx(path: LL[], pt: LL): number {
   let bi = 0;
   let bd = Infinity;
@@ -361,16 +379,49 @@ function trimPath(path: LL[], a: LL, b: LL): LL[] {
 // search endpoint with the full place name (+ an optional country filter).
 const AIRPORT_RE = /(airport|aeroporto|aeropuerto|aéroport|aeroport|flughafen|repülőtér|luchthaven|lotnisko|공항|空港|机场|機場)/i;
 
-async function geocodePlace(query: string, country?: string, airportHint = false): Promise<{ lat: number; lng: number } | null> {
+// Pull the 3-letter IATA code out of a flight endpoint label, e.g.
+// "BLQ - Bologna", "Bologna Guglielmo Marconi Airport (BLQ)".
+function extractIATA(label: string): string | null {
+  const s = label ?? "";
+  const paren = s.match(/\(([A-Z]{3})\)/);
+  if (paren) return paren[1];
+  const prefix = s.match(/^([A-Z]{3})\s*[-–]\s/);
+  if (prefix) return prefix[1];
+  return null;
+}
+
+// Exact airport coordinates from OSM by IATA code (the aerodrome feature).
+async function fetchAirportByIata(code: string): Promise<{ lat: number; lng: number } | null> {
+  try {
+    const q = `[out:json][timeout:25];(node["aeroway"="aerodrome"]["iata"="${code}"];way["aeroway"="aerodrome"]["iata"="${code}"];relation["aeroway"="aerodrome"]["iata"="${code}"];);out center 1;`;
+    const data = (await overpassFetch(q, 15000)) as {
+      elements: Array<{ lat?: number; lon?: number; center?: { lat: number; lon: number } }>;
+    };
+    const e = data.elements?.[0];
+    if (!e) return null;
+    const lat = e.lat ?? e.center?.lat;
+    const lng = e.lon ?? e.center?.lon;
+    if (typeof lat === "number" && typeof lng === "number") return { lat, lng };
+  } catch { /* ignore */ }
+  return null;
+}
+
+async function geocodePlace(query: string, country?: string, airportHint = false, iata?: string | null): Promise<{ lat: number; lng: number } | null> {
   const q = (query ?? "").trim();
   if (!q) return null;
   const isAirport = airportHint || AIRPORT_RE.test(q);
-  // Bias the search toward the airport itself (not the host city) when the
-  // label doesn't already say "airport".
-  const searchQ = isAirport && !AIRPORT_RE.test(q) ? `${q} airport` : q;
+  // Airports: the IATA code gives an exact, unambiguous location — try it first.
+  if (isAirport && iata) {
+    const byIata = await fetchAirportByIata(iata);
+    if (byIata) return byIata;
+  }
+  // Clean up messy labels ("Seoul / Incheon International Airport") and bias the
+  // search toward the airport itself when the label doesn't say "airport".
+  const cleaned = q.replace(/\s*\/\s*/g, " ").trim();
+  const searchQ = isAirport && !AIRPORT_RE.test(cleaned) ? `${cleaned} airport` : cleaned;
   try {
     const params = new URLSearchParams({ q: searchQ, format: "json", limit: isAirport ? "10" : "1", addressdetails: "0" });
-    if (country) params.set("countrycodes", country.toLowerCase());
+    if (country && !isAirport) params.set("countrycodes", country.toLowerCase());
     const r = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`, {
       headers: { Accept: "application/json" },
     });
@@ -466,24 +517,41 @@ export function TripMap({
   const [routeGeo, setRouteGeo] = useState<Record<string, { lat: number; lng: number } | null>>({});
   // Road-snapped geometries per leg (keyed by the leg key), from OSRM.
   const [pathCache, setPathCache] = useState<Record<string, [number, number][]>>({});
-  // Real transit-line geometries keyed by `city|mode|ref`, from OSM/Overpass.
+  // Real transit-line geometries keyed by `mode|ref|center`, from OSM/Overpass.
   const [transitPathCache, setTransitPathCache] = useState<Record<string, TransitLine>>({});
+  // Geocoded city centres for transit-line searches, keyed by `${country}|${city}`.
+  const [cityGeo, setCityGeo] = useState<Record<string, { lat: number; lng: number } | null>>({});
 
-  // Unique route endpoints to geocode. Transit endpoints are included too, as a
-  // FALLBACK when the stop can't be matched by name inside the OSM relation.
-  const routeEndpoints = useMemo<Array<{ name: string; country?: string; airport: boolean }>>(() => {
+  // Unique endpoints to geocode for the legs we draw by geocoding (planes, cars,
+  // ferries, and transit legs WITHOUT a line ref). Transit-with-line legs are
+  // located from their OSM relation instead, so we skip their stops here.
+  const routeEndpoints = useMemo<Array<{ name: string; country?: string; airport: boolean; iata?: string | null }>>(() => {
     if (!showRoutes || !routes || routes.length === 0) return [];
-    const seen = new Map<string, { name: string; country?: string; airport: boolean }>();
+    const seen = new Map<string, { name: string; country?: string; airport: boolean; iata?: string | null }>();
     for (const r of routes) {
+      if (isTransitWithLine(r)) continue;
       const airport = r.mode === "plane";
       for (const raw of [r.from, r.to]) {
         const name = cleanPlace(raw);
         if (!name) continue;
         const key = `${r.country ?? ""}|${name}`;
+        const iata = airport ? extractIATA(raw) : null;
         const prev = seen.get(key);
-        if (!prev) seen.set(key, { name, country: r.country, airport });
-        else if (airport) prev.airport = true;
+        if (!prev) seen.set(key, { name, country: r.country, airport, iata });
+        else if (airport) { prev.airport = true; if (iata) prev.iata = iata; }
       }
+    }
+    return [...seen.values()];
+  }, [routes, showRoutes]);
+
+  // Unique cities of transit-with-line legs — geocoded to centre the OSM search.
+  const transitCities = useMemo<Array<{ city: string; country?: string }>>(() => {
+    if (!showRoutes || !routes) return [];
+    const seen = new Map<string, { city: string; country?: string }>();
+    for (const r of routes) {
+      if (!isTransitWithLine(r) || !r.city) continue;
+      const key = `${r.country ?? ""}|${r.city}`;
+      if (!seen.has(key)) seen.set(key, { city: r.city, country: r.country });
     }
     return [...seen.values()];
   }, [routes, showRoutes]);
@@ -521,7 +589,7 @@ export function TripMap({
       for (const e of missing) {
         const key = `${e.country ?? ""}|${e.name}`;
         if (key in routeGeo || key in updates) continue;
-        updates[key] = await geocodePlace(e.name, e.country, e.airport);
+        updates[key] = await geocodePlace(e.name, e.country, e.airport, e.iata);
       }
       if (!cancelled && Object.keys(updates).length > 0) {
         setRouteGeo((prev) => ({ ...prev, ...updates }));
@@ -530,6 +598,27 @@ export function TripMap({
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeEndpoints]);
+
+  // Geocode the cities that anchor transit-line searches.
+  useEffect(() => {
+    if (transitCities.length === 0) return;
+    const missing = transitCities.filter((c) => !(`${c.country ?? ""}|${c.city}` in cityGeo));
+    if (missing.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const updates: Record<string, { lat: number; lng: number } | null> = {};
+      for (const c of missing) {
+        const key = `${c.country ?? ""}|${c.city}`;
+        if (key in cityGeo || key in updates) continue;
+        updates[key] = await geocodePlace(c.city, c.country);
+      }
+      if (!cancelled && Object.keys(updates).length > 0) {
+        setCityGeo((prev) => ({ ...prev, ...updates }));
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transitCities]);
 
   // Enrich cities with geocoded coordinates when stored coords are missing.
   const enrichedCities = useMemo<MapCity[]>(() => {
@@ -573,8 +662,8 @@ export function TripMap({
   }, [routeGeo]);
 
   // Leg list used by the fetch effects (endpoints may be null until geocoded).
-  // `center`/`radiusM` frame the Overpass `around:` search for transit lines and
-  // come from the REAL geocoded stop coordinates (not the country centroid).
+  // For transit-with-line legs `center` is the geocoded CITY (reliable), never the
+  // stop names (which can collide with far-away towns, e.g. "Roses" → Girona).
   const routeLines = useMemo(() => {
     type Line = {
       a: LL | null; b: LL | null; mode: string; from: string; to: string;
@@ -582,20 +671,13 @@ export function TripMap({
       center: LL | null; radiusM: number; cacheKey: string;
     };
     if (!showRoutes || !routes) return [] as Line[];
-    const geoOf = (raw: string, country?: string): LL | null => {
-      const g = routeGeo[`${country ?? ""}|${cleanPlace(raw)}`];
-      return g ? [g.lat, g.lng] : null;
-    };
     return routes.map((r, i) => {
-      const ga = geoOf(r.from, r.country);
-      const gb = geoOf(r.to, r.country);
       let center: LL | null = null;
-      let radiusM = 20000;
-      if (ga && gb) {
-        center = [(ga[0] + gb[0]) / 2, (ga[1] + gb[1]) / 2];
-        radiusM = Math.min(80000, Math.max(12000, metersBetween(ga, gb) * 0.65 + 8000));
-      } else if (ga) center = ga;
-      else if (gb) center = gb;
+      const radiusM = TRANSIT_RADIUS[r.mode] ?? 40000;
+      if (r.city) {
+        const g = cityGeo[`${r.country ?? ""}|${r.city}`];
+        if (g) center = [g.lat, g.lng];
+      }
       const ck = center ? `${Math.round(center[0] * 100) / 100},${Math.round(center[1] * 100) / 100}` : "";
       return {
         a: resolve(r.from, r.country),
@@ -612,7 +694,8 @@ export function TripMap({
         cacheKey: `${r.mode}|${r.line ?? ""}|${ck}`,
       };
     });
-  }, [routes, showRoutes, resolve, routeGeo]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routes, showRoutes, resolve, routeGeo, cityGeo]);
 
   // Snap ground legs (car/moto/bus/metro/tram/train/transfer) to real roads via
   // OSRM so they follow streets instead of drawing straight, angular lines.
@@ -662,32 +745,20 @@ export function TripMap({
 
   // Resolve every transit leg from the OSM relation ONLY: boarding, alighting and
   // intermediate stops are real relation stops, so the pins always sit on the drawn
-  // line. Geocoding is used solely to decide WHICH relation stop a mismatched name
-  // refers to (snap to the nearest), never to place a point off the network. A leg
-  // whose line can't be found is marked "failed" (→ notice), never drawn city-to-city.
+  // line. Stops are matched to the relation purely by NAME (exact/accent-insensitive,
+  // then a 1-edit tolerance for spelling variants). A leg whose line can't be found
+  // is marked "failed" (→ notice), never drawn city-to-city.
   type TPin = { ll: LL; name: string; big: boolean };
   type TResolved = { state: "pending" | "failed" | "ok"; positions?: LL[]; pins?: TPin[] };
   const transitResolved = useMemo<Record<string, TResolved>>(() => {
     const map: Record<string, TResolved> = {};
     if (!showRoutes || !routes) return map;
 
-    // Match a stored stop name to a real relation stop. Exact/fuzzy name match
-    // first; otherwise use the geocoded point only to snap to the nearest stop.
-    const matchStop = (raw: string, country: string | undefined, union: TransitStop[]):
-      { stop?: TransitStop; pending?: boolean; failed?: boolean } => {
-      const exact = union.find((s) => sameStop(s.name, raw));
-      if (exact) return { stop: exact };
-      const gk = `${country ?? ""}|${cleanPlace(raw)}`;
-      if (!(gk in routeGeo)) return { pending: true };
-      const g = routeGeo[gk];
-      if (!g || union.length === 0) return { failed: true };
-      let best = union[0], bd = Infinity;
-      for (const s of union) {
-        const dx = s.ll[0] - g.lat, dy = s.ll[1] - g.lng, d = dx * dx + dy * dy;
-        if (d < bd) { bd = d; best = s; }
-      }
-      return { stop: best };
-    };
+    // Match a stored stop name to a real relation stop, by name only.
+    const matchStop = (raw: string, union: TransitStop[]): TransitStop | null =>
+      union.find((s) => sameStop(s.name, raw)) ??
+      union.find((s) => similarStop(s.name, raw)) ??
+      null;
 
     routeLines.forEach((l) => {
       if (!TRANSIT_MODES.has(l.mode)) return;
@@ -708,11 +779,9 @@ export function TripMap({
         if (uSeen.has(uk)) continue; uSeen.add(uk); union.push(s);
       }
 
-      const mb = matchStop(l.from, l.country, union);
-      const ma = matchStop(l.to, l.country, union);
-      if (mb.pending || ma.pending) { map[key] = { state: "pending" }; return; }
-      if (!mb.stop || !ma.stop) { map[key] = { state: "failed" }; return; }
-      const board = mb.stop, alight = ma.stop;
+      const board = matchStop(l.from, union);
+      const alight = matchStop(l.to, union);
+      if (!board || !alight) { map[key] = { state: "failed" }; return; }
 
       // Pick the variant whose track passes closest to BOTH matched stops.
       let chosen: TransitVariant | null = null, bestScore = Infinity;
@@ -754,7 +823,7 @@ export function TripMap({
     });
     return map;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeLines, showRoutes, transitPathCache, routeGeo]);
+  }, [routeLines, showRoutes, transitPathCache]);
 
   // Assemble the drawn geometry + coloured pins for every leg. Transit legs come
   // from transitResolved (relation stops); ground legs use the OSRM road path;
