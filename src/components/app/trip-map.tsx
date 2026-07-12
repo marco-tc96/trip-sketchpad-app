@@ -164,7 +164,6 @@ const OVERPASS_MIRRORS = [
   "https://overpass-api.de/api/interpreter",
   "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
 ];
-const _areaCache = new Map<string, string>();
 
 async function overpassFetch(query: string, timeoutMs = 25000): Promise<{ elements: unknown[] }> {
   const body = `data=${encodeURIComponent(query)}`;
@@ -186,30 +185,15 @@ async function overpassFetch(query: string, timeoutMs = 25000): Promise<{ elemen
   return Promise.any(attempts);
 }
 
-async function getAreaQuery(city: string): Promise<string> {
-  if (_areaCache.has(city)) return _areaCache.get(city)!;
-  try {
-    const r = await fetch(
-      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(city)}&format=json&limit=5&addressdetails=0`,
-      { headers: { Accept: "application/json" } },
-    );
-    const hits = (await r.json()) as Array<{ osm_type: string; osm_id: string; class: string; type: string }>;
-    const rel =
-      hits.find((h) => h.osm_type === "relation" && h.class === "boundary" && h.type === "administrative") ??
-      hits.find((h) => h.osm_type === "relation" && ["place", "boundary"].includes(h.class));
-    if (rel) {
-      const q = `area(${3600000000 + parseInt(rel.osm_id)})->.c`;
-      _areaCache.set(city, q);
-      return q;
-    }
-  } catch { /* fall through */ }
-  const fallback = `area["name"="${city}"]["boundary"="administrative"]->.c`;
-  _areaCache.set(city, fallback);
-  return fallback;
-}
-
 type LL = [number, number];
 const _near = (p: LL, q: LL) => Math.abs(p[0] - q[0]) < 1e-4 && Math.abs(p[1] - q[1]) < 1e-4;
+
+// Rough great-circle distance in metres (good enough for radius sizing).
+function metersBetween(a: LL, b: LL): number {
+  const dLat = (b[0] - a[0]) * 111000;
+  const dLng = (b[1] - a[1]) * 111000 * Math.cos(((a[0] + b[0]) / 2) * Math.PI / 180);
+  return Math.hypot(dLat, dLng);
+}
 
 // Stitch the route's way segments into one continuous ordered polyline,
 // flipping ways whose direction doesn't match so the path stays connected.
@@ -256,11 +240,13 @@ type OverpassEl = {
   members?: Array<{ type: string; ref?: number; role?: string; geometry?: Array<{ lat: number; lon: number }> }>;
 };
 
-async function fetchTransitGeometry(city: string, mode: string, ref: string): Promise<TransitLine> {
+async function fetchTransitGeometry(center: LL, radiusM: number, mode: string, ref: string): Promise<TransitLine> {
   const osmModes = OSM_ROUTE_MODES[mode];
-  if (!osmModes || !city || !ref) return { variants: [] };
-  const areaQ = await getAreaQuery(city);
+  if (!osmModes || !center || !ref) return { variants: [] };
   const cands = refCandidates(ref);
+  // Search around the real (geocoded) stop coordinates instead of a city admin
+  // area — the stored "city" is often a place/address that no boundary matches.
+  const around = `(around:${Math.round(radiusM)},${center[0]},${center[1]})`;
 
   // `.r out geom` → member way geometries; `node(r.r) out tags` → member node
   // names (name / name:en) with coordinates for the stops.
@@ -268,12 +254,12 @@ async function fetchTransitGeometry(city: string, mode: string, ref: string): Pr
     const clauses: string[] = [];
     for (const m of osmModes) {
       if (withRef) {
-        for (const rc of cands) clauses.push(`relation["type"="route"]["route"="${m}"]["ref"="${rc.replace(/"/g, "")}"](area.c)`);
+        for (const rc of cands) clauses.push(`relation["type"="route"]["route"="${m}"]["ref"="${rc.replace(/"/g, "")}"]${around}`);
       } else {
-        clauses.push(`relation["type"="route"]["route"="${m}"](area.c)`);
+        clauses.push(`relation["type"="route"]["route"="${m}"]${around}`);
       }
     }
-    return `[out:json][timeout:60];${areaQ};(${clauses.join(";")};)->.r;.r out geom;node(r.r);out tags;`;
+    return `[out:json][timeout:60];(${clauses.join(";")};)->.r;.r out geom;node(r.r);out tags;`;
   };
 
   const parse = (data: { elements: OverpassEl[] }): TransitVariant[] => {
@@ -587,20 +573,46 @@ export function TripMap({
   }, [routeGeo]);
 
   // Leg list used by the fetch effects (endpoints may be null until geocoded).
+  // `center`/`radiusM` frame the Overpass `around:` search for transit lines and
+  // come from the REAL geocoded stop coordinates (not the country centroid).
   const routeLines = useMemo(() => {
-    type Line = { a: LL | null; b: LL | null; mode: string; from: string; to: string; line?: string; city?: string; key: string };
+    type Line = {
+      a: LL | null; b: LL | null; mode: string; from: string; to: string;
+      line?: string; city?: string; country?: string; key: string;
+      center: LL | null; radiusM: number; cacheKey: string;
+    };
     if (!showRoutes || !routes) return [] as Line[];
-    return routes.map((r, i) => ({
-      a: resolve(r.from, r.country),
-      b: resolve(r.to, r.country),
-      mode: r.mode,
-      from: r.from,
-      to: r.to,
-      line: r.line,
-      city: r.city,
-      key: `${i}-${r.from}-${r.to}`,
-    }));
-  }, [routes, showRoutes, resolve]);
+    const geoOf = (raw: string, country?: string): LL | null => {
+      const g = routeGeo[`${country ?? ""}|${cleanPlace(raw)}`];
+      return g ? [g.lat, g.lng] : null;
+    };
+    return routes.map((r, i) => {
+      const ga = geoOf(r.from, r.country);
+      const gb = geoOf(r.to, r.country);
+      let center: LL | null = null;
+      let radiusM = 20000;
+      if (ga && gb) {
+        center = [(ga[0] + gb[0]) / 2, (ga[1] + gb[1]) / 2];
+        radiusM = Math.min(80000, Math.max(12000, metersBetween(ga, gb) * 0.65 + 8000));
+      } else if (ga) center = ga;
+      else if (gb) center = gb;
+      const ck = center ? `${Math.round(center[0] * 100) / 100},${Math.round(center[1] * 100) / 100}` : "";
+      return {
+        a: resolve(r.from, r.country),
+        b: resolve(r.to, r.country),
+        mode: r.mode,
+        from: r.from,
+        to: r.to,
+        line: r.line,
+        city: r.city,
+        country: r.country,
+        key: `${i}-${r.from}-${r.to}`,
+        center,
+        radiusM,
+        cacheKey: `${r.mode}|${r.line ?? ""}|${ck}`,
+      };
+    });
+  }, [routes, showRoutes, resolve, routeGeo]);
 
   // Snap ground legs (car/moto/bus/metro/tram/train/transfer) to real roads via
   // OSRM so they follow streets instead of drawing straight, angular lines.
@@ -622,22 +634,22 @@ export function TripMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeLines]);
 
-  // Fetch exact OSM geometry for transit legs that carry a line ref + city.
+  // Fetch exact OSM geometry for transit legs that carry a line ref, once their
+  // stop coordinates are geocoded (so we can search around the real location).
   useEffect(() => {
     const todo = routeLines.filter(
-      (l) => TRANSIT_MODES.has(l.mode) && l.line && l.city && !(`${l.city}|${l.mode}|${l.line}` in transitPathCache),
+      (l) => TRANSIT_MODES.has(l.mode) && l.line && l.center && !(l.cacheKey in transitPathCache),
     );
     if (todo.length === 0) return;
     let cancelled = false;
     (async () => {
       const updates: Record<string, TransitLine> = {};
       for (const l of todo) {
-        const key = `${l.city}|${l.mode}|${l.line}`;
-        if (key in transitPathCache || key in updates) continue;
+        if (l.cacheKey in transitPathCache || l.cacheKey in updates) continue;
         try {
-          updates[key] = await fetchTransitGeometry(l.city!, l.mode, l.line!);
+          updates[l.cacheKey] = await fetchTransitGeometry(l.center!, l.radiusM, l.mode, l.line!);
         } catch {
-          updates[key] = { variants: [] };
+          updates[l.cacheKey] = { variants: [] };
         }
       }
       if (!cancelled && Object.keys(updates).length > 0) {
@@ -677,11 +689,14 @@ export function TripMap({
       return { stop: best };
     };
 
-    routes.forEach((r, i) => {
-      if (!TRANSIT_MODES.has(r.mode)) return;
-      const key = `${i}-${r.from}-${r.to}`;
-      if (!r.line || !r.city) { map[key] = { state: "failed" }; return; }
-      const tl = transitPathCache[`${r.city}|${r.mode}|${r.line}`];
+    routeLines.forEach((l) => {
+      if (!TRANSIT_MODES.has(l.mode)) return;
+      const key = l.key;
+      // No line ref → nothing to look up; leave it to the geocoded straight line
+      // in `drawn` (NO "not traceable" notice for these).
+      if (!l.line) return;
+      if (!l.center) { map[key] = { state: "pending" }; return; } // stops not geocoded yet
+      const tl = transitPathCache[l.cacheKey];
       if (!tl) { map[key] = { state: "pending" }; return; }
       if (tl.variants.length === 0) { map[key] = { state: "failed" }; return; }
 
@@ -693,8 +708,8 @@ export function TripMap({
         if (uSeen.has(uk)) continue; uSeen.add(uk); union.push(s);
       }
 
-      const mb = matchStop(r.from, r.country, union);
-      const ma = matchStop(r.to, r.country, union);
+      const mb = matchStop(l.from, l.country, union);
+      const ma = matchStop(l.to, l.country, union);
       if (mb.pending || ma.pending) { map[key] = { state: "pending" }; return; }
       if (!mb.stop || !ma.stop) { map[key] = { state: "failed" }; return; }
       const board = mb.stop, alight = ma.stop;
@@ -739,7 +754,7 @@ export function TripMap({
     });
     return map;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routes, showRoutes, transitPathCache, routeGeo]);
+  }, [routeLines, showRoutes, transitPathCache, routeGeo]);
 
   // Assemble the drawn geometry + coloured pins for every leg. Transit legs come
   // from transitResolved (relation stops); ground legs use the OSRM road path;
@@ -755,9 +770,15 @@ export function TripMap({
 
       if (TRANSIT_MODES.has(r.mode)) {
         const res = transitResolved[key];
-        if (!res || res.state !== "ok" || !res.positions || !res.pins) return; // pending / failed → not drawn
-        out.push({ key, color, dash, positions: res.positions, pins: res.pins });
-        return;
+        // A leg with a line ref is handled strictly by transitResolved: draw only
+        // when "ok"; pending/failed → not drawn (failed also raises the notice).
+        // A leg WITHOUT a line ref (res undefined) falls through to a plain line.
+        if (res) {
+          if (res.state === "ok" && res.positions && res.pins) {
+            out.push({ key, color, dash, positions: res.positions, pins: res.pins });
+          }
+          return;
+        }
       }
 
       // Non-transit legs → geocoded endpoints (+ OSRM road path for car/moto).
