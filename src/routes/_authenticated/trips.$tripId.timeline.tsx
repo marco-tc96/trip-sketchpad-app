@@ -25,7 +25,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { citiesOfCountry, flagOf, cityNameLocalized } from "@/lib/country-data";
 import { cn } from "@/lib/utils";
-import { withRomanization } from "@/lib/romanize";
+import { withRomanization, registerEnName } from "@/lib/romanize";
 import { useCityPhoto } from "@/hooks/use-city-photo";
 import { hubsForMode, formatHub, type Hub, HUBS } from "@/lib/transport-hubs";
 import { useRemoteHubs, modeToKind } from "@/hooks/use-remote-hubs";
@@ -228,6 +228,9 @@ async function fetchLineStops(city: string, osmMode: string, lineRef: string): P
     if (el.type === "relation" && el.members) relations.push(el.members);
     else if ((el.type === "node" || el.type === "way") && el.tags?.name) {
       nameById.set(`${el.type[0]}${el.id}`, el.tags.name);
+      // Capture an official English name so the UI can prefer it over a raw
+      // transliteration of the local-script stop name.
+      registerEnName(el.tags.name, el.tags["name:en"] || el.tags["int_name"]);
     }
   }
   // Pick the route variant that yields the most named stops (usually the full
@@ -370,6 +373,32 @@ function TimelineView() {
   const profile = useQuery({ queryKey: ["profile"], queryFn: () => profFn() });
   const expFn = useServerFn(listExpenses);
   const expenses = useQuery({ queryKey: ["expenses", tripId], queryFn: () => expFn({ data: { trip_id: tripId } }) });
+
+  // Prefetch each transit line's OSM stops so official English names get
+  // registered — then the transliteration helper can prefer them in the UI.
+  const [, forceEnRerender] = useState(0);
+  useEffect(() => {
+    const rows = (items.data ?? []) as ItemRow[];
+    const targets = new Map<string, { city: string; osm: string; ref: string }>();
+    for (const it of rows) {
+      const legs = (it.meta as { mixed_legs?: Array<{ mode: string; vehicle?: string }> } | null)?.mixed_legs ?? [];
+      for (const l of legs) {
+        const osm = OSM_ROUTE_MODE[l.mode];
+        if (osm && it.location && l.vehicle) {
+          targets.set(`${it.location}|${osm}|${l.vehicle}`, { city: it.location, osm, ref: l.vehicle });
+        }
+      }
+    }
+    if (targets.size === 0) return;
+    let cancelled = false;
+    (async () => {
+      for (const { city, osm, ref } of targets.values()) {
+        try { await fetchLineStops(city, osm, ref); } catch { /* ignore */ }
+      }
+      if (!cancelled) forceEnRerender((n) => n + 1);
+    })();
+    return () => { cancelled = true; };
+  }, [items.data]);
 
   if (!trip.data) return <p className="text-sm text-muted-foreground">{t("loading")}</p>;
 

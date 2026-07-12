@@ -90,7 +90,14 @@ function TripLayout() {
   const updateFn = useServerFn(updateTrip);
   const itemsFn = useServerFn(listItems);
   const items = useQuery({ queryKey: ["items", tripId], queryFn: () => itemsFn({ data: { trip_id: tripId } }) });
-  const [mapMode, setMapMode] = useState<"cities" | "routes">("cities");
+  const [mapMode, setMapMode] = useState<"cities" | "routes">(() => {
+    try { return (localStorage.getItem("trip_map_mode") as "cities" | "routes") || "cities"; }
+    catch { return "cities"; }
+  });
+  const changeMapMode = (m: "cities" | "routes") => {
+    setMapMode(m);
+    try { localStorage.setItem("trip_map_mode", m); } catch { /* ignore */ }
+  };
   const mapRoutes = useMemo(() => buildMapRoutes(items.data ?? [], trip.data), [items.data, trip.data]);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -203,28 +210,6 @@ function TripLayout() {
     };
   }, [trip.data]);
 
-  const [isFavorite, setIsFavorite] = useState(() => {
-    try {
-      const stored = localStorage.getItem("trip_favorites");
-      return stored ? (JSON.parse(stored) as string[]).includes(tripId) : false;
-    } catch { return false; }
-  });
-
-  function toggleFavorite() {
-    setIsFavorite((prev) => {
-      const next = !prev;
-      try {
-        const stored = localStorage.getItem("trip_favorites");
-        const ids: string[] = stored ? (JSON.parse(stored) as string[]) : [];
-        const updated = next
-          ? [...new Set([...ids, tripId])]
-          : ids.filter((id) => id !== tripId);
-        localStorage.setItem("trip_favorites", JSON.stringify(updated));
-      } catch { /* ignore */ }
-      return next;
-    });
-  }
-
   if (trip.isLoading || !trip.data) {
     return <main className="mx-auto max-w-5xl px-4 py-8 text-sm text-muted-foreground">{t("loading")}</main>;
   }
@@ -236,7 +221,19 @@ function TripLayout() {
     countries?: string[];
     cities?: Array<{ name: string; country: string; lat?: number; lng?: number }>;
     trip_type?: "vacation" | "business" | "daytrip";
+    favorite?: boolean;
   };
+  // Favourite is stored on the trip row (DB) so it syncs across devices.
+  const isFavorite = Boolean(tripRow.favorite);
+  async function toggleFavorite() {
+    try {
+      await updateFn({ data: { id: tripId, patch: { favorite: !isFavorite } } });
+      qc.invalidateQueries({ queryKey: ["trip", tripId] });
+      qc.invalidateQueries({ queryKey: ["trips"] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("error_generic"));
+    }
+  }
   const coverType = (tripRow.cover_type ?? "auto") as "auto" | "map" | "photo" | "color";
   const cities = Array.isArray(tripRow.cities) ? tripRow.cities : [];
   const countries = Array.isArray(tripRow.countries) ? tripRow.countries : [];
@@ -574,7 +571,7 @@ function TripLayout() {
               <div className="absolute right-3 top-3 z-[1000] flex rounded-full border border-border/60 bg-background/85 p-0.5 text-xs shadow-soft backdrop-blur">
                 <button
                   type="button"
-                  onClick={() => setMapMode("cities")}
+                  onClick={() => changeMapMode("cities")}
                   className={cn(
                     "flex items-center gap-1 rounded-full px-2.5 py-1 transition",
                     mapMode === "cities" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
@@ -585,7 +582,7 @@ function TripLayout() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setMapMode("routes")}
+                  onClick={() => changeMapMode("routes")}
                   className={cn(
                     "flex items-center gap-1 rounded-full px-2.5 py-1 transition",
                     mapMode === "routes" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",

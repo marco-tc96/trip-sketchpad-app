@@ -29,6 +29,8 @@ const tripInput = z.object({
   cover_emoji: z.string().max(8).optional().nullable(),
   notes: z.string().max(4000).optional().nullable(),
   trip_type: z.enum(["vacation", "business", "daytrip"]).optional(),
+  // Per-user favourite flag — stored on the trip so it syncs across devices.
+  favorite: z.boolean().optional(),
 });
 
 export const listTrips = createServerFn({ method: "GET" })

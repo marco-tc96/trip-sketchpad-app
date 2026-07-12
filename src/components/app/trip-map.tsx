@@ -3,7 +3,7 @@ import { MapContainer, TileLayer, Marker, Popup, Tooltip, Polyline, CircleMarker
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { geocodeCity } from "@/lib/country-data";
-import { withRomanization } from "@/lib/romanize";
+import { withRomanization, registerEnName } from "@/lib/romanize";
 
 export type MapCity = { name: string; country: string; lat?: number; lng?: number };
 export type MapRoute = { from: string; to: string; mode: string; country?: string; line?: string; city?: string };
@@ -98,7 +98,7 @@ const modeStyle = (mode: string) => MODE_STYLE[mode] ?? { color: PRIMARY };
 
 // Ground modes whose path we snap to real roads via OSRM; plane/ferry stay
 // straight (dotted/dashed) since there are no roads to follow.
-const GROUND_MODES = new Set(["car", "moto", "bus", "metro", "tram", "train", "transfer"]);
+const GROUND_MODES = new Set(["car", "moto"]);
 
 // Ask OSRM for a road-following geometry between two points. Returns the full
 // polyline ([lat,lng][]) or null on failure (caller falls back to a straight line).
@@ -206,30 +206,74 @@ function stitchWays(ways: LL[][]): LL[] {
   return path;
 }
 
-// Fetch the real OSM geometry of a transit line (its route relation ways),
-// returning the longest continuous polyline found.
-async function fetchTransitGeometry(city: string, mode: string, ref: string): Promise<LL[]> {
+export type TransitLine = { path: LL[]; stops: Array<{ name: string; ll: LL }> };
+
+// Fetch the real OSM geometry of a transit line: its continuous polyline PLUS
+// the ordered stops (name + coordinates) read from the route relation itself —
+// so transit stops never depend on ambiguous global geocoding.
+async function fetchTransitGeometry(city: string, mode: string, ref: string): Promise<TransitLine> {
+  const empty: TransitLine = { path: [], stops: [] };
   const osmMode = OSM_ROUTE_MODE[mode];
-  if (!osmMode || !city || !ref) return [];
+  if (!osmMode || !city || !ref) return empty;
   const areaQ = await getAreaQuery(city);
   const modes = osmMode === "subway" ? ["subway", "metro"] : [osmMode];
   const clauses = modes
     .map((m) => `relation["type"="route"]["route"="${m}"]["ref"="${ref}"](area.c)`)
     .join(";");
-  const q = `[out:json][timeout:40];${areaQ};(${clauses};);out geom;`;
+  // `.r out geom` → way geometries; `node(r.r) out tags` → member node names
+  // (name / name:en) with coordinates, used to label & English-ify the stops.
+  const q = `[out:json][timeout:60];${areaQ};(${clauses};)->.r;.r out geom;node(r.r);out tags;`;
   const data = (await overpassFetch(q)) as {
-    elements: Array<{ type: string; members?: Array<{ type: string; geometry?: Array<{ lat: number; lon: number }> }> }>;
+    elements: Array<{
+      type: string;
+      id?: number;
+      lat?: number;
+      lon?: number;
+      tags?: Record<string, string>;
+      members?: Array<{ type: string; ref?: number; role?: string; geometry?: Array<{ lat: number; lon: number }> }>;
+    }>;
   };
-  let best: LL[] = [];
+  const nodeInfo = new Map<number, { name: string; ll: LL }>();
+  for (const el of data.elements) {
+    if (el.type === "node" && typeof el.id === "number" && el.tags?.name && typeof el.lat === "number" && typeof el.lon === "number") {
+      nodeInfo.set(el.id, { name: el.tags.name, ll: [el.lat, el.lon] });
+      registerEnName(el.tags.name, el.tags["name:en"] || el.tags["int_name"]);
+    }
+  }
+  let best: TransitLine = empty;
   for (const el of data.elements) {
     if (el.type !== "relation" || !el.members) continue;
     const ways = el.members
       .filter((m) => m.type === "way" && Array.isArray(m.geometry))
       .map((m) => (m.geometry as Array<{ lat: number; lon: number }>).map((g) => [g.lat, g.lon] as LL));
-    const stitched = stitchWays(ways);
-    if (stitched.length > best.length) best = stitched;
+    const path = stitchWays(ways);
+    const stops: Array<{ name: string; ll: LL }> = [];
+    const seen = new Set<string>();
+    for (const m of el.members) {
+      const role = m.role ?? "";
+      if (!(role.startsWith("stop") || role.startsWith("platform"))) continue;
+      if (m.type !== "node" || typeof m.ref !== "number") continue;
+      const info = nodeInfo.get(m.ref);
+      if (!info) continue;
+      const k = info.name.toLowerCase();
+      if (seen.has(k)) continue;
+      seen.add(k); stops.push(info);
+    }
+    if (path.length + stops.length > best.path.length + best.stops.length) best = { path, stops };
   }
   return best;
+}
+
+// Accent/space-insensitive stop-name matcher against the relation's own stops.
+const _normName = (s: string) =>
+  (s ?? "").normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase().replace(/\s+/g, "");
+function matchStop(stops: Array<{ name: string; ll: LL }>, raw: string): { name: string; ll: LL } | null {
+  const q = _normName(cleanPlace(raw));
+  if (!q) return null;
+  return stops.find((s) => {
+    const n = _normName(s.name);
+    return n === q || n.includes(q) || q.includes(n);
+  }) ?? null;
 }
 
 function nearestIdx(path: LL[], pt: LL): number {
@@ -257,23 +301,28 @@ function trimPath(path: LL[], a: LL, b: LL): LL[] {
 // Free-form geocoder for route endpoints (airports, stations, stops, streets).
 // geocodeCity() is city-structured and fails on these, so we hit Nominatim's
 // search endpoint with the full place name (+ an optional country filter).
+const AIRPORT_RE = /(airport|aeroporto|aeropuerto|aéroport|aeroport|flughafen|repülőtér|luchthaven|lotnisko|공항|空港|机场|機場)/i;
+
 async function geocodePlace(query: string, country?: string): Promise<{ lat: number; lng: number } | null> {
   const q = (query ?? "").trim();
   if (!q) return null;
+  const isAirport = AIRPORT_RE.test(q);
   try {
-    const params = new URLSearchParams({ q, format: "json", limit: "1", addressdetails: "0" });
+    const params = new URLSearchParams({ q, format: "json", limit: isAirport ? "5" : "1", addressdetails: "0" });
     if (country) params.set("countrycodes", country.toLowerCase());
     const r = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`, {
       headers: { Accept: "application/json" },
     });
     if (!r.ok) return null;
-    const hits = (await r.json()) as Array<{ lat: string; lon: string }>;
-    const hit = Array.isArray(hits) ? hits[0] : undefined;
-    if (hit) {
-      const lat = parseFloat(hit.lat);
-      const lng = parseFloat(hit.lon);
-      if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
-    }
+    const hits = (await r.json()) as Array<{ lat: string; lon: string; class?: string; type?: string }>;
+    if (!Array.isArray(hits) || hits.length === 0) return null;
+    // For airports, prefer an actual aerodrome feature over the host city.
+    const hit = isAirport
+      ? (hits.find((h) => h.class === "aeroway" || h.type === "aerodrome") ?? hits[0])
+      : hits[0];
+    const lat = parseFloat(hit.lat);
+    const lng = parseFloat(hit.lon);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
   } catch { /* ignore */ }
   return null;
 }
@@ -336,13 +385,15 @@ export function TripMap({
   // Road-snapped geometries per leg (keyed by the leg key), from OSRM.
   const [pathCache, setPathCache] = useState<Record<string, [number, number][]>>({});
   // Real transit-line geometries keyed by `city|mode|ref`, from OSM/Overpass.
-  const [transitPathCache, setTransitPathCache] = useState<Record<string, [number, number][]>>({});
+  const [transitPathCache, setTransitPathCache] = useState<Record<string, TransitLine>>({});
 
   // Unique route endpoints that need geocoding (only when routes are shown).
   const routeEndpoints = useMemo<Array<{ name: string; country?: string }>>(() => {
     if (!showRoutes || !routes || routes.length === 0) return [];
     const seen = new Map<string, { name: string; country?: string }>();
     for (const r of routes) {
+      // Transit legs with a line ref use OSM relation geometry, not geocoding.
+      if (TRANSIT_MODES.has(r.mode) && r.line && r.city) continue;
       for (const raw of [r.from, r.to]) {
         const name = cleanPlace(raw);
         if (!name) continue;
@@ -437,29 +488,32 @@ export function TripMap({
     };
   }, [routeGeo]);
 
-  // Build the polylines for the legs that could be geocoded.
+  // Leg list used by the fetch effects (endpoints may be null until geocoded).
   const routeLines = useMemo(() => {
-    type Line = { a: [number, number]; b: [number, number]; mode: string; from: string; to: string; line?: string; city?: string; key: string };
+    type Line = { a: LL | null; b: LL | null; mode: string; from: string; to: string; line?: string; city?: string; key: string };
     if (!showRoutes || !routes) return [] as Line[];
-    const out: Line[] = [];
-    routes.forEach((r, i) => {
-      const a = resolve(r.from, r.country);
-      const b = resolve(r.to, r.country);
-      if (a && b) out.push({ a, b, mode: r.mode, from: r.from, to: r.to, line: r.line, city: r.city, key: `${i}-${r.from}-${r.to}` });
-    });
-    return out;
+    return routes.map((r, i) => ({
+      a: resolve(r.from, r.country),
+      b: resolve(r.to, r.country),
+      mode: r.mode,
+      from: r.from,
+      to: r.to,
+      line: r.line,
+      city: r.city,
+      key: `${i}-${r.from}-${r.to}`,
+    }));
   }, [routes, showRoutes, resolve]);
 
   // Snap ground legs (car/moto/bus/metro/tram/train/transfer) to real roads via
   // OSRM so they follow streets instead of drawing straight, angular lines.
   useEffect(() => {
-    const pending = routeLines.filter((l) => GROUND_MODES.has(l.mode) && !(l.key in pathCache));
+    const pending = routeLines.filter((l) => GROUND_MODES.has(l.mode) && l.a && l.b && !(l.key in pathCache));
     if (pending.length === 0) return;
     let cancelled = false;
     (async () => {
       const updates: Record<string, [number, number][]> = {};
       for (const l of pending) {
-        const path = await fetchRoadPath(l.a, l.b);
+        const path = await fetchRoadPath(l.a!, l.b!);
         if (path) updates[l.key] = path;
       }
       if (!cancelled && Object.keys(updates).length > 0) {
@@ -478,14 +532,14 @@ export function TripMap({
     if (todo.length === 0) return;
     let cancelled = false;
     (async () => {
-      const updates: Record<string, [number, number][]> = {};
+      const updates: Record<string, TransitLine> = {};
       for (const l of todo) {
         const key = `${l.city}|${l.mode}|${l.line}`;
         if (key in transitPathCache || key in updates) continue;
         try {
           updates[key] = await fetchTransitGeometry(l.city!, l.mode, l.line!);
         } catch {
-          updates[key] = [];
+          updates[key] = { path: [], stops: [] };
         }
       }
       if (!cancelled && Object.keys(updates).length > 0) {
@@ -495,6 +549,53 @@ export function TripMap({
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeLines]);
+
+  // Resolve each leg's final drawn geometry + coloured stop pins. Transit legs
+  // use the OSM relation (trimmed between the matched stops); ground legs use
+  // the OSRM road path; everything else is a straight line. Pins sit on the
+  // line endpoints so they always coincide with the drawn route.
+  const drawn = useMemo(() => {
+    type Drawn = { key: string; color: string; dash?: string; positions: LL[]; pins: LL[]; names: string[] };
+    if (!showRoutes || !routes) return [] as Drawn[];
+    const out: Drawn[] = [];
+    routes.forEach((r, i) => {
+      const key = `${i}-${r.from}-${r.to}`;
+      const { color, dash } = modeStyle(r.mode);
+      if (TRANSIT_MODES.has(r.mode) && r.line && r.city) {
+        const data = transitPathCache[`${r.city}|${r.mode}|${r.line}`];
+        if (!data || data.path.length < 2) return; // pending/unavailable → don't draw a wrong line
+        const fromStop = matchStop(data.stops, r.from);
+        const toStop = matchStop(data.stops, r.to);
+        if (fromStop && toStop) {
+          out.push({
+            key, color, dash,
+            positions: trimPath(data.path, fromStop.ll, toStop.ll),
+            pins: [fromStop.ll, toStop.ll],
+            names: [fromStop.name, toStop.name],
+          });
+        } else {
+          out.push({
+            key, color, dash,
+            positions: data.path,
+            pins: [data.path[0], data.path[data.path.length - 1]],
+            names: [cleanPlace(r.from), cleanPlace(r.to)],
+          });
+        }
+        return;
+      }
+      const a = resolve(r.from, r.country);
+      const b = resolve(r.to, r.country);
+      if (!a || !b) return;
+      let positions: LL[] = [a, b];
+      if (GROUND_MODES.has(r.mode) && pathCache[key]) positions = pathCache[key];
+      out.push({
+        key, color, dash, positions,
+        pins: [positions[0], positions[positions.length - 1]],
+        names: [cleanPlace(r.from), cleanPlace(r.to)],
+      });
+    });
+    return out;
+  }, [routes, showRoutes, transitPathCache, pathCache, resolve]);
 
   // Country centroid fallback when ALL cities have no coordinates.
   const fallbackPoints = useMemo<[number, number][]>(() => {
@@ -512,8 +613,8 @@ export function TripMap({
   const cityPoints = points.length > 0 ? points : fallbackPoints;
   // When showing routes, fit the view to include every leg endpoint too.
   const boundsPoints = useMemo<[number, number][]>(
-    () => (showRoutes ? [...cityPoints, ...routeLines.flatMap((l) => [l.a, l.b])] : cityPoints),
-    [cityPoints, routeLines, showRoutes],
+    () => (showRoutes ? [...cityPoints, ...drawn.flatMap((d) => d.positions)] : cityPoints),
+    [cityPoints, drawn, showRoutes],
   );
 
   if (boundsPoints.length === 0) {
@@ -547,47 +648,32 @@ export function TripMap({
       )}
 
       {showRoutes &&
-        routeLines.map((l) => {
-          const st = modeStyle(l.mode);
-          // Prefer the real transit-line geometry (trimmed to the ridden
-          // segment); fall back to the road-snapped path, then a straight line.
-          const transitKey = l.line && l.city ? `${l.city}|${l.mode}|${l.line}` : "";
-          const transitGeom = transitKey ? transitPathCache[transitKey] : undefined;
-          const positions =
-            transitGeom && transitGeom.length > 1
-              ? trimPath(transitGeom, l.a, l.b)
-              : pathCache[l.key] ?? [l.a, l.b];
-          return (
-            <Polyline
-              key={l.key}
-              positions={positions}
-              pathOptions={{ color: st.color, weight: 3, opacity: 0.9, dashArray: st.dash }}
-            />
-          );
-        })}
+        drawn.map((d) => (
+          <Polyline
+            key={d.key}
+            positions={d.positions}
+            pathOptions={{ color: d.color, weight: 3, opacity: 0.9, dashArray: d.dash }}
+          />
+        ))}
 
-      {/* Stop pins — one dot per leg endpoint, coloured like its mode */}
+      {/* Stop pins — coloured like the mode, placed on the drawn line's ends */}
       {showRoutes &&
-        routeLines.flatMap((l) => {
-          const color = modeStyle(l.mode).color;
-          return [
-            { pt: l.a, name: cleanPlace(l.from), key: `${l.key}-a` },
-            { pt: l.b, name: cleanPlace(l.to), key: `${l.key}-b` },
-          ].map((s) => (
+        drawn.flatMap((d) =>
+          d.pins.map((pt, idx) => (
             <CircleMarker
-              key={s.key}
-              center={s.pt}
+              key={`${d.key}-p${idx}`}
+              center={pt}
               radius={5}
-              pathOptions={{ color: "#ffffff", weight: 2, fillColor: color, fillOpacity: 1 }}
+              pathOptions={{ color: "#ffffff", weight: 2, fillColor: d.color, fillOpacity: 1 }}
             >
-              {s.name && (
+              {d.names[idx] && (
                 <Tooltip direction="top" offset={[0, -6]}>
-                  {withRomanization(s.name, lang)}
+                  {withRomanization(d.names[idx], lang)}
                 </Tooltip>
               )}
             </CircleMarker>
-          ));
-        })}
+          )),
+        )}
 
       {enrichedCities
         .filter(

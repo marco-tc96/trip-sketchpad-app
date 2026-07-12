@@ -110,16 +110,36 @@ const TRANSLITERABLE = /[Ͱ-ϿЀ-ӿ぀-ヿ가-힣]/;
 // UI languages written in the Latin alphabet — only these users need a romanisation.
 const LATIN_LANGS = new Set(["it", "en", "es", "fr", "de", "pt"]);
 
+// Official English names captured from OSM (name:en / int_name), keyed by the
+// original stop/line name. Preferred over a raw transliteration when present
+// (e.g. "고속터미널" → "Seoul Express Bus Terminal" rather than "Gosogteomineol").
+const EN_NAMES = new Map<string, string>();
+export function registerEnName(original?: string | null, en?: string | null): void {
+  const o = (original ?? "").trim();
+  const e = (en ?? "").trim();
+  if (o && e && o !== e) EN_NAMES.set(o, e);
+}
+export function enNameOf(original?: string | null): string | undefined {
+  return EN_NAMES.get((original ?? "").trim());
+}
+
+// Capitalise the first letter of each word (after space or common separators).
+function titleCase(s: string): string {
+  return s.replace(/(^|[\s([/–—-])([a-z])/g, (_m, p: string, c: string) => p + c.toUpperCase());
+}
+
 /**
  * If `text` is written in a script foreign to a Latin-alphabet user, returns
- * "original (romanisation)"; otherwise returns the text unchanged.
+ * "original (english or romanisation)"; otherwise returns the text unchanged.
  */
 export function withRomanization(text: string | null | undefined, lang?: string): string {
   const s = (text ?? "").trim();
   if (!s) return s;
   if (!LATIN_LANGS.has((lang ?? "").slice(0, 2))) return s; // user already reads a non-Latin script
   if (!TRANSLITERABLE.test(s)) return s;
-  const roman = romanize(s).trim();
+  const en = enNameOf(s);
+  if (en) return `${s} (${en})`;
+  const roman = titleCase(romanize(s).trim());
   if (!roman || roman === s || !/[a-zA-Z]/.test(roman)) return s;
   return `${s} (${roman})`;
 }

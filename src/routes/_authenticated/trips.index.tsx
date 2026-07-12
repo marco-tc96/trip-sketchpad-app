@@ -228,14 +228,6 @@ function TripsList() {
     document.head.appendChild(s);
   }, []);
 
-  // ── Favorites (localStorage) ─────────────────────────────────────────────
-  const [favorites, setFavorites] = useState<Set<string>>(() => {
-    try {
-      const stored = localStorage.getItem("trip_favorites");
-      return stored ? new Set<string>(JSON.parse(stored) as string[]) : new Set<string>();
-    } catch { return new Set<string>(); }
-  });
-
   const todayInboundMap = useMemo(() => {
     const map = new Map<string, string | null>();
     for (const item of inboundQ.data ?? []) map.set(item.trip_id, item.end_at);
@@ -268,10 +260,10 @@ function TripsList() {
     [realTrips, isConcluded],
   );
 
-  // Favorites: include any trip that is favorited
+  // Favorites: stored on the trip row (DB) so they sync across devices.
   const favoriteTrips = useMemo(
-    () => trips.filter((tr) => favorites.has(tr.id)),
-    [trips, favorites],
+    () => trips.filter((tr) => (tr as unknown as { favorite?: boolean }).favorite),
+    [trips],
   );
 
   // ── Stats: total (all-time past trips) ───────────────────────────────────
