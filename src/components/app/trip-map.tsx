@@ -3,6 +3,7 @@ import { MapContainer, TileLayer, Marker, Popup, Tooltip, Polyline, CircleMarker
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { geocodeCity } from "@/lib/country-data";
+import { withRomanization } from "@/lib/romanize";
 
 export type MapCity = { name: string; country: string; lat?: number; lng?: number };
 export type MapRoute = { from: string; to: string; mode: string; country?: string; line?: string; city?: string };
@@ -316,6 +317,7 @@ export function TripMap({
   className,
   noTiles,
   compact,
+  lang,
 }: {
   cities: MapCity[];
   countries?: string[];
@@ -324,6 +326,7 @@ export function TripMap({
   className?: string;
   noTiles?: boolean;
   compact?: boolean;
+  lang?: string;
 }) {
   // Async geocoding cache for cities without stored coords.
   // Value is null when geocoding failed (explicit failure, not "pending").
@@ -579,7 +582,7 @@ export function TripMap({
             >
               {s.name && (
                 <Tooltip direction="top" offset={[0, -6]}>
-                  {s.name}
+                  {withRomanization(s.name, lang)}
                 </Tooltip>
               )}
             </CircleMarker>
@@ -598,10 +601,10 @@ export function TripMap({
             icon={pinIcon}
           >
             <Popup>
-              <strong>{c.name}</strong>
+              <strong>{withRomanization(c.name, lang)}</strong>
             </Popup>
             <Tooltip direction="top" offset={[0, -8]}>
-              {c.name}
+              {withRomanization(c.name, lang)}
             </Tooltip>
           </Marker>
         ))}

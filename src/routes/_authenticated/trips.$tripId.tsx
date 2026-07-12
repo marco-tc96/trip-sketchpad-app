@@ -565,6 +565,7 @@ function TripLayout() {
               countries={countries}
               routes={mapRoutes}
               showRoutes={mapMode === "routes"}
+              lang={lang}
               className="absolute inset-0 h-full w-full"
               compact
             />

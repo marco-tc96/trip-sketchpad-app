@@ -25,6 +25,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { citiesOfCountry, flagOf, cityNameLocalized } from "@/lib/country-data";
 import { cn } from "@/lib/utils";
+import { withRomanization } from "@/lib/romanize";
 import { useCityPhoto } from "@/hooks/use-city-photo";
 import { hubsForMode, formatHub, type Hub, HUBS } from "@/lib/transport-hubs";
 import { useRemoteHubs, modeToKind } from "@/hooks/use-remote-hubs";
@@ -513,7 +514,7 @@ function TimelineView() {
                             )}
                             {mixedLegs.length === 0 && STOP_KINDS.has(it.kind) && stopMeta?.from_stop && (
                               <ScrollText className="text-xs text-muted-foreground">
-                                {stopMeta.from_stop}{stopMeta.to_stop ? ` → ${stopMeta.to_stop}` : ""}
+                                {withRomanization(stopMeta.from_stop, lang)}{stopMeta.to_stop ? ` → ${withRomanization(stopMeta.to_stop, lang)}` : ""}
                               </ScrollText>
                             )}
                             {it.notes && <p className="mt-1 text-xs text-muted-foreground">{it.notes}</p>}
@@ -586,14 +587,14 @@ function TimelineView() {
                                   {/* Column 1 — icon + line ref */}
                                   <div className="flex items-center gap-1.5">
                                     <LIcon className={cn("h-4 w-4 shrink-0", color)} />
-                                    {leg.vehicle && <span className={cn("font-semibold", color)}>{leg.vehicle}</span>}
+                                    {leg.vehicle && <span className={cn("font-semibold", color)}>{withRomanization(leg.vehicle, lang)}</span>}
                                   </div>
                                   {/* Column 2 — departure time */}
                                   <div className="tabular-nums text-muted-foreground">{leg.depart_at || ""}</div>
                                   {/* Column 3 — boarding + alighting stops, stacked */}
                                   <div className="min-w-0 space-y-0.5 text-muted-foreground">
-                                    {leg.from_stop && <ScrollText>{leg.from_stop}</ScrollText>}
-                                    {leg.to_stop && <ScrollText>→ {leg.to_stop}</ScrollText>}
+                                    {leg.from_stop && <ScrollText>{withRomanization(leg.from_stop, lang)}</ScrollText>}
+                                    {leg.to_stop && <ScrollText>→ {withRomanization(leg.to_stop, lang)}</ScrollText>}
                                   </div>
                                 </Fragment>
                               );
@@ -1348,43 +1349,24 @@ function AddItemDialog({
       end_at: existing?.end_at ? existing.end_at.slice(0, 16) : "",
       notes: existing?.notes ?? "",
       day_index: existing?.day_index ?? defaultDayIndex ?? null as number | null,
-      from_stop: !isMulti ? (exMeta?.from_stop ?? "") : "",
-      to_stop: !isMulti ? (exMeta?.to_stop ?? "") : "",
+      from_stop: "",
+      to_stop: "",
       selectedTransit: (isMulti
         ? [...new Set(exLegs.map((l) => l.mode))]
         : STOP_KINDS.has(exKind) ? [exKind] : []) as string[],
-      mixedLegs: isMulti ? [...exLegs] : [] as MixedLeg[],
+      // Any transit item is edited through the multi-leg UI. A legacy single
+      // stop-based item is converted into one leg so it can be extended.
+      mixedLegs: isMulti
+        ? [...exLegs]
+        : STOP_KINDS.has(exKind)
+          ? [{ ...emptyMixedLeg(), mode: exKind as MixedLeg["mode"], from_stop: exMeta?.from_stop ?? "", to_stop: exMeta?.to_stop ?? "" }]
+          : ([] as MixedLeg[]),
     };
   };
   const [form, setForm] = useState(seedForm);
 
-  // ── Transit stop data for single-mode PT (populated after line selection) ─
-  const [selectedLineRef, setSelectedLineRef] = useState("");
-  const [transitStops, setTransitStops] = useState<string[]>([]);
-  const [transitStopsLoading, setTransitStopsLoading] = useState(false);
-
-  const singlePTMode = form.selectedTransit.length === 1 && PT_TRANSIT_KINDS.has(form.selectedTransit[0])
-    ? form.selectedTransit[0]
-    : null;
-
-  // Fetch stops when a line ref is selected (single-mode only)
-  useEffect(() => {
-    if (!selectedLineRef || !singlePTMode || !form.location) { setTransitStops([]); return; }
-    let cancelled = false;
-    setTransitStopsLoading(true);
-    setTransitStops([]);
-    fetchLineStops(form.location, OSM_ROUTE_MODE[singlePTMode], selectedLineRef)
-      .then(stops => { if (!cancelled) setTransitStops(stops); })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setTransitStopsLoading(false); });
-    return () => { cancelled = true; };
-  }, [selectedLineRef]); // eslint-disable-line
-
   function handleOpenChange(v: boolean) {
-    if (v) {
-      setForm(seedForm());
-      setSelectedLineRef(""); setTransitStops([]);
-    }
+    if (v) setForm(seedForm());
     setOpen(v);
   }
   const [locOpen, setLocOpen] = useState(false);
@@ -1410,6 +1392,7 @@ function AddItemDialog({
   ];
 
   const isMultiModal = form.selectedTransit.length >= 2;
+  const hasTransit = form.selectedTransit.length >= 1;
   const addMixedLeg = () => setForm((f) => ({
     ...f,
     mixedLegs: [...f.mixedLegs, { ...emptyMixedLeg(), mode: (f.selectedTransit[0] ?? "bus") as MixedLeg["mode"] }],
@@ -1444,19 +1427,18 @@ function AddItemDialog({
           onSubmit={async (e) => {
             e.preventDefault();
             try {
-              const submitKind = (isMultiModal
-                ? "transfer"
-                : form.selectedTransit.length === 1
-                  ? form.selectedTransit[0]
-                  : form.kind) as (typeof ITEM_KINDS)[number];
-              const meta = isMultiModal
-                ? { mixed_legs: form.mixedLegs }
-                : STOP_KINDS.has(submitKind)
-                  ? { from_stop: form.from_stop || null, to_stop: form.to_stop || null }
-                  : undefined;
+              // Any public-transport selection (even a single mode) is saved as
+              // one or more legs, so several lines of the same mode are allowed.
+              const usingLegs = form.selectedTransit.length >= 1;
+              const legs = form.mixedLegs.filter((l) => l.from_stop || l.to_stop || l.vehicle);
+              const distinctModes = [...new Set(legs.map((l) => l.mode))];
+              const submitKind = (usingLegs
+                ? (distinctModes.length > 1 ? "transfer" : (distinctModes[0] ?? form.selectedTransit[0]))
+                : form.kind) as (typeof ITEM_KINDS)[number];
+              const meta = usingLegs ? { mixed_legs: legs } : undefined;
               // Se manca start_at ma c'è il depart_at della prima tratta, usalo
-              const firstLegDepart = isMultiModal ? (form.mixedLegs[0]?.depart_at ?? "") : "";
-              const lastLegArrive = isMultiModal ? (form.mixedLegs[form.mixedLegs.length - 1]?.arrive_at ?? "") : "";
+              const firstLegDepart = usingLegs ? (legs[0]?.depart_at ?? "") : "";
+              const lastLegArrive = usingLegs ? (legs[legs.length - 1]?.arrive_at ?? "") : "";
               const resolvedStartAt = form.start_at || firstLegDepart || null;
               const resolvedEndAt = form.end_at || lastLegArrive || null;
               if (existing) {
@@ -1527,16 +1509,20 @@ function AddItemDialog({
                             const nextTransit = already
                               ? form.selectedTransit.filter((m) => m !== kind)
                               : [...form.selectedTransit, kind];
-                            const nextMulti = nextTransit.length >= 2;
                             setForm((f) => ({
                               ...f,
                               kind: nextTransit.length === 1
                                 ? nextTransit[0] as (typeof ITEM_KINDS)[number]
                                 : nextTransit.length === 0 ? "activity" : f.kind,
                               selectedTransit: nextTransit,
-                              mixedLegs: nextMulti && f.mixedLegs.length < 2
-                                ? nextTransit.slice(0, 2).map((m) => ({ ...emptyMixedLeg(), mode: m as MixedLeg["mode"] }))
-                                : !nextMulti ? [] : f.mixedLegs,
+                              // Seed one leg per selected mode the first time; keep
+                              // existing legs afterwards (add more via "add leg").
+                              mixedLegs:
+                                nextTransit.length === 0
+                                  ? []
+                                  : f.mixedLegs.length === 0
+                                    ? nextTransit.map((m) => ({ ...emptyMixedLeg(), mode: m as MixedLeg["mode"] }))
+                                    : f.mixedLegs,
                             }));
                           } else {
                             setForm((f) => ({ ...f, kind, selectedTransit: [], mixedLegs: [] }));
@@ -1640,94 +1626,45 @@ function AddItemDialog({
               </PopoverContent>
             </Popover>
           </div>
-          {form.selectedTransit.length === 1 && (
-            <div className="space-y-2">
-              {/* Line selector — bus / metro / tram with city set */}
-              {singlePTMode && form.location && (
-                <div className="space-y-1.5">
-                  <Label>{t("line")}</Label>
-                  <LineCombobox
-                    mode={singlePTMode}
-                    city={form.location}
-                    value={selectedLineRef}
-                    onChange={(ref) => {
-                      setSelectedLineRef(ref);
-                      setForm(f => ({ ...f, from_stop: "", to_stop: "" }));
-                    }}
-                  />
-                </div>
-              )}
-
-              {/* Boarding stop — free text with line-stop + city suggestions */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <Label>{t("boarding_stop")}</Label>
-                  {transitStopsLoading && (
-                    <span className="animate-pulse text-[11px] text-muted-foreground">{t("loading")}</span>
-                  )}
-                </div>
-                <StopCombobox
-                  mode={singlePTMode as MixedLeg["mode"]}
-                  city={form.location}
-                  countries={tripCountries}
-                  value={form.from_stop}
-                  onChange={(v) => setForm(f => ({ ...f, from_stop: v }))}
-                  placeholder={t("boarding_stop")}
-                  extraOptions={transitStops}
-                />
-              </div>
-
-              {/* Alighting stop — free text with line-stop + city suggestions */}
-              <div className="space-y-1.5">
-                <Label>{t("alighting_stop")}</Label>
-                <StopCombobox
-                  mode={singlePTMode as MixedLeg["mode"]}
-                  city={form.location}
-                  countries={tripCountries}
-                  value={form.to_stop}
-                  onChange={(v) => setForm(f => ({ ...f, to_stop: v }))}
-                  placeholder={t("alighting_stop")}
-                  extraOptions={transitStops}
-                />
-              </div>
-            </div>
-          )}
-          {isMultiModal && (
+          {hasTransit && (
             <div className="space-y-2">
               <Label>{t("legs_label")}</Label>
               {form.mixedLegs.map((leg, i) => (
                 <div key={i} className="space-y-2 rounded-xl border border-border bg-muted/30 p-3">
-                  {/* Mode picker — only shows the modes selected in categories */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex gap-1.5">
-                      {(form.selectedTransit as ("train" | "bus" | "metro" | "tram")[]).map((m) => {
-                        const LIcon = TRANSIT_ICON[m];
-                        const isActive = leg.mode === m;
-                        return (
-                          <button
-                            key={m}
-                            type="button"
-                            onClick={() => updateMixedLeg(i, { mode: m })}
-                            className={cn(
-                              "flex h-8 w-8 items-center justify-center rounded-xl border transition",
-                              isActive ? TRANSIT_COLOR_ACTIVE[m] : TRANSIT_COLOR_INACTIVE[m],
-                            )}
-                          >
-                            <LIcon className="h-4 w-4" />
-                          </button>
-                        );
-                      })}
+                  {/* Mode picker (only with >1 modes) + remove-leg button */}
+                  {(form.selectedTransit.length > 1 || form.mixedLegs.length > 1) && (
+                    <div className="flex items-center justify-between">
+                      <div className="flex gap-1.5">
+                        {form.selectedTransit.length > 1 &&
+                          (form.selectedTransit as ("train" | "bus" | "metro" | "tram")[]).map((m) => {
+                            const LIcon = TRANSIT_ICON[m];
+                            const isActive = leg.mode === m;
+                            return (
+                              <button
+                                key={m}
+                                type="button"
+                                onClick={() => updateMixedLeg(i, { mode: m })}
+                                className={cn(
+                                  "flex h-8 w-8 items-center justify-center rounded-xl border transition",
+                                  isActive ? TRANSIT_COLOR_ACTIVE[m] : TRANSIT_COLOR_INACTIVE[m],
+                                )}
+                              >
+                                <LIcon className="h-4 w-4" />
+                              </button>
+                            );
+                          })}
+                      </div>
+                      {form.mixedLegs.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeMixedLeg(i)}
+                          className="flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      )}
                     </div>
-                    {form.mixedLegs.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => removeMixedLeg(i)}
-                        className="flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                  </div>
+                  )}
                   {/* Line / vehicle picker */}
                   {PT_TRANSIT_KINDS.has(leg.mode) && form.location ? (
                     <LineCombobox
@@ -1987,7 +1924,8 @@ function StopCombobox({
   /** Line-specific stops (from Overpass) shown first among suggestions. */
   extraOptions?: string[];
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language || "it";
   const [open, setOpen] = useState(false);
   // When value is empty, seed the remote search with the city name so that
   // results appear immediately on focus (e.g. all Budapest metro stations)
@@ -2079,7 +2017,7 @@ function StopCombobox({
               className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
             >
               <span className="min-w-0 flex-1 truncate">
-                <span className="font-medium">{h.name}</span>
+                <span className="font-medium">{withRomanization(h.name, lang)}</span>
               </span>
             </button>
           ))}
@@ -2102,7 +2040,8 @@ function LineCombobox({
   value: string;
   onChange: (ref: string) => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language || "it";
   const [open, setOpen] = useState(false);
   const [lines, setLines] = useState<Array<{ ref: string; name: string }>>([]);
   const [loading, setLoading] = useState(false);
@@ -2153,7 +2092,7 @@ function LineCombobox({
               >
                 <span className="shrink-0 font-semibold">{line.ref}</span>
                 {desc && (
-                  <span className="min-w-0 flex-1 truncate text-xs opacity-55">{desc}</span>
+                  <span className="min-w-0 flex-1 truncate text-xs opacity-55">{withRomanization(desc, lang)}</span>
                 )}
               </button>
             );
