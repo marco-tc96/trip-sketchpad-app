@@ -6,7 +6,7 @@ import { geocodeCity } from "@/lib/country-data";
 import { withRomanization, registerEnName } from "@/lib/romanize";
 
 export type MapCity = { name: string; country: string; lat?: number; lng?: number };
-export type MapWaypoint = { name: string; enter?: boolean };
+export type MapWaypoint = { name: string; enter?: boolean; lat?: number | null; lng?: number | null; country?: string | null };
 export type MapRoute = { from: string; to: string; mode: string; country?: string; line?: string; city?: string; waypoints?: MapWaypoint[] };
 
 // Approximate country centroids (lat, lng) keyed by ISO-2.
@@ -643,8 +643,10 @@ export function TripMap({
       if (isTransitWithLine(r)) continue;
       const airport = r.mode === "plane";
       const raws = [r.from, r.to];
-      // Road-leg waypoints (car/moto) also need geocoding to shape the route.
-      if (r.mode === "car" || r.mode === "moto") for (const w of (r.waypoints ?? [])) if (w.name) raws.push(w.name);
+      // Road-leg waypoints (car/moto) need geocoding ONLY when they don't already
+      // carry coordinates (picked from suggestions).
+      if (r.mode === "car" || r.mode === "moto")
+        for (const w of (r.waypoints ?? [])) if (w.name && !(typeof w.lat === "number" && typeof w.lng === "number")) raws.push(w.name);
       for (const raw of raws) {
         const name = cleanPlace(raw);
         if (!name) continue;
@@ -809,6 +811,11 @@ export function TripMap({
         for (const w of (r.waypoints ?? [])) {
           const nm = cleanPlace(w.name);
           if (!nm) continue;
+          // Prefer coordinates stored when the city was picked from suggestions.
+          if (typeof w.lat === "number" && typeof w.lng === "number") {
+            vias.push({ ll: [w.lat, w.lng], enter: !!w.enter, name: nm });
+            continue;
+          }
           const gk = `${r.country ?? ""}|${nm}`;
           if (!(gk in routeGeo)) { viasReady = false; continue; } // still pending
           const g = routeGeo[gk];

@@ -48,7 +48,7 @@ type ItemRow = {
 };
 
 type TransportMode = "car" | "moto" | "train" | "plane" | "ferry" | "bus" | "metro" | "tram";
-type Waypoint = { name: string; enter?: boolean };
+type Waypoint = { name: string; enter?: boolean; lat?: number | null; lng?: number | null; country?: string | null };
 type Leg = {
   from: string;
   to: string;
@@ -1127,6 +1127,28 @@ function TransportDialog({
     setLegs((arr) => arr.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
   }
 
+  // Geographic corridor between the road leg's start and end — used to limit the
+  // waypoint city suggestions to the countries the trip actually crosses.
+  const [corridorBox, setCorridorBox] = useState<CorridorBox | null>(null);
+  const legFrom = legs[0]?.from ?? "";
+  const legTo = legs[0]?.to ?? "";
+  useEffect(() => {
+    if (mode !== "car" && mode !== "moto") { setCorridorBox(null); return; }
+    const from = legFrom.trim(), to = legTo.trim();
+    if (!from || !to) { setCorridorBox(null); return; }
+    let alive = true;
+    (async () => {
+      const [a, b] = await Promise.all([geocodePlaceName(from), geocodePlaceName(to)]);
+      if (!alive || !a || !b) return;
+      const m = 1.5; // degrees of margin around the direct corridor
+      setCorridorBox({
+        minLat: Math.min(a.lat, b.lat) - m, maxLat: Math.max(a.lat, b.lat) + m,
+        minLng: Math.min(a.lng, b.lng) - m, maxLng: Math.max(a.lng, b.lng) + m,
+      });
+    })();
+    return () => { alive = false; };
+  }, [mode, legFrom, legTo]);
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     try {
@@ -1320,13 +1342,17 @@ function TransportDialog({
                     </Label>
                     {(leg.waypoints ?? []).map((w, wi) => (
                       <div key={wi} className="flex items-center gap-2">
-                        <Input
+                        <WaypointCombobox
                           value={w.name}
+                          box={corridorBox}
+                          lang={lang}
                           placeholder={wpL(lang).place}
-                          onChange={(e) => {
-                            const name = e.target.value;
-                            updateLeg(i, { waypoints: (leg.waypoints ?? []).map((x, xi) => (xi === wi ? { ...x, name } : x)) });
-                          }}
+                          onType={(name) =>
+                            updateLeg(i, { waypoints: (leg.waypoints ?? []).map((x, xi) => (xi === wi ? { ...x, name, lat: undefined, lng: undefined, country: undefined } : x)) })
+                          }
+                          onPick={(s) =>
+                            updateLeg(i, { waypoints: (leg.waypoints ?? []).map((x, xi) => (xi === wi ? { ...x, name: s.name, lat: s.lat, lng: s.lng, country: s.country } : x)) })
+                          }
                         />
                         <label className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
                           <input
@@ -2203,6 +2229,122 @@ function LineCombobox({
           {loading && (
             <div className="px-2 py-1.5 text-xs text-muted-foreground animate-pulse">{t("loading")}</div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Road-leg waypoint search (corridor between start and end) ─────────────────
+const _placeGeoCache = new Map<string, { lat: number; lng: number } | null>();
+async function geocodePlaceName(q: string): Promise<{ lat: number; lng: number } | null> {
+  const key = q.trim().toLowerCase();
+  if (!key) return null;
+  if (_placeGeoCache.has(key)) return _placeGeoCache.get(key)!;
+  try {
+    const r = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1&addressdetails=0`,
+      { headers: { Accept: "application/json" } },
+    );
+    const hits = (await r.json()) as Array<{ lat: string; lon: string }>;
+    const v = hits?.[0] ? { lat: parseFloat(hits[0].lat), lng: parseFloat(hits[0].lon) } : null;
+    _placeGeoCache.set(key, v);
+    return v;
+  } catch {
+    _placeGeoCache.set(key, null);
+    return null;
+  }
+}
+
+type CorridorBox = { minLat: number; minLng: number; maxLat: number; maxLng: number };
+type WpSuggestion = { name: string; label: string; country: string; lat: number; lng: number };
+
+// Suggest cities matching `q` within the geographic box between the leg's start
+// and end — so only places the trip actually crosses (departure/arrival country
+// + everything in between) appear, and far-off same-name towns don't.
+async function searchCorridorCities(q: string, box: CorridorBox | null, lang: string): Promise<WpSuggestion[]> {
+  const query = q.trim();
+  if (query.length < 2) return [];
+  try {
+    const params = new URLSearchParams({ q: query, format: "json", limit: "8", addressdetails: "1" });
+    params.set("accept-language", lang);
+    if (box) {
+      params.set("viewbox", `${box.minLng},${box.maxLat},${box.maxLng},${box.minLat}`);
+      params.set("bounded", "1");
+    }
+    const r = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`, { headers: { Accept: "application/json" } });
+    const hits = (await r.json()) as Array<{ lat: string; lon: string; type: string; class: string; display_name: string; name?: string; address?: Record<string, string> }>;
+    const out: WpSuggestion[] = [];
+    const seen = new Set<string>();
+    for (const h of hits) {
+      if (h.class !== "place" && h.class !== "boundary") continue;
+      const a = h.address ?? {};
+      const nm = a.city || a.town || a.village || a.municipality || h.name || h.display_name.split(",")[0];
+      if (!nm) continue;
+      const country = (a.country_code || "").toUpperCase();
+      const region = a.state || a.county || a.country || "";
+      const key = `${nm}|${country}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ name: nm, label: region ? `${nm}, ${region}` : nm, country, lat: parseFloat(h.lat), lng: parseFloat(h.lon) });
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+function WaypointCombobox({
+  value, box, lang, placeholder, onPick, onType,
+}: {
+  value: string;
+  box: CorridorBox | null;
+  lang: string;
+  placeholder?: string;
+  onPick: (s: WpSuggestion) => void;
+  onType: (name: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [items, setItems] = useState<WpSuggestion[]>([]);
+  const [loading, setLoading] = useState(false);
+  useEffect(() => {
+    const q = value.trim();
+    if (q.length < 2) { setItems([]); return; }
+    let alive = true;
+    setLoading(true);
+    const timer = setTimeout(async () => {
+      const res = await searchCorridorCities(q, box, lang);
+      if (alive) { setItems(res); setLoading(false); }
+    }, 350);
+    return () => { alive = false; clearTimeout(timer); };
+  }, [value, box, lang]);
+
+  return (
+    <div className="relative flex-1">
+      <Input
+        value={value}
+        placeholder={placeholder}
+        autoComplete="off"
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onChange={(e) => { onType(e.target.value); setOpen(true); }}
+      />
+      {open && (items.length > 0 || loading) && (
+        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-64 overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+          {loading && items.length === 0 && (
+            <div className="px-2 py-1.5 text-xs text-muted-foreground">…</div>
+          )}
+          {items.map((s, i) => (
+            <button
+              type="button"
+              key={`${s.name}-${s.country}-${i}`}
+              onMouseDown={(e) => { e.preventDefault(); onPick(s); setOpen(false); }}
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+            >
+              <span>{flagOf(s.country)}</span>
+              <span className="min-w-0 flex-1 truncate">{s.label}</span>
+            </button>
+          ))}
         </div>
       )}
     </div>

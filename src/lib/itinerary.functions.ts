@@ -10,6 +10,11 @@ export const ITEM_KINDS = [
 const waypointSchema = z.object({
   name: z.string().max(160),
   enter: z.boolean().optional(),
+  // Coordinates captured when the city is picked from suggestions, so the map
+  // places it precisely without an ambiguous name lookup.
+  lat: z.number().optional().nullable(),
+  lng: z.number().optional().nullable(),
+  country: z.string().max(2).optional().nullable(),
 });
 
 const legSchema = z.object({
