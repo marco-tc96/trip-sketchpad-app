@@ -550,7 +550,7 @@ const memTransit = new Map<string, TransitLine>();
 const memRoad = new Map<string, LL[]>();
 const memRail = new Map<string, LL[]>();
 
-const GEO_LS_KEY = "voyager_geocache_v1";
+const GEO_LS_KEY = "voyager_geocache_v2";
 const GEO_CAP = 800; // max total geocoding entries kept (keeps storage tiny)
 (function loadGeoCache() {
   try {
@@ -568,20 +568,31 @@ let _geoFlush: ReturnType<typeof setTimeout> | null = null;
 function capMap<T>(m: Map<string, T>, cap: number) {
   while (m.size > cap) { const k = m.keys().next().value; if (k === undefined) break; m.delete(k); }
 }
+// Only successful lookups are persisted; failed (null) ones are dropped so a
+// transient geocoding error isn't remembered forever and gets retried later.
+function _successOnly(m: Map<string, Coord>): Record<string, Coord> {
+  const o: Record<string, Coord> = {};
+  for (const [k, v] of m) if (v) o[k] = v;
+  return o;
+}
 function flushGeoCache() {
   try {
     if (typeof localStorage === "undefined") return;
     capMap(memGeoCity, GEO_CAP); capMap(memGeoRoute, GEO_CAP); capMap(memGeoCtr, GEO_CAP);
     localStorage.setItem(GEO_LS_KEY, JSON.stringify({
-      city: Object.fromEntries(memGeoCity),
-      route: Object.fromEntries(memGeoRoute),
-      ctr: Object.fromEntries(memGeoCtr),
+      city: _successOnly(memGeoCity),
+      route: _successOnly(memGeoRoute),
+      ctr: _successOnly(memGeoCtr),
     }));
   } catch { /* ignore quota errors */ }
 }
 // Merge freshly fetched values into a mem map (and debounce a localStorage write).
+// Only successful lookups are kept, so a failed geocode is retried on the next
+// navigation instead of being cached as a permanent failure.
 function rememberGeo(m: Map<string, Coord>, updates: Record<string, Coord>) {
-  for (const [k, v] of Object.entries(updates)) m.set(k, v);
+  let any = false;
+  for (const [k, v] of Object.entries(updates)) if (v) { m.set(k, v); any = true; }
+  if (!any) return;
   if (_geoFlush) clearTimeout(_geoFlush);
   _geoFlush = setTimeout(flushGeoCache, 1200);
 }
@@ -865,7 +876,10 @@ export function TripMap({
         }
       }
       if (!cancelled && Object.keys(updates).length > 0) {
-        for (const [k, v] of Object.entries(updates)) memTransit.set(k, v);
+        // Persist ONLY successful results across navigation. An empty result
+        // (transient Overpass failure) stays in local state to avoid a refetch
+        // loop this mount, but is NOT cached, so it's retried next time.
+        for (const [k, v] of Object.entries(updates)) if (v.variants.length > 0) memTransit.set(k, v);
         capMap(memTransit, 80);
         setTransitPathCache((prev) => ({ ...prev, ...updates }));
       }
