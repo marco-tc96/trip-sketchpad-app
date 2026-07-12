@@ -125,7 +125,39 @@ async function fetchRoadPath(
 
 // ── Real transit-line geometry (metro/tram/bus/train) from OSM via Overpass ──
 const TRANSIT_MODES = new Set(["bus", "metro", "tram", "train"]);
-const OSM_ROUTE_MODE: Record<string, string> = { bus: "bus", metro: "subway", tram: "tram", train: "train" };
+// Each app mode maps to the OSM route=* values that can carry it. A "metro" line
+// is tagged subway / light_rail / monorail depending on the city (e.g. Valencia's
+// metro is light_rail in OSM), so we accept several and match the ref afterwards.
+const OSM_ROUTE_MODES: Record<string, string[]> = {
+  bus: ["bus"],
+  metro: ["subway", "light_rail", "monorail", "metro"],
+  tram: ["tram", "light_rail"],
+  train: ["train", "light_rail"],
+};
+
+// Normalise a line ref/name for tolerant comparison.
+const _normRef = (s?: string | null) => (s ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+const _digits = (s?: string | null) => (s ?? "").replace(/\D+/g, "");
+// Candidate ref strings to try in the Overpass ref filter for a wanted line.
+function refCandidates(ref: string): string[] {
+  const t = (ref ?? "").trim();
+  const s = new Set<string>();
+  if (t) { s.add(t); s.add(t.toUpperCase()); s.add(t.replace(/\s+/g, "")); }
+  const d = _digits(t);
+  if (d) { s.add(d); s.add(`L${d}`); s.add(`Línea ${d}`); s.add(`Line ${d}`); }
+  return [...s];
+}
+// Does an OSM relation (its ref/name tags) correspond to the wanted line?
+function refMatches(relRef: string | undefined, relName: string | undefined, wanted: string): boolean {
+  const wr = _normRef(wanted), wd = _digits(wanted);
+  if (!wr) return true;
+  if (relRef) {
+    if (_normRef(relRef) === wr) return true;
+    if (wd && _digits(relRef) === wd) return true;
+  }
+  if (relName && wd && _digits(relName) === wd) return true;
+  return false;
+}
 
 const OVERPASS_MIRRORS = [
   "https://overpass.kumi.systems/api/interpreter",
@@ -215,57 +247,78 @@ export type TransitLine = { variants: TransitVariant[] };
 // (direction/variant) its track polyline PLUS the ordered stops (name +
 // coordinates) read straight from the relation — so both the path and the stop
 // positions are the real ones, never guessed via global geocoding.
+type OverpassEl = {
+  type: string;
+  id?: number;
+  lat?: number;
+  lon?: number;
+  tags?: Record<string, string>;
+  members?: Array<{ type: string; ref?: number; role?: string; geometry?: Array<{ lat: number; lon: number }> }>;
+};
+
 async function fetchTransitGeometry(city: string, mode: string, ref: string): Promise<TransitLine> {
-  const osmMode = OSM_ROUTE_MODE[mode];
-  if (!osmMode || !city || !ref) return { variants: [] };
+  const osmModes = OSM_ROUTE_MODES[mode];
+  if (!osmModes || !city || !ref) return { variants: [] };
   const areaQ = await getAreaQuery(city);
-  const modes = osmMode === "subway" ? ["subway", "metro"] : [osmMode];
-  const clauses = modes
-    .map((m) => `relation["type"="route"]["route"="${m}"]["ref"="${ref}"](area.c)`)
-    .join(";");
+  const cands = refCandidates(ref);
+
   // `.r out geom` → member way geometries; `node(r.r) out tags` → member node
   // names (name / name:en) with coordinates for the stops.
-  const q = `[out:json][timeout:60];${areaQ};(${clauses};)->.r;.r out geom;node(r.r);out tags;`;
-  const data = (await overpassFetch(q)) as {
-    elements: Array<{
-      type: string;
-      id?: number;
-      lat?: number;
-      lon?: number;
-      tags?: Record<string, string>;
-      members?: Array<{ type: string; ref?: number; role?: string; geometry?: Array<{ lat: number; lon: number }> }>;
-    }>;
+  const buildQuery = (withRef: boolean) => {
+    const clauses: string[] = [];
+    for (const m of osmModes) {
+      if (withRef) {
+        for (const rc of cands) clauses.push(`relation["type"="route"]["route"="${m}"]["ref"="${rc.replace(/"/g, "")}"](area.c)`);
+      } else {
+        clauses.push(`relation["type"="route"]["route"="${m}"](area.c)`);
+      }
+    }
+    return `[out:json][timeout:60];${areaQ};(${clauses.join(";")};)->.r;.r out geom;node(r.r);out tags;`;
   };
-  const nodeInfo = new Map<number, { name: string; ll: LL }>();
-  for (const el of data.elements) {
-    if (el.type === "node" && typeof el.id === "number" && el.tags?.name && typeof el.lat === "number" && typeof el.lon === "number") {
-      nodeInfo.set(el.id, { name: el.tags.name, ll: [el.lat, el.lon] });
-      registerEnName(el.tags.name, el.tags["name:en"] || el.tags["int_name"]);
+
+  const parse = (data: { elements: OverpassEl[] }): TransitVariant[] => {
+    const nodeInfo = new Map<number, { name: string; ll: LL }>();
+    for (const el of data.elements) {
+      if (el.type === "node" && typeof el.id === "number" && el.tags?.name && typeof el.lat === "number" && typeof el.lon === "number") {
+        nodeInfo.set(el.id, { name: el.tags.name, ll: [el.lat, el.lon] });
+        registerEnName(el.tags.name, el.tags["name:en"] || el.tags["int_name"]);
+      }
     }
-  }
-  const variants: TransitVariant[] = [];
-  for (const el of data.elements) {
-    if (el.type !== "relation" || !el.members) continue;
-    // Track ways only (exclude platform/stop_area ways) so the drawn line
-    // follows the rails/road and doesn't detour into platform polygons.
-    const ways = el.members
-      .filter((m) => m.type === "way" && Array.isArray(m.geometry) && !(m.role ?? "").startsWith("platform"))
-      .map((m) => (m.geometry as Array<{ lat: number; lon: number }>).map((g) => [g.lat, g.lon] as LL));
-    const path = stitchWays(ways);
-    // Ordered, de-duplicated stops (from stop / platform node members).
-    const stops: TransitStop[] = [];
-    const seen = new Set<string>();
-    for (const m of el.members) {
-      const role = m.role ?? "";
-      if (!(role.startsWith("stop") || role.startsWith("platform"))) continue;
-      if (m.type !== "node" || typeof m.ref !== "number") continue;
-      const info = nodeInfo.get(m.ref);
-      if (!info) continue;
-      const k = info.name.toLowerCase();
-      if (seen.has(k)) continue;
-      seen.add(k); stops.push(info);
+    const variants: TransitVariant[] = [];
+    for (const el of data.elements) {
+      if (el.type !== "relation" || !el.members) continue;
+      // Keep only the relations that are actually the wanted line (the ref query
+      // is permissive and the no-ref fallback returns the whole network).
+      if (!refMatches(el.tags?.ref, el.tags?.name, ref)) continue;
+      // Track ways only (exclude platform/stop_area ways) so the drawn line
+      // follows the rails/road and doesn't detour into platform polygons.
+      const ways = el.members
+        .filter((m) => m.type === "way" && Array.isArray(m.geometry) && !(m.role ?? "").startsWith("platform"))
+        .map((m) => (m.geometry as Array<{ lat: number; lon: number }>).map((g) => [g.lat, g.lon] as LL));
+      const path = stitchWays(ways);
+      // Ordered, de-duplicated stops (from stop / platform node members).
+      const stops: TransitStop[] = [];
+      const seen = new Set<string>();
+      for (const m of el.members) {
+        const role = m.role ?? "";
+        if (!(role.startsWith("stop") || role.startsWith("platform"))) continue;
+        if (m.type !== "node" || typeof m.ref !== "number") continue;
+        const info = nodeInfo.get(m.ref);
+        if (!info) continue;
+        const k = info.name.toLowerCase();
+        if (seen.has(k)) continue;
+        seen.add(k); stops.push(info);
+      }
+      if (path.length >= 2 || stops.length > 0) variants.push({ path, stops });
     }
-    if (path.length >= 2 || stops.length > 0) variants.push({ path, stops });
+    return variants;
+  };
+
+  let variants = parse((await overpassFetch(buildQuery(true))) as { elements: OverpassEl[] });
+  // Rail networks are small enough to fetch wholesale and match client-side when
+  // the ref filter missed (OSM uses a different ref format). Buses are too many.
+  if (variants.length === 0 && mode !== "bus") {
+    try { variants = parse((await overpassFetch(buildQuery(false))) as { elements: OverpassEl[] }); } catch { /* keep [] */ }
   }
   return { variants };
 }
@@ -289,6 +342,22 @@ function nearestIdx(path: LL[], pt: LL): number {
     if (d < bd) { bd = d; bi = i; }
   }
   return bi;
+}
+// Index of the relation stop whose coordinates are nearest a given point.
+function nearestStopIdx(stops: TransitStop[], pt: LL): number {
+  let bi = 0, bd = Infinity;
+  for (let i = 0; i < stops.length; i++) {
+    const dx = stops[i].ll[0] - pt[0], dy = stops[i].ll[1] - pt[1];
+    const d = dx * dx + dy * dy;
+    if (d < bd) { bd = d; bi = i; }
+  }
+  return bi;
+}
+// Squared distance from a point to the closest vertex of a polyline.
+function minDistSq(path: LL[], pt: LL): number {
+  let bd = Infinity;
+  for (const p of path) { const dx = p[0] - pt[0], dy = p[1] - pt[1]; const d = dx * dx + dy * dy; if (d < bd) bd = d; }
+  return bd;
 }
 
 // Keep only the portion of the line between the boarding and alighting stops.
@@ -314,7 +383,7 @@ async function geocodePlace(query: string, country?: string, airportHint = false
   // label doesn't already say "airport".
   const searchQ = isAirport && !AIRPORT_RE.test(q) ? `${q} airport` : q;
   try {
-    const params = new URLSearchParams({ q: searchQ, format: "json", limit: isAirport ? "8" : "1", addressdetails: "0" });
+    const params = new URLSearchParams({ q: searchQ, format: "json", limit: isAirport ? "10" : "1", addressdetails: "0" });
     if (country) params.set("countrycodes", country.toLowerCase());
     const r = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`, {
       headers: { Accept: "application/json" },
@@ -322,9 +391,12 @@ async function geocodePlace(query: string, country?: string, airportHint = false
     if (!r.ok) return null;
     const hits = (await r.json()) as Array<{ lat: string; lon: string; class?: string; type?: string }>;
     if (!Array.isArray(hits) || hits.length === 0) return null;
-    // For airports, prefer an actual aerodrome feature over the host city/river.
+    // For airports, prefer the actual aerodrome feature over the host city/river.
     const hit = isAirport
-      ? (hits.find((h) => h.class === "aeroway" || h.type === "aerodrome") ?? hits[0])
+      ? (hits.find((h) => h.class === "aeroway" && h.type === "aerodrome")
+          ?? hits.find((h) => h.class === "aeroway")
+          ?? hits.find((h) => h.type === "aerodrome")
+          ?? hits[0])
       : hits[0];
     const lat = parseFloat(hit.lat);
     const lng = parseFloat(hit.lon);
@@ -576,10 +648,102 @@ export function TripMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeLines]);
 
-  // Resolve each leg's final drawn geometry + coloured stop pins. Transit legs
-  // use the OSM relation (trimmed between the matched stops); ground legs use
-  // the OSRM road path; everything else is a straight line. Pins sit on the
-  // line endpoints so they always coincide with the drawn route.
+  // Resolve every transit leg from the OSM relation ONLY: boarding, alighting and
+  // intermediate stops are real relation stops, so the pins always sit on the drawn
+  // line. Geocoding is used solely to decide WHICH relation stop a mismatched name
+  // refers to (snap to the nearest), never to place a point off the network. A leg
+  // whose line can't be found is marked "failed" (→ notice), never drawn city-to-city.
+  type TPin = { ll: LL; name: string; big: boolean };
+  type TResolved = { state: "pending" | "failed" | "ok"; positions?: LL[]; pins?: TPin[] };
+  const transitResolved = useMemo<Record<string, TResolved>>(() => {
+    const map: Record<string, TResolved> = {};
+    if (!showRoutes || !routes) return map;
+
+    // Match a stored stop name to a real relation stop. Exact/fuzzy name match
+    // first; otherwise use the geocoded point only to snap to the nearest stop.
+    const matchStop = (raw: string, country: string | undefined, union: TransitStop[]):
+      { stop?: TransitStop; pending?: boolean; failed?: boolean } => {
+      const exact = union.find((s) => sameStop(s.name, raw));
+      if (exact) return { stop: exact };
+      const gk = `${country ?? ""}|${cleanPlace(raw)}`;
+      if (!(gk in routeGeo)) return { pending: true };
+      const g = routeGeo[gk];
+      if (!g || union.length === 0) return { failed: true };
+      let best = union[0], bd = Infinity;
+      for (const s of union) {
+        const dx = s.ll[0] - g.lat, dy = s.ll[1] - g.lng, d = dx * dx + dy * dy;
+        if (d < bd) { bd = d; best = s; }
+      }
+      return { stop: best };
+    };
+
+    routes.forEach((r, i) => {
+      if (!TRANSIT_MODES.has(r.mode)) return;
+      const key = `${i}-${r.from}-${r.to}`;
+      if (!r.line || !r.city) { map[key] = { state: "failed" }; return; }
+      const tl = transitPathCache[`${r.city}|${r.mode}|${r.line}`];
+      if (!tl) { map[key] = { state: "pending" }; return; }
+      if (tl.variants.length === 0) { map[key] = { state: "failed" }; return; }
+
+      // Union of every stop across all variants (real relation stops only).
+      const union: TransitStop[] = [];
+      const uSeen = new Set<string>();
+      for (const v of tl.variants) for (const s of v.stops) {
+        const uk = `${_normName(s.name)}@${s.ll[0].toFixed(4)},${s.ll[1].toFixed(4)}`;
+        if (uSeen.has(uk)) continue; uSeen.add(uk); union.push(s);
+      }
+
+      const mb = matchStop(r.from, r.country, union);
+      const ma = matchStop(r.to, r.country, union);
+      if (mb.pending || ma.pending) { map[key] = { state: "pending" }; return; }
+      if (!mb.stop || !ma.stop) { map[key] = { state: "failed" }; return; }
+      const board = mb.stop, alight = ma.stop;
+
+      // Pick the variant whose track passes closest to BOTH matched stops.
+      let chosen: TransitVariant | null = null, bestScore = Infinity;
+      for (const v of tl.variants) {
+        if (v.path.length < 2) continue;
+        const score = minDistSq(v.path, board.ll) + minDistSq(v.path, alight.ll);
+        if (score < bestScore) { bestScore = score; chosen = v; }
+      }
+
+      let positions: LL[];
+      let mids: TransitStop[] = [];
+      if (chosen) {
+        positions = trimPath(chosen.path, board.ll, alight.ll);
+        const bi = nearestStopIdx(chosen.stops, board.ll);
+        const ai = nearestStopIdx(chosen.stops, alight.ll);
+        const lo = Math.min(bi, ai), hi = Math.max(bi, ai);
+        mids = chosen.stops.slice(lo + 1, hi);
+        if (bi > ai) mids = mids.slice().reverse();
+      } else {
+        // No track geometry available — order the stops from the richest variant.
+        const sv = tl.variants.reduce((a, b) => (b.stops.length > a.stops.length ? b : a), tl.variants[0]);
+        const bi = nearestStopIdx(sv.stops, board.ll);
+        const ai = nearestStopIdx(sv.stops, alight.ll);
+        const lo = Math.min(bi, ai), hi = Math.max(bi, ai);
+        let seq = sv.stops.slice(lo, hi + 1);
+        if (bi > ai) seq = seq.slice().reverse();
+        if (seq.length < 2) seq = [board, alight];
+        positions = seq.map((s) => s.ll);
+        mids = seq.slice(1, -1);
+      }
+      mids = mids.filter((s) => !sameStop(s.name, board.name) && !sameStop(s.name, alight.name));
+
+      const pins: TPin[] = [
+        { ll: board.ll, name: board.name, big: true },
+        ...mids.map((s) => ({ ll: s.ll, name: s.name, big: false })),
+        { ll: alight.ll, name: alight.name, big: true },
+      ];
+      map[key] = { state: "ok", positions, pins };
+    });
+    return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routes, showRoutes, transitPathCache, routeGeo]);
+
+  // Assemble the drawn geometry + coloured pins for every leg. Transit legs come
+  // from transitResolved (relation stops); ground legs use the OSRM road path;
+  // everything else is a straight line between geocoded endpoints.
   const drawn = useMemo(() => {
     type Pin = { ll: LL; name: string; big: boolean };
     type Drawn = { key: string; color: string; dash?: string; positions: LL[]; pins: Pin[] };
@@ -589,40 +753,10 @@ export function TripMap({
       const key = `${i}-${r.from}-${r.to}`;
       const { color, dash } = modeStyle(r.mode);
 
-      if (TRANSIT_MODES.has(r.mode) && r.line && r.city) {
-        const tl = transitPathCache[`${r.city}|${r.mode}|${r.line}`];
-        if (!tl || tl.variants.length === 0) return; // still loading / no data
-        // Use the variant with the longest track as the line geometry.
-        let v = tl.variants[0];
-        for (const cand of tl.variants) if (cand.path.length > v.path.length) v = cand;
-        // Boarding/alighting: prefer the relation's own stop (exact), otherwise
-        // fall back to geocoding the stop name (this is what worked before).
-        const fMatch = v.stops.find((s) => sameStop(s.name, r.from));
-        const tMatch = v.stops.find((s) => sameStop(s.name, r.to));
-        const board = fMatch?.ll ?? resolve(r.from, r.country);
-        const alight = tMatch?.ll ?? resolve(r.to, r.country);
-        if (!board || !alight) return; // endpoints not resolvable yet → skip (may warn)
-        const boardName = fMatch?.name ?? cleanPlace(r.from);
-        const alightName = tMatch?.name ?? cleanPlace(r.to);
-        let positions: LL[] = [board, alight];
-        let mids: TransitStop[] = [];
-        if (v.path.length >= 2) {
-          positions = trimPath(v.path, board, alight);
-          const lo = Math.min(nearestIdx(v.path, board), nearestIdx(v.path, alight));
-          const hi = Math.max(nearestIdx(v.path, board), nearestIdx(v.path, alight));
-          mids = v.stops
-            .filter((s) => {
-              const k = nearestIdx(v.path, s.ll);
-              return k > lo && k < hi && !sameStop(s.name, r.from) && !sameStop(s.name, r.to);
-            })
-            .sort((a2, b2) => nearestIdx(v.path, a2.ll) - nearestIdx(v.path, b2.ll));
-        }
-        const pins: Pin[] = [
-          { ll: board, name: boardName, big: true },
-          ...mids.map((s) => ({ ll: s.ll, name: s.name, big: false })),
-          { ll: alight, name: alightName, big: true },
-        ];
-        out.push({ key, color, dash, positions, pins });
+      if (TRANSIT_MODES.has(r.mode)) {
+        const res = transitResolved[key];
+        if (!res || res.state !== "ok" || !res.positions || !res.pins) return; // pending / failed → not drawn
+        out.push({ key, color, dash, positions: res.positions, pins: res.pins });
         return;
       }
 
@@ -641,28 +775,17 @@ export function TripMap({
       });
     });
     return out;
-  }, [routes, showRoutes, transitPathCache, pathCache, resolve]);
+  }, [routes, showRoutes, transitResolved, pathCache, resolve]);
 
-  // Count transit legs that were loaded but couldn't be placed on the map
-  // (missing OSM line data / stop not found) so we can warn the user.
+  // Count transit legs whose line couldn't be resolved from OSM data, to warn.
   const missingTransit = useMemo(() => {
     if (!showRoutes || !routes) return 0;
-    // "fail" = name not in relation AND geocoding returned null (not pending).
-    const endpointFailed = (raw: string, country: string | undefined, stops: TransitStop[]) => {
-      if (stops.some((s) => sameStop(s.name, raw))) return false;
-      const k = `${country ?? ""}|${cleanPlace(raw)}`;
-      return k in routeGeo && routeGeo[k] === null;
-    };
     let n = 0;
-    for (const r of routes) {
-      if (!(TRANSIT_MODES.has(r.mode) && r.line && r.city)) continue;
-      const tl = transitPathCache[`${r.city}|${r.mode}|${r.line}`];
-      if (!tl) continue; // still loading — don't warn yet
-      const stops = tl.variants.flatMap((v) => v.stops);
-      if (endpointFailed(r.from, r.country, stops) || endpointFailed(r.to, r.country, stops)) n++;
+    for (const key of Object.keys(transitResolved)) {
+      if (transitResolved[key].state === "failed") n++;
     }
     return n;
-  }, [routes, showRoutes, transitPathCache, routeGeo]);
+  }, [showRoutes, routes, transitResolved]);
 
   // Country centroid fallback when ALL cities have no coordinates.
   const fallbackPoints = useMemo<[number, number][]>(() => {
