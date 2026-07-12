@@ -681,7 +681,7 @@ export function TripMap({
   }
 
   return (
-    <div className={className} style={{ position: "relative" }}>
+    <div className={className}>
     <MapContainer
       ref={ref}
       center={boundsPoints[0]}
