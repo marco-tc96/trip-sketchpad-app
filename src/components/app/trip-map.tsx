@@ -273,19 +273,12 @@ async function fetchTransitGeometry(city: string, mode: string, ref: string): Pr
 // Accent/space-insensitive stop-name comparison.
 const _normName = (s: string) =>
   (s ?? "").normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase().replace(/\s+/g, "");
-function stopIndex(stops: TransitStop[], raw: string): number {
-  const q = _normName(cleanPlace(raw));
-  if (!q) return -1;
-  let exact = -1;
-  let partial = -1;
-  stops.forEach((s, i) => {
-    const n = _normName(s.name);
-    if (n === q && exact < 0) exact = i;
-    else if (partial < 0 && (n.includes(q) || q.includes(n))) partial = i;
-  });
-  return exact >= 0 ? exact : partial;
+function sameStop(a: string, b: string): boolean {
+  const x = _normName(cleanPlace(a));
+  const y = _normName(cleanPlace(b));
+  if (!x || !y) return false;
+  return x === y || x.includes(y) || y.includes(x);
 }
-
 function nearestIdx(path: LL[], pt: LL): number {
   let bi = 0;
   let bd = Infinity;
@@ -313,12 +306,15 @@ function trimPath(path: LL[], a: LL, b: LL): LL[] {
 // search endpoint with the full place name (+ an optional country filter).
 const AIRPORT_RE = /(airport|aeroporto|aeropuerto|aéroport|aeroport|flughafen|repülőtér|luchthaven|lotnisko|공항|空港|机场|機場)/i;
 
-async function geocodePlace(query: string, country?: string): Promise<{ lat: number; lng: number } | null> {
+async function geocodePlace(query: string, country?: string, airportHint = false): Promise<{ lat: number; lng: number } | null> {
   const q = (query ?? "").trim();
   if (!q) return null;
-  const isAirport = AIRPORT_RE.test(q);
+  const isAirport = airportHint || AIRPORT_RE.test(q);
+  // Bias the search toward the airport itself (not the host city) when the
+  // label doesn't already say "airport".
+  const searchQ = isAirport && !AIRPORT_RE.test(q) ? `${q} airport` : q;
   try {
-    const params = new URLSearchParams({ q, format: "json", limit: isAirport ? "5" : "1", addressdetails: "0" });
+    const params = new URLSearchParams({ q: searchQ, format: "json", limit: isAirport ? "8" : "1", addressdetails: "0" });
     if (country) params.set("countrycodes", country.toLowerCase());
     const r = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`, {
       headers: { Accept: "application/json" },
@@ -326,7 +322,7 @@ async function geocodePlace(query: string, country?: string): Promise<{ lat: num
     if (!r.ok) return null;
     const hits = (await r.json()) as Array<{ lat: string; lon: string; class?: string; type?: string }>;
     if (!Array.isArray(hits) || hits.length === 0) return null;
-    // For airports, prefer an actual aerodrome feature over the host city.
+    // For airports, prefer an actual aerodrome feature over the host city/river.
     const hit = isAirport
       ? (hits.find((h) => h.class === "aeroway" || h.type === "aerodrome") ?? hits[0])
       : hits[0];
@@ -415,18 +411,20 @@ export function TripMap({
   // Real transit-line geometries keyed by `city|mode|ref`, from OSM/Overpass.
   const [transitPathCache, setTransitPathCache] = useState<Record<string, TransitLine>>({});
 
-  // Unique route endpoints that need geocoding (only when routes are shown).
-  const routeEndpoints = useMemo<Array<{ name: string; country?: string }>>(() => {
+  // Unique route endpoints to geocode. Transit endpoints are included too, as a
+  // FALLBACK when the stop can't be matched by name inside the OSM relation.
+  const routeEndpoints = useMemo<Array<{ name: string; country?: string; airport: boolean }>>(() => {
     if (!showRoutes || !routes || routes.length === 0) return [];
-    const seen = new Map<string, { name: string; country?: string }>();
+    const seen = new Map<string, { name: string; country?: string; airport: boolean }>();
     for (const r of routes) {
-      // Transit legs with a line ref use OSM relation geometry, not geocoding.
-      if (TRANSIT_MODES.has(r.mode) && r.line && r.city) continue;
+      const airport = r.mode === "plane";
       for (const raw of [r.from, r.to]) {
         const name = cleanPlace(raw);
         if (!name) continue;
         const key = `${r.country ?? ""}|${name}`;
-        if (!seen.has(key)) seen.set(key, { name, country: r.country });
+        const prev = seen.get(key);
+        if (!prev) seen.set(key, { name, country: r.country, airport });
+        else if (airport) prev.airport = true;
       }
     }
     return [...seen.values()];
@@ -465,7 +463,7 @@ export function TripMap({
       for (const e of missing) {
         const key = `${e.country ?? ""}|${e.name}`;
         if (key in routeGeo || key in updates) continue;
-        updates[key] = await geocodePlace(e.name, e.country);
+        updates[key] = await geocodePlace(e.name, e.country, e.airport);
       }
       if (!cancelled && Object.keys(updates).length > 0) {
         setRouteGeo((prev) => ({ ...prev, ...updates }));
@@ -593,26 +591,36 @@ export function TripMap({
 
       if (TRANSIT_MODES.has(r.mode) && r.line && r.city) {
         const tl = transitPathCache[`${r.city}|${r.mode}|${r.line}`];
-        if (!tl) return; // still loading
-        // Pick the direction/variant that contains BOTH stops (real segment).
-        let picked: { v: TransitVariant; fi: number; ti: number } | null = null;
-        for (const v of tl.variants) {
-          const fi = stopIndex(v.stops, r.from);
-          const ti = stopIndex(v.stops, r.to);
-          if (fi >= 0 && ti >= 0) { picked = { v, fi, ti }; break; }
+        if (!tl || tl.variants.length === 0) return; // still loading / no data
+        // Use the variant with the longest track as the line geometry.
+        let v = tl.variants[0];
+        for (const cand of tl.variants) if (cand.path.length > v.path.length) v = cand;
+        // Boarding/alighting: prefer the relation's own stop (exact), otherwise
+        // fall back to geocoding the stop name (this is what worked before).
+        const fMatch = v.stops.find((s) => sameStop(s.name, r.from));
+        const tMatch = v.stops.find((s) => sameStop(s.name, r.to));
+        const board = fMatch?.ll ?? resolve(r.from, r.country);
+        const alight = tMatch?.ll ?? resolve(r.to, r.country);
+        if (!board || !alight) return; // endpoints not resolvable yet → skip (may warn)
+        const boardName = fMatch?.name ?? cleanPlace(r.from);
+        const alightName = tMatch?.name ?? cleanPlace(r.to);
+        let positions: LL[] = [board, alight];
+        let mids: TransitStop[] = [];
+        if (v.path.length >= 2) {
+          positions = trimPath(v.path, board, alight);
+          const lo = Math.min(nearestIdx(v.path, board), nearestIdx(v.path, alight));
+          const hi = Math.max(nearestIdx(v.path, board), nearestIdx(v.path, alight));
+          mids = v.stops
+            .filter((s) => {
+              const k = nearestIdx(v.path, s.ll);
+              return k > lo && k < hi && !sameStop(s.name, r.from) && !sameStop(s.name, r.to);
+            })
+            .sort((a2, b2) => nearestIdx(v.path, a2.ll) - nearestIdx(v.path, b2.ll));
         }
-        if (!picked) return; // can't place reliably → skip (never invent a line)
-        const { v, fi, ti } = picked;
-        const board = v.stops[fi];
-        const alight = v.stops[ti];
-        const lo = Math.min(fi, ti);
-        const hi = Math.max(fi, ti);
-        const mids = v.stops.slice(lo + 1, hi); // intermediate stops on this leg
-        const positions = v.path.length >= 2 ? trimPath(v.path, board.ll, alight.ll) : [board.ll, alight.ll];
         const pins: Pin[] = [
-          { ll: board.ll, name: board.name, big: true },
+          { ll: board, name: boardName, big: true },
           ...mids.map((s) => ({ ll: s.ll, name: s.name, big: false })),
-          { ll: alight.ll, name: alight.name, big: true },
+          { ll: alight, name: alightName, big: true },
         ];
         out.push({ key, color, dash, positions, pins });
         return;
@@ -639,16 +647,22 @@ export function TripMap({
   // (missing OSM line data / stop not found) so we can warn the user.
   const missingTransit = useMemo(() => {
     if (!showRoutes || !routes) return 0;
+    // "fail" = name not in relation AND geocoding returned null (not pending).
+    const endpointFailed = (raw: string, country: string | undefined, stops: TransitStop[]) => {
+      if (stops.some((s) => sameStop(s.name, raw))) return false;
+      const k = `${country ?? ""}|${cleanPlace(raw)}`;
+      return k in routeGeo && routeGeo[k] === null;
+    };
     let n = 0;
     for (const r of routes) {
       if (!(TRANSIT_MODES.has(r.mode) && r.line && r.city)) continue;
       const tl = transitPathCache[`${r.city}|${r.mode}|${r.line}`];
       if (!tl) continue; // still loading — don't warn yet
-      const ok = tl.variants.some((v) => stopIndex(v.stops, r.from) >= 0 && stopIndex(v.stops, r.to) >= 0);
-      if (!ok) n++;
+      const stops = tl.variants.flatMap((v) => v.stops);
+      if (endpointFailed(r.from, r.country, stops) || endpointFailed(r.to, r.country, stops)) n++;
     }
     return n;
-  }, [routes, showRoutes, transitPathCache]);
+  }, [routes, showRoutes, transitPathCache, routeGeo]);
 
   // Country centroid fallback when ALL cities have no coordinates.
   const fallbackPoints = useMemo<[number, number][]>(() => {
