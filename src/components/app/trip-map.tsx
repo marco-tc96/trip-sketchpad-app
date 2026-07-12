@@ -123,6 +123,30 @@ async function fetchRoadPath(
   return null;
 }
 
+// Ask BRouter (rail profile) for a railway-following geometry between two points,
+// so train legs trace the actual tracks instead of a straight line. Returns the
+// polyline ([lat,lng][]) or null on failure (caller falls back to a straight line).
+async function fetchRailPath(
+  a: [number, number],
+  b: [number, number],
+): Promise<[number, number][] | null> {
+  try {
+    const url =
+      `https://brouter.de/brouter?lonlats=${a[1]},${a[0]}|${b[1]},${b[0]}` +
+      `&profile=rail&alternativeidx=0&format=geojson`;
+    const r = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!r.ok) return null;
+    const data = (await r.json()) as {
+      features?: Array<{ geometry?: { coordinates?: number[][] } }>;
+    };
+    const coords = data.features?.[0]?.geometry?.coordinates;
+    if (Array.isArray(coords) && coords.length > 1) {
+      return coords.map((c) => [c[1], c[0]] as [number, number]);
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
 // ── Real transit-line geometry (metro/tram/bus/train) from OSM via Overpass ──
 const TRANSIT_MODES = new Set(["bus", "metro", "tram", "train"]);
 // Each app mode maps to the OSM route=* values that can carry it. A "metro" line
@@ -247,8 +271,8 @@ async function fetchTransitGeometry(center: LL, radiusM: number, mode: string, r
   // area — the stored "city" is often a place/address that no boundary matches.
   const around = `(around:${Math.round(radiusM)},${center[0]},${center[1]})`;
 
-  // `.r out geom` → member way geometries; `node(r.r) out tags` → member node
-  // names (name / name:en) with coordinates for the stops.
+  // `.r out geom` → member way geometries; `node(r.r) out body` → member node
+  // NAMES *and coordinates* (out body includes lat/lon; out tags would drop them).
   const buildQuery = (withRef: boolean) => {
     const clauses: string[] = [];
     for (const m of osmModes) {
@@ -258,7 +282,7 @@ async function fetchTransitGeometry(center: LL, radiusM: number, mode: string, r
         clauses.push(`relation["type"="route"]["route"="${m}"]${around}`);
       }
     }
-    return `[out:json][timeout:60];(${clauses.join(";")};)->.r;.r out geom;node(r.r);out tags;`;
+    return `[out:json][timeout:60];(${clauses.join(";")};)->.r;.r out geom;node(r.r);out body;`;
   };
 
   const parse = (data: { elements: OverpassEl[] }): TransitVariant[] => {
@@ -517,6 +541,8 @@ export function TripMap({
   const [routeGeo, setRouteGeo] = useState<Record<string, { lat: number; lng: number } | null>>({});
   // Road-snapped geometries per leg (keyed by the leg key), from OSRM.
   const [pathCache, setPathCache] = useState<Record<string, [number, number][]>>({});
+  // Rail-snapped geometries per train leg (keyed by the leg key), from BRouter.
+  const [railCache, setRailCache] = useState<Record<string, [number, number][]>>({});
   // Real transit-line geometries keyed by `mode|ref|center`, from OSM/Overpass.
   const [transitPathCache, setTransitPathCache] = useState<Record<string, TransitLine>>({});
   // Geocoded city centres for transit-line searches, keyed by `${country}|${city}`.
@@ -568,7 +594,10 @@ export function TripMap({
       for (const city of missing) {
         const key = `${city.country}|${city.name}`;
         if (key in geoCache || key in updates) continue;
-        updates[key] = await geocodeCity(city.name, city.country);
+        // Structured lookup first; if the town isn't in that table (e.g. Manises)
+        // fall back to a free-form search before giving up (avoids the country
+        // centroid placing small towns in the middle of the country).
+        updates[key] = (await geocodeCity(city.name, city.country)) ?? (await geocodePlace(city.name, city.country));
       }
       if (!cancelled && Object.keys(updates).length > 0) {
         setGeoCache((prev) => ({ ...prev, ...updates }));
@@ -717,6 +746,26 @@ export function TripMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeLines]);
 
+  // Snap train legs (station→station, no line ref) to the real railway via BRouter
+  // so they follow the tracks instead of drawing a straight line.
+  useEffect(() => {
+    const pending = routeLines.filter((l) => l.mode === "train" && !l.line && l.a && l.b && !(l.key in railCache));
+    if (pending.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const updates: Record<string, [number, number][]> = {};
+      for (const l of pending) {
+        const path = await fetchRailPath(l.a!, l.b!);
+        if (path) updates[l.key] = path;
+      }
+      if (!cancelled && Object.keys(updates).length > 0) {
+        setRailCache((prev) => ({ ...prev, ...updates }));
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeLines]);
+
   // Fetch exact OSM geometry for transit legs that carry a line ref, once their
   // stop coordinates are geocoded (so we can search around the real location).
   useEffect(() => {
@@ -850,12 +899,14 @@ export function TripMap({
         }
       }
 
-      // Non-transit legs → geocoded endpoints (+ OSRM road path for car/moto).
+      // Non-transit legs → geocoded endpoints, snapped to roads (car/moto via OSRM)
+      // or to the railway (train without a line ref, via BRouter) when available.
       const a = resolve(r.from, r.country);
       const b = resolve(r.to, r.country);
       if (!a || !b) return;
       let positions: LL[] = [a, b];
       if (GROUND_MODES.has(r.mode) && pathCache[key]) positions = pathCache[key];
+      else if (r.mode === "train" && railCache[key]) positions = railCache[key];
       out.push({
         key, color, dash, positions,
         pins: [
@@ -865,7 +916,7 @@ export function TripMap({
       });
     });
     return out;
-  }, [routes, showRoutes, transitResolved, pathCache, resolve]);
+  }, [routes, showRoutes, transitResolved, pathCache, railCache, resolve]);
 
   // Count transit legs whose line couldn't be resolved from OSM data, to warn.
   const missingTransit = useMemo(() => {
