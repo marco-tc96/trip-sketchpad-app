@@ -7,6 +7,11 @@ export const ITEM_KINDS = [
   "lodging","activity","zone","other","metro","tram",
 ] as const;
 
+const waypointSchema = z.object({
+  name: z.string().max(160),
+  enter: z.boolean().optional(),
+});
+
 const legSchema = z.object({
   from: z.string().max(160).optional().nullable(),
   to: z.string().max(160).optional().nullable(),
@@ -15,6 +20,9 @@ const legSchema = z.object({
   carrier: z.string().max(120).optional().nullable(),
   number: z.string().max(40).optional().nullable(),
   notes: z.string().max(500).optional().nullable(),
+  // Intermediate stops / detours for road legs (car/moto), to shape the drawn
+  // route. `enter` = drove into the town (shows a pin) vs just passed nearby.
+  waypoints: z.array(waypointSchema).max(12).optional().nullable(),
 });
 
 const metaSchema = z

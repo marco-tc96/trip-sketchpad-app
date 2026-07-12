@@ -6,7 +6,8 @@ import { geocodeCity } from "@/lib/country-data";
 import { withRomanization, registerEnName } from "@/lib/romanize";
 
 export type MapCity = { name: string; country: string; lat?: number; lng?: number };
-export type MapRoute = { from: string; to: string; mode: string; country?: string; line?: string; city?: string };
+export type MapWaypoint = { name: string; enter?: boolean };
+export type MapRoute = { from: string; to: string; mode: string; country?: string; line?: string; city?: string; waypoints?: MapWaypoint[] };
 
 // Approximate country centroids (lat, lng) keyed by ISO-2.
 // Used as a fallback when no city coordinates are available.
@@ -100,16 +101,16 @@ const modeStyle = (mode: string) => MODE_STYLE[mode] ?? { color: PRIMARY };
 // straight (dotted/dashed) since there are no roads to follow.
 const GROUND_MODES = new Set(["car", "moto"]);
 
-// Ask OSRM for a road-following geometry between two points. Returns the full
-// polyline ([lat,lng][]) or null on failure (caller falls back to a straight line).
-async function fetchRoadPath(
-  a: [number, number],
-  b: [number, number],
-): Promise<[number, number][] | null> {
+// Ask OSRM for a road-following geometry through an ordered list of points
+// (start, optional waypoints, end). Returns the full polyline ([lat,lng][]) or
+// null on failure (caller falls back to a straight line).
+async function fetchRoadPathVia(points: [number, number][]): Promise<[number, number][] | null> {
+  if (points.length < 2) return null;
   try {
+    const coordStr = points.map((p) => `${p[1]},${p[0]}`).join(";");
     const url =
-      `https://router.project-osrm.org/route/v1/driving/` +
-      `${a[1]},${a[0]};${b[1]},${b[0]}?overview=full&geometries=geojson`;
+      `https://router.project-osrm.org/route/v1/driving/${coordStr}` +
+      `?overview=full&geometries=geojson`;
     const r = await fetch(url, { headers: { Accept: "application/json" } });
     if (!r.ok) return null;
     const data = (await r.json()) as {
@@ -641,7 +642,10 @@ export function TripMap({
     for (const r of routes) {
       if (isTransitWithLine(r)) continue;
       const airport = r.mode === "plane";
-      for (const raw of [r.from, r.to]) {
+      const raws = [r.from, r.to];
+      // Road-leg waypoints (car/moto) also need geocoding to shape the route.
+      if (r.mode === "car" || r.mode === "moto") for (const w of (r.waypoints ?? [])) if (w.name) raws.push(w.name);
+      for (const raw of raws) {
         const name = cleanPlace(raw);
         if (!name) continue;
         const key = `${r.country ?? ""}|${name}`;
@@ -781,10 +785,12 @@ export function TripMap({
   // For transit-with-line legs `center` is the geocoded CITY (reliable), never the
   // stop names (which can collide with far-away towns, e.g. "Roses" → Girona).
   const routeLines = useMemo(() => {
+    type Via = { ll: LL; enter: boolean; name: string };
     type Line = {
       a: LL | null; b: LL | null; mode: string; from: string; to: string;
       line?: string; city?: string; country?: string; key: string;
       center: LL | null; radiusM: number; cacheKey: string;
+      vias: Via[]; viasReady: boolean; pathKey: string;
     };
     if (!showRoutes || !routes) return [] as Line[];
     return routes.map((r, i) => {
@@ -795,6 +801,21 @@ export function TripMap({
         if (g) center = [g.lat, g.lng];
       }
       const ck = center ? `${Math.round(center[0] * 100) / 100},${Math.round(center[1] * 100) / 100}` : "";
+      // Resolve road-leg waypoints to coordinates (car/moto). `viasReady` is false
+      // while any waypoint is still being geocoded, so we don't route prematurely.
+      const vias: Via[] = [];
+      let viasReady = true;
+      if (r.mode === "car" || r.mode === "moto") {
+        for (const w of (r.waypoints ?? [])) {
+          const nm = cleanPlace(w.name);
+          if (!nm) continue;
+          const gk = `${r.country ?? ""}|${nm}`;
+          if (!(gk in routeGeo)) { viasReady = false; continue; } // still pending
+          const g = routeGeo[gk];
+          if (g) vias.push({ ll: [g.lat, g.lng], enter: !!w.enter, name: nm }); // null → failed geocode, skip
+        }
+      }
+      const key = `${i}-${r.from}-${r.to}`;
       return {
         a: resolve(r.from, r.country),
         b: resolve(r.to, r.country),
@@ -804,26 +825,29 @@ export function TripMap({
         line: r.line,
         city: r.city,
         country: r.country,
-        key: `${i}-${r.from}-${r.to}`,
+        key,
         center,
         radiusM,
         cacheKey: `${r.mode}|${r.line ?? ""}|${ck}`,
+        vias,
+        viasReady,
+        pathKey: `${key}|${vias.map((v) => v.name).join(">")}`,
       };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routes, showRoutes, resolve, routeGeo, cityGeo]);
 
-  // Snap ground legs (car/moto/bus/metro/tram/train/transfer) to real roads via
-  // OSRM so they follow streets instead of drawing straight, angular lines.
+  // Snap ground legs (car/moto) to real roads via OSRM so they follow streets,
+  // routing through any waypoints (intermediate stops/detours) in order.
   useEffect(() => {
-    const pending = routeLines.filter((l) => GROUND_MODES.has(l.mode) && l.a && l.b && !(l.key in pathCache));
+    const pending = routeLines.filter((l) => GROUND_MODES.has(l.mode) && l.a && l.b && l.viasReady && !(l.pathKey in pathCache));
     if (pending.length === 0) return;
     let cancelled = false;
     (async () => {
       const updates: Record<string, [number, number][]> = {};
       for (const l of pending) {
-        const path = await fetchRoadPath(l.a!, l.b!);
-        if (path) updates[l.key] = path;
+        const path = await fetchRoadPathVia([l.a!, ...l.vias.map((v) => v.ll), l.b!]);
+        if (path) updates[l.pathKey] = path;
       }
       if (!cancelled && Object.keys(updates).length > 0) {
         for (const [k, v] of Object.entries(updates)) memRoad.set(k, v);
@@ -980,11 +1004,11 @@ export function TripMap({
     type Drawn = { key: string; color: string; dash?: string; positions: LL[]; pins: Pin[] };
     if (!showRoutes || !routes) return [] as Drawn[];
     const out: Drawn[] = [];
-    routes.forEach((r, i) => {
-      const key = `${i}-${r.from}-${r.to}`;
-      const { color, dash } = modeStyle(r.mode);
+    routeLines.forEach((l) => {
+      const key = l.key;
+      const { color, dash } = modeStyle(l.mode);
 
-      if (TRANSIT_MODES.has(r.mode)) {
+      if (TRANSIT_MODES.has(l.mode)) {
         const res = transitResolved[key];
         // A leg with a line ref is handled strictly by transitResolved: draw only
         // when "ok"; pending/failed → not drawn (failed also raises the notice).
@@ -997,24 +1021,21 @@ export function TripMap({
         }
       }
 
-      // Non-transit legs → geocoded endpoints, snapped to roads (car/moto via OSRM)
-      // or to the railway (train without a line ref, via BRouter) when available.
-      const a = resolve(r.from, r.country);
-      const b = resolve(r.to, r.country);
+      // Non-transit legs → geocoded endpoints, snapped to roads (car/moto via OSRM,
+      // through waypoints) or to the railway (train, via BRouter) when available.
+      const a = l.a, b = l.b;
       if (!a || !b) return;
       let positions: LL[] = [a, b];
-      if (GROUND_MODES.has(r.mode) && pathCache[key]) positions = pathCache[key];
-      else if (r.mode === "train" && railCache[key]) positions = railCache[key];
-      out.push({
-        key, color, dash, positions,
-        pins: [
-          { ll: positions[0], name: cleanPlace(r.from), big: true },
-          { ll: positions[positions.length - 1], name: cleanPlace(r.to), big: true },
-        ],
-      });
+      if (GROUND_MODES.has(l.mode) && pathCache[l.pathKey]) positions = pathCache[l.pathKey];
+      else if (l.mode === "train" && railCache[key]) positions = railCache[key];
+      const pins: Pin[] = [{ ll: positions[0], name: cleanPlace(l.from), big: true }];
+      // A pin for each "enter the city" waypoint, snapped onto the drawn route.
+      for (const v of l.vias) if (v.enter) pins.push({ ll: projectOnPath(positions, v.ll), name: v.name, big: true });
+      pins.push({ ll: positions[positions.length - 1], name: cleanPlace(l.to), big: true });
+      out.push({ key, color, dash, positions, pins });
     });
     return out;
-  }, [routes, showRoutes, transitResolved, pathCache, railCache, resolve]);
+  }, [routeLines, routes, showRoutes, transitResolved, pathCache, railCache]);
 
   // Count transit legs whose line couldn't be resolved from OSM data, to warn.
   const missingTransit = useMemo(() => {

@@ -48,6 +48,7 @@ type ItemRow = {
 };
 
 type TransportMode = "car" | "moto" | "train" | "plane" | "ferry" | "bus" | "metro" | "tram";
+type Waypoint = { name: string; enter?: boolean };
 type Leg = {
   from: string;
   to: string;
@@ -55,10 +56,26 @@ type Leg = {
   arrive_at: string;
   carrier: string;
   number: string;
+  waypoints?: Waypoint[];
 };
 const emptyLeg = (): Leg => ({
   from: "", to: "", depart_at: "", arrive_at: "", carrier: "", number: "",
 });
+
+// Small localized labels for the road-leg waypoint editor (kept local so we don't
+// have to touch the global i18n bundle for these few strings).
+const WP_LABELS: Record<string, { title: string; place: string; enter: string; add: string; via: string }> = {
+  it: { title: "Tappe / deviazioni", place: "Città o luogo", enter: "Entra in città", add: "Aggiungi tappa", via: "via" },
+  en: { title: "Stops / detours", place: "City or place", enter: "Enter the city", add: "Add stop", via: "via" },
+  es: { title: "Paradas / desvíos", place: "Ciudad o lugar", enter: "Entrar en la ciudad", add: "Añadir parada", via: "vía" },
+  fr: { title: "Étapes / détours", place: "Ville ou lieu", enter: "Entrer dans la ville", add: "Ajouter une étape", via: "via" },
+  de: { title: "Stopps / Umwege", place: "Stadt oder Ort", enter: "In die Stadt fahren", add: "Stopp hinzufügen", via: "über" },
+  pt: { title: "Paradas / desvios", place: "Cidade ou lugar", enter: "Entrar na cidade", add: "Adicionar parada", via: "via" },
+  ja: { title: "経由地 / 迂回", place: "都市または場所", enter: "市内に入る", add: "経由地を追加", via: "経由" },
+  ko: { title: "경유지 / 우회", place: "도시 또는 장소", enter: "도심 진입", add: "경유지 추가", via: "경유" },
+  zh: { title: "途经 / 绕行", place: "城市或地点", enter: "进入城市", add: "添加途经点", via: "途经" },
+};
+const wpL = (lang: string | undefined) => WP_LABELS[(lang || "it").slice(0, 2)] ?? WP_LABELS.it;
 type MixedLeg = {
   mode: "train" | "bus" | "metro" | "tram";
   vehicle: string;
@@ -1066,6 +1083,9 @@ function TransportLegs({ meta, compact }: { meta: TransportMeta | null; compact?
             {(l.carrier || l.number) && (
               <span className="ml-1.5">· {[l.carrier, l.number].filter(Boolean).join(" ")}</span>
             )}
+            {l.waypoints && l.waypoints.length > 0 && (
+              <span className="ml-1.5 opacity-80">· {wpL(lang).via} {l.waypoints.map((w) => w.name).join(", ")}</span>
+            )}
             {l.depart_at && <span className="ml-1.5">· {fmtDT(l.depart_at, lang)}</span>}
             {l.arrive_at && <span className="ml-1">→ {fmtDT(l.arrive_at, lang)}</span>}
           </span>
@@ -1088,7 +1108,8 @@ function TransportDialog({
   trigger: React.ReactNode;
   tripCountries?: string[];
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language || "it";
   const qc = useQueryClient();
   const createFn = useServerFn(createItem);
   const delFn = useServerFn(deleteItem);
@@ -1112,6 +1133,11 @@ function TransportDialog({
       const first = legs[0];
       const last = legs[legs.length - 1];
       const title = `${t(`mode_${mode}`)} ${[first?.from, last?.to].filter(Boolean).join(" → ") || ""}`.trim();
+      // Drop empty waypoint rows before saving.
+      const cleanLegs = legs.map((l) => {
+        const wp = (l.waypoints ?? []).filter((w) => w.name.trim());
+        return wp.length ? { ...l, waypoints: wp } : { ...l, waypoints: undefined };
+      });
       if (existing) {
         await delFn({ data: { id: existing.id } });
       }
@@ -1125,7 +1151,7 @@ function TransportDialog({
           end_at: last?.arrive_at || null,
           notes: null,
           position: 0,
-          meta: { mode, legs },
+          meta: { mode, legs: cleanLegs },
         },
       });
       qc.invalidateQueries({ queryKey: ["items", tripId] });
@@ -1287,6 +1313,54 @@ function TransportDialog({
                     </>
                   )}
                 </div>
+                {(mode === "car" || mode === "moto") && (
+                  <div className="mt-3 space-y-2 border-t border-border/60 pt-3">
+                    <Label className="text-xs">
+                      {wpL(lang).title} <span className="opacity-60">{t("optional")}</span>
+                    </Label>
+                    {(leg.waypoints ?? []).map((w, wi) => (
+                      <div key={wi} className="flex items-center gap-2">
+                        <Input
+                          value={w.name}
+                          placeholder={wpL(lang).place}
+                          onChange={(e) => {
+                            const name = e.target.value;
+                            updateLeg(i, { waypoints: (leg.waypoints ?? []).map((x, xi) => (xi === wi ? { ...x, name } : x)) });
+                          }}
+                        />
+                        <label className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+                          <input
+                            type="checkbox"
+                            className="h-3.5 w-3.5 accent-primary"
+                            checked={!!w.enter}
+                            onChange={(e) => {
+                              const enter = e.target.checked;
+                              updateLeg(i, { waypoints: (leg.waypoints ?? []).map((x, xi) => (xi === wi ? { ...x, enter } : x)) });
+                            }}
+                          />
+                          {wpL(lang).enter}
+                        </label>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => updateLeg(i, { waypoints: (leg.waypoints ?? []).filter((_, xi) => xi !== wi) })}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    ))}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="w-full"
+                      onClick={() => updateLeg(i, { waypoints: [...(leg.waypoints ?? []), { name: "", enter: false }] })}
+                    >
+                      <Plus className="mr-1.5 h-3.5 w-3.5" /> {wpL(lang).add}
+                    </Button>
+                  </div>
+                )}
               </div>
             ))}
 

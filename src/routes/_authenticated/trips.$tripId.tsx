@@ -48,14 +48,25 @@ function buildMapRoutes(
     const city = it.location ?? undefined;
     const meta = (it.meta ?? {}) as {
       mode?: string;
-      legs?: Array<{ from?: string; to?: string }>;
+      legs?: Array<{ from?: string; to?: string; waypoints?: Array<{ name: string; enter?: boolean }> }>;
       mixed_legs?: Array<{ mode?: string; vehicle?: string; from_stop?: string; to_stop?: string }>;
       from_stop?: string;
       to_stop?: string;
     };
     if (Array.isArray(meta.legs) && meta.legs.length > 0) {
       for (const l of meta.legs) {
-        if (l.from && l.to) out.push({ from: l.from, to: l.to, mode: meta.mode ?? it.kind });
+        if (!l.from || !l.to) continue;
+        const legMode = meta.mode ?? it.kind;
+        const isRoad = legMode === "car" || legMode === "moto";
+        out.push({
+          from: l.from,
+          to: l.to,
+          mode: legMode,
+          // Road legs get the trip country as a geocoding hint + any waypoints
+          // (intermediate stops/detours) to shape the drawn route.
+          ...(isRoad ? { country: singleCountry } : {}),
+          ...(isRoad && l.waypoints?.length ? { waypoints: l.waypoints } : {}),
+        });
       }
       continue;
     }
