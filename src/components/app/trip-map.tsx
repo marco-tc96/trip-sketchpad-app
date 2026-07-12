@@ -387,6 +387,27 @@ function minDistSq(path: LL[], pt: LL): number {
   for (const p of path) { const dx = p[0] - pt[0], dy = p[1] - pt[1]; const d = dx * dx + dy * dy; if (d < bd) bd = d; }
   return bd;
 }
+// Closest point of segment a→b to p (planar; fine at city scale).
+function closestOnSegment(p: LL, a: LL, b: LL): LL {
+  const dx = b[0] - a[0], dy = b[1] - a[1];
+  const len2 = dx * dx + dy * dy;
+  let t = len2 > 0 ? ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2 : 0;
+  t = Math.max(0, Math.min(1, t));
+  return [a[0] + t * dx, a[1] + t * dy];
+}
+// Project a point onto the nearest point of a polyline so a stop pin sits exactly
+// on the drawn line (bus stop nodes in OSM sit at the kerb, off the road centre).
+function projectOnPath(path: LL[], pt: LL): LL {
+  if (path.length === 0) return pt;
+  if (path.length === 1) return path[0];
+  let best = pt, bd = Infinity;
+  for (let i = 0; i < path.length - 1; i++) {
+    const c = closestOnSegment(pt, path[i], path[i + 1]);
+    const dx = c[0] - pt[0], dy = c[1] - pt[1], d = dx * dx + dy * dy;
+    if (d < bd) { bd = d; best = c; }
+  }
+  return best;
+}
 
 // Keep only the portion of the line between the boarding and alighting stops.
 function trimPath(path: LL[], a: LL, b: LL): LL[] {
@@ -515,6 +536,56 @@ function transitNotice(lang: string | undefined, n: number): string {
   return `${n} ${n === 1 ? one : many}`;
 }
 
+// ── Lightweight cross-navigation caches ──────────────────────────────────────
+// These module-level maps survive React unmount/remount, so returning to a map /
+// trip / home page reuses what was already fetched instead of reloading from
+// scratch. Geocoding results are tiny and also persisted to localStorage so a
+// full page reload stays fast; the heavier geometry (Overpass/road/rail lines)
+// is kept in memory only, to avoid weighing down client storage.
+type Coord = { lat: number; lng: number } | null;
+const memGeoCity = new Map<string, Coord>();   // city markers      (geoCache)
+const memGeoRoute = new Map<string, Coord>();  // route endpoints   (routeGeo)
+const memGeoCtr = new Map<string, Coord>();    // transit centres   (cityGeo)
+const memTransit = new Map<string, TransitLine>();
+const memRoad = new Map<string, LL[]>();
+const memRail = new Map<string, LL[]>();
+
+const GEO_LS_KEY = "voyager_geocache_v1";
+const GEO_CAP = 800; // max total geocoding entries kept (keeps storage tiny)
+(function loadGeoCache() {
+  try {
+    if (typeof localStorage === "undefined") return;
+    const raw = localStorage.getItem(GEO_LS_KEY);
+    if (!raw) return;
+    const o = JSON.parse(raw) as { city?: Record<string, Coord>; route?: Record<string, Coord>; ctr?: Record<string, Coord> };
+    for (const [k, v] of Object.entries(o.city ?? {})) memGeoCity.set(k, v);
+    for (const [k, v] of Object.entries(o.route ?? {})) memGeoRoute.set(k, v);
+    for (const [k, v] of Object.entries(o.ctr ?? {})) memGeoCtr.set(k, v);
+  } catch { /* ignore corrupt/unavailable storage */ }
+})();
+
+let _geoFlush: ReturnType<typeof setTimeout> | null = null;
+function capMap<T>(m: Map<string, T>, cap: number) {
+  while (m.size > cap) { const k = m.keys().next().value; if (k === undefined) break; m.delete(k); }
+}
+function flushGeoCache() {
+  try {
+    if (typeof localStorage === "undefined") return;
+    capMap(memGeoCity, GEO_CAP); capMap(memGeoRoute, GEO_CAP); capMap(memGeoCtr, GEO_CAP);
+    localStorage.setItem(GEO_LS_KEY, JSON.stringify({
+      city: Object.fromEntries(memGeoCity),
+      route: Object.fromEntries(memGeoRoute),
+      ctr: Object.fromEntries(memGeoCtr),
+    }));
+  } catch { /* ignore quota errors */ }
+}
+// Merge freshly fetched values into a mem map (and debounce a localStorage write).
+function rememberGeo(m: Map<string, Coord>, updates: Record<string, Coord>) {
+  for (const [k, v] of Object.entries(updates)) m.set(k, v);
+  if (_geoFlush) clearTimeout(_geoFlush);
+  _geoFlush = setTimeout(flushGeoCache, 1200);
+}
+
 export function TripMap({
   cities,
   countries,
@@ -534,19 +605,21 @@ export function TripMap({
   compact?: boolean;
   lang?: string;
 }) {
+  // All caches below are seeded from the module-level maps, so navigating away and
+  // back (or between map/trip/home) reuses earlier results instead of refetching.
   // Async geocoding cache for cities without stored coords.
   // Value is null when geocoding failed (explicit failure, not "pending").
-  const [geoCache, setGeoCache] = useState<Record<string, { lat: number; lng: number } | null>>({});
+  const [geoCache, setGeoCache] = useState<Record<string, { lat: number; lng: number } | null>>(() => Object.fromEntries(memGeoCity));
   // Separate cache for route endpoints (geocoded free-form via geocodePlace).
-  const [routeGeo, setRouteGeo] = useState<Record<string, { lat: number; lng: number } | null>>({});
+  const [routeGeo, setRouteGeo] = useState<Record<string, { lat: number; lng: number } | null>>(() => Object.fromEntries(memGeoRoute));
   // Road-snapped geometries per leg (keyed by the leg key), from OSRM.
-  const [pathCache, setPathCache] = useState<Record<string, [number, number][]>>({});
+  const [pathCache, setPathCache] = useState<Record<string, [number, number][]>>(() => Object.fromEntries(memRoad));
   // Rail-snapped geometries per train leg (keyed by the leg key), from BRouter.
-  const [railCache, setRailCache] = useState<Record<string, [number, number][]>>({});
+  const [railCache, setRailCache] = useState<Record<string, [number, number][]>>(() => Object.fromEntries(memRail));
   // Real transit-line geometries keyed by `mode|ref|center`, from OSM/Overpass.
-  const [transitPathCache, setTransitPathCache] = useState<Record<string, TransitLine>>({});
+  const [transitPathCache, setTransitPathCache] = useState<Record<string, TransitLine>>(() => Object.fromEntries(memTransit));
   // Geocoded city centres for transit-line searches, keyed by `${country}|${city}`.
-  const [cityGeo, setCityGeo] = useState<Record<string, { lat: number; lng: number } | null>>({});
+  const [cityGeo, setCityGeo] = useState<Record<string, { lat: number; lng: number } | null>>(() => Object.fromEntries(memGeoCtr));
 
   // Unique endpoints to geocode for the legs we draw by geocoding (planes, cars,
   // ferries, and transit legs WITHOUT a line ref). Transit-with-line legs are
@@ -600,6 +673,7 @@ export function TripMap({
         updates[key] = (await geocodeCity(city.name, city.country)) ?? (await geocodePlace(city.name, city.country));
       }
       if (!cancelled && Object.keys(updates).length > 0) {
+        rememberGeo(memGeoCity, updates);
         setGeoCache((prev) => ({ ...prev, ...updates }));
       }
     })();
@@ -621,6 +695,7 @@ export function TripMap({
         updates[key] = await geocodePlace(e.name, e.country, e.airport, e.iata);
       }
       if (!cancelled && Object.keys(updates).length > 0) {
+        rememberGeo(memGeoRoute, updates);
         setRouteGeo((prev) => ({ ...prev, ...updates }));
       }
     })();
@@ -642,6 +717,7 @@ export function TripMap({
         updates[key] = await geocodePlace(c.city, c.country);
       }
       if (!cancelled && Object.keys(updates).length > 0) {
+        rememberGeo(memGeoCtr, updates);
         setCityGeo((prev) => ({ ...prev, ...updates }));
       }
     })();
@@ -739,6 +815,8 @@ export function TripMap({
         if (path) updates[l.key] = path;
       }
       if (!cancelled && Object.keys(updates).length > 0) {
+        for (const [k, v] of Object.entries(updates)) memRoad.set(k, v);
+        capMap(memRoad, 120);
         setPathCache((prev) => ({ ...prev, ...updates }));
       }
     })();
@@ -759,6 +837,8 @@ export function TripMap({
         if (path) updates[l.key] = path;
       }
       if (!cancelled && Object.keys(updates).length > 0) {
+        for (const [k, v] of Object.entries(updates)) memRail.set(k, v);
+        capMap(memRail, 120);
         setRailCache((prev) => ({ ...prev, ...updates }));
       }
     })();
@@ -785,6 +865,8 @@ export function TripMap({
         }
       }
       if (!cancelled && Object.keys(updates).length > 0) {
+        for (const [k, v] of Object.entries(updates)) memTransit.set(k, v);
+        capMap(memTransit, 80);
         setTransitPathCache((prev) => ({ ...prev, ...updates }));
       }
     })();
@@ -863,10 +945,12 @@ export function TripMap({
       }
       mids = mids.filter((s) => !sameStop(s.name, board.name) && !sameStop(s.name, alight.name));
 
+      // Snap every pin onto the drawn line so stops sit exactly on the route
+      // (OSM bus-stop nodes sit at the kerb, a few metres off the road centre).
       const pins: TPin[] = [
-        { ll: board.ll, name: board.name, big: true },
-        ...mids.map((s) => ({ ll: s.ll, name: s.name, big: false })),
-        { ll: alight.ll, name: alight.name, big: true },
+        { ll: projectOnPath(positions, board.ll), name: board.name, big: true },
+        ...mids.map((s) => ({ ll: projectOnPath(positions, s.ll), name: s.name, big: false })),
+        { ll: projectOnPath(positions, alight.ll), name: alight.name, big: true },
       ];
       map[key] = { state: "ok", positions, pins };
     });
