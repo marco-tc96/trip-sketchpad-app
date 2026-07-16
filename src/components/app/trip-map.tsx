@@ -84,16 +84,22 @@ const COUNTRY_CENTROIDS: Record<string, [number, number]> = {
 // emerald tram; everything else uses the app's primary (warm) colour, same as
 // the transport icon circles there.
 const PRIMARY = "oklch(0.66 0.14 38)";
+// Per-mode colours for journey markers/lines — deliberately different from the
+// standard trip-city pin (PRIMARY) so a leg's departure/arrival is always
+// visually distinct from the city markers. Metro falls back to violet only
+// when the line's real OSM colour couldn't be resolved (see `drawn`, which
+// prefers the fetched line colour when available).
 const MODE_STYLE: Record<string, { color: string; dash?: string }> = {
-  train:    { color: "#f59e0b" },              // amber-500
-  bus:      { color: "#0ea5e9" },              // sky-500
-  metro:    { color: "#8b5cf6" },              // violet-500
+  car:      { color: "#22c55e" },              // green-500 — macchina
+  moto:     { color: "#22c55e" },              // green-500 — moto
+  plane:    { color: "#38bdf8", dash: "2 8" }, // sky-400 (azzurro), dotted
+  train:    { color: "#6b7280" },              // gray-500 — treno
+  taxi:     { color: "#eab308" },              // yellow-500 — taxi
+  bus:      { color: "#2563eb" },              // blue-600 — bus
+  metro:    { color: "#8b5cf6" },              // violet-500 fallback (real line colour preferred)
   tram:     { color: "#10b981" },              // emerald-500
-  plane:    { color: PRIMARY, dash: "2 8" },   // primary, dotted
-  ferry:    { color: PRIMARY, dash: "8 6" },   // primary, dashed
-  car:      { color: PRIMARY },
-  moto:     { color: PRIMARY },
-  transfer: { color: PRIMARY },
+  ferry:    { color: "#0d9488", dash: "8 6" }, // teal-600, dashed
+  transfer: { color: "#64748b" },              // slate-500
 };
 const modeStyle = (mode: string) => MODE_STYLE[mode] ?? { color: PRIMARY };
 
@@ -266,7 +272,9 @@ function stitchWays(ways: LL[][]): LL[] {
 export type TransitStop = { name: string; ll: LL };
 export type TransitVariant = { path: LL[]; stops: TransitStop[] };
 // One entry per matching route relation (each direction/variant of the line).
-export type TransitLine = { variants: TransitVariant[] };
+// `color` is the line's real reference colour (OSM `colour` tag on the route
+// relation), when the network tags it — e.g. Milano M1's red, Roma B's blue.
+export type TransitLine = { variants: TransitVariant[]; color?: string };
 
 // Fetch the real OSM geometry of a transit line: for each route relation
 // (direction/variant) its track polyline PLUS the ordered stops (name +
@@ -303,7 +311,7 @@ async function fetchTransitGeometry(center: LL, radiusM: number, mode: string, r
     return `[out:json][timeout:60];(${clauses.join(";")};)->.r;.r out geom;node(r.r);out body;`;
   };
 
-  const parse = (data: { elements: OverpassEl[] }): TransitVariant[] => {
+  const parse = (data: { elements: OverpassEl[] }): { variants: TransitVariant[]; color?: string } => {
     const nodeInfo = new Map<number, { name: string; ll: LL }>();
     for (const el of data.elements) {
       if (el.type === "node" && typeof el.id === "number" && el.tags?.name && typeof el.lat === "number" && typeof el.lon === "number") {
@@ -312,11 +320,19 @@ async function fetchTransitGeometry(center: LL, radiusM: number, mode: string, r
       }
     }
     const variants: TransitVariant[] = [];
+    let color: string | undefined;
     for (const el of data.elements) {
       if (el.type !== "relation" || !el.members) continue;
       // Keep only the relations that are actually the wanted line (the ref query
       // is permissive and the no-ref fallback returns the whole network).
       if (!refMatches(el.tags?.ref, el.tags?.name, ref)) continue;
+      // Real reference colour of the line (OSM `colour` tag on the route
+      // relation) — used to draw metro lines in their actual network colour
+      // instead of a generic fixed one.
+      if (!color) {
+        const raw = (el.tags?.colour || el.tags?.color || "").trim();
+        if (raw) color = /^[0-9a-fA-F]{6}$/.test(raw) ? `#${raw}` : raw;
+      }
       // Track ways only (exclude platform/stop_area ways) so the drawn line
       // follows the rails/road and doesn't detour into platform polygons.
       const ways = el.members
@@ -338,16 +354,16 @@ async function fetchTransitGeometry(center: LL, radiusM: number, mode: string, r
       }
       if (path.length >= 2 || stops.length > 0) variants.push({ path, stops });
     }
-    return variants;
+    return { variants, color };
   };
 
-  let variants = parse((await overpassFetch(buildQuery(true))) as { elements: OverpassEl[] });
+  let res = parse((await overpassFetch(buildQuery(true))) as { elements: OverpassEl[] });
   // Rail networks are small enough to fetch wholesale and match client-side when
   // the ref filter missed (OSM uses a different ref format). Buses are too many.
-  if (variants.length === 0 && mode !== "bus") {
-    try { variants = parse((await overpassFetch(buildQuery(false))) as { elements: OverpassEl[] }); } catch { /* keep [] */ }
+  if (res.variants.length === 0 && mode !== "bus") {
+    try { res = parse((await overpassFetch(buildQuery(false))) as { elements: OverpassEl[] }); } catch { /* keep as-is */ }
   }
-  return { variants };
+  return { variants: res.variants, color: res.color };
 }
 
 // Accent/space-insensitive stop-name comparison.
@@ -1017,7 +1033,7 @@ export function TripMap({
   // then a 1-edit tolerance for spelling variants). A leg whose line can't be found
   // is marked "failed" (→ notice), never drawn city-to-city.
   type TPin = { ll: LL; name: string; big: boolean };
-  type TResolved = { state: "pending" | "failed" | "ok"; positions?: LL[]; pins?: TPin[] };
+  type TResolved = { state: "pending" | "failed" | "ok"; positions?: LL[]; pins?: TPin[]; color?: string };
   const transitResolved = useMemo<Record<string, TResolved>>(() => {
     const map: Record<string, TResolved> = {};
     if (!showRoutes || !routes) return map;
@@ -1089,7 +1105,7 @@ export function TripMap({
         ...mids.map((s) => ({ ll: projectOnPath(positions, s.ll), name: s.name, big: false })),
         { ll: projectOnPath(positions, alight.ll), name: alight.name, big: true },
       ];
-      map[key] = { state: "ok", positions, pins };
+      map[key] = { state: "ok", positions, pins, color: tl.color };
     });
     return map;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1114,7 +1130,11 @@ export function TripMap({
         // A leg WITHOUT a line ref (res undefined) falls through to a plain line.
         if (res) {
           if (res.state === "ok" && res.positions && res.pins) {
-            out.push({ key, color, dash, positions: res.positions, pins: res.pins });
+            // Metro lines draw in their real network colour when OSM tags it
+            // (e.g. Milano M1 red, Roma B blue); other transit modes keep their
+            // fixed mode colour, and metro itself falls back to it when unknown.
+            const lineColor = l.mode === "metro" && res.color ? res.color : color;
+            out.push({ key, color: lineColor, dash, positions: res.positions, pins: res.pins });
           }
           return;
         }
@@ -1220,21 +1240,11 @@ export function TripMap({
     return out;
   }, [routes, resolve]);
 
-  // Leg endpoints that aren't already one of the trip's city markers (deduped by
-  // rounded coordinate) — rendered as pins in the "cities" view.
-  const extraLegMarkers = useMemo(() => {
-    const cityKeys = new Set(
-      enrichedCities
-        .filter((c) => typeof c.lat === "number" && typeof c.lng === "number")
-        .map((c) => `${(c.lat as number).toFixed(2)},${(c.lng as number).toFixed(2)}`),
-    );
-    return legEndpoints.filter((e) => !cityKeys.has(`${e.ll[0].toFixed(2)},${e.ll[1].toFixed(2)}`));
-  }, [legEndpoints, enrichedCities]);
-
-  // Fit the view to include the trip cities AND every leg endpoint (both views),
-  // plus the drawn route geometry when routes are shown.
+  // Fit the view to the trip's own cities when the "Città" switch is selected
+  // (matching what's shown there); include every leg endpoint + the drawn route
+  // geometry only in the "Tratte" (routes) view.
   const boundsPoints = useMemo<[number, number][]>(
-    () => [...cityPoints, ...legEndpoints.map((e) => e.ll), ...(showRoutes ? drawn.flatMap((d) => d.positions) : [])],
+    () => [...cityPoints, ...(showRoutes ? [...legEndpoints.map((e) => e.ll), ...drawn.flatMap((d) => d.positions)] : [])],
     [cityPoints, legEndpoints, drawn, showRoutes],
   );
 
@@ -1322,23 +1332,9 @@ export function TripMap({
           </Marker>
         ))}
 
-      {/* In the cities view, also mark leg endpoints not already in the trip's
-          city list (routes view shows them as coloured leg pins). */}
-      {!showRoutes &&
-        extraLegMarkers.map((e, i) => (
-          <Marker key={`leg-${i}`} position={e.ll} icon={pinIcon}>
-            {e.name && (
-              <>
-                <Popup>
-                  <strong>{withRomanization(e.name, lang)}</strong>
-                </Popup>
-                <Tooltip direction="top" offset={[0, -8]}>
-                  {withRomanization(e.name, lang)}
-                </Tooltip>
-              </>
-            )}
-          </Marker>
-        ))}
+      {/* "Città" view shows ONLY the trip's own cities — leg endpoints (stations,
+          airports, etc.) are shown solely in the "Tratte" (routes) view above,
+          as coloured mode pins. */}
       <FitBounds points={boundsPoints} />
     </MapContainer>
       {showRoutes && missingTransit > 0 && (
