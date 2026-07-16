@@ -276,6 +276,12 @@ const translations: Record<string, string> = {
   no_upcoming_trips: "Sin viajes próximos",
   days_traveled: "Días de viaje",
   stats_year: "Estadísticas {{year}}",
+  // ── Farthest-points compass (Profile page) ─────────────────────────────
+  extremes_title: "Puntos más extremos",
+  northernmost: "Más al norte",
+  southernmost: "Más al sur",
+  easternmost: "Más al este",
+  westernmost: "Más al oeste",
 };
 
 export default translations;

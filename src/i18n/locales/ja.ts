@@ -276,6 +276,12 @@ const translations: Record<string, string> = {
   no_upcoming_trips: "予定の旅行なし",
   days_traveled: "旅行日数",
   stats_year: "{{year}}年の統計",
+  // ── Farthest-points compass (Profile page) ─────────────────────────────
+  extremes_title: "到達した最遠地点",
+  northernmost: "最北",
+  southernmost: "最南",
+  easternmost: "最東",
+  westernmost: "最西",
 };
 
 export default translations;

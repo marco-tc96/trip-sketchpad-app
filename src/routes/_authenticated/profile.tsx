@@ -1,17 +1,18 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
   BarChart3, Globe2, MapPin, CalendarDays, Briefcase, Palmtree, Footprints, Settings as SettingsIcon,
+  Compass,
 } from "lucide-react";
 import { getProfile, updateProfile } from "@/lib/profile.functions";
 import { listTrips } from "@/lib/trips.functions";
 import type { Lang } from "@/i18n/translations";
 import { setLanguage } from "@/i18n";
-import { flagOf, countryNameLocalized, cityNameLocalized } from "@/lib/country-data";
+import { flagOf, countryNameLocalized, cityNameLocalized, geocodeCity } from "@/lib/country-data";
 import { SettingsDialog, type ProfileFormValues } from "@/components/app/settings-dialog";
 
 export const Route = createFileRoute("/_authenticated/profile")({
@@ -61,6 +62,86 @@ const CONTINENT_EMOJI: Record<string, string> = {
   "North America": "🌎",
   "South America": "🌎",
 };
+
+// ── Farthest-points compass: geocode every visited city (once, then cached —
+// both in-memory for the session and persisted to localStorage so a return
+// visit is instant) and track the N/S/E/W extremes among them. ────────────
+const CITY_GEOCACHE_KEY = "voyager_citygeocache_v1";
+let _cityGeoPersisted: Record<string, { lat: number; lng: number } | null> = {};
+try {
+  const raw = typeof localStorage !== "undefined" ? localStorage.getItem(CITY_GEOCACHE_KEY) : null;
+  if (raw) _cityGeoPersisted = JSON.parse(raw) as Record<string, { lat: number; lng: number } | null>;
+} catch {
+  /* ignore */
+}
+let _cityGeoSaveTimer: ReturnType<typeof setTimeout> | undefined;
+function persistCityGeoCache() {
+  if (_cityGeoSaveTimer) clearTimeout(_cityGeoSaveTimer);
+  _cityGeoSaveTimer = setTimeout(() => {
+    try {
+      localStorage.setItem(CITY_GEOCACHE_KEY, JSON.stringify(_cityGeoPersisted));
+    } catch {
+      /* ignore */
+    }
+  }, 500);
+}
+
+const _cityGeoCache = new Map<string, { lat: number; lng: number } | null>(
+  Object.entries(_cityGeoPersisted),
+);
+
+async function coordsFor(name: string, country: string): Promise<{ lat: number; lng: number } | null> {
+  const key = `${country}|${name}`;
+  if (_cityGeoCache.has(key)) return _cityGeoCache.get(key)!;
+  const c = await geocodeCity(name, country);
+  _cityGeoCache.set(key, c);
+  _cityGeoPersisted[key] = c;
+  persistCityGeoCache();
+  return c;
+}
+
+type ExtremePoint = { name: string; country: string; lat: number; lng: number };
+
+// Progressive: returns whatever is already resolved (instant on repeat
+// visits thanks to the persisted cache) and re-renders as more cities
+// resolve in the background, geocoding one at a time to stay polite to
+// the (rate-limited) geocoding service.
+function useExtremePoints(cities: City[]): ExtremePoint[] {
+  const key = cities.map((c) => `${c.country}|${c.name}`).join(",");
+  const [, forceTick] = useState(0);
+
+  useEffect(() => {
+    if (cities.length === 0) return;
+    let alive = true;
+    const pending = cities.filter((c) => !_cityGeoCache.has(`${c.country}|${c.name}`));
+    if (pending.length === 0) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    (async () => {
+      for (let i = 0; i < pending.length; i++) {
+        if (!alive) break;
+        const c = pending[i];
+        await coordsFor(c.name, c.country);
+        if (!alive) break;
+        forceTick((n) => n + 1);
+        if (i < pending.length - 1) {
+          await new Promise<void>((r) => { timer = setTimeout(r, 350); });
+        }
+      }
+    })().catch(() => { /* ignore */ });
+    return () => { alive = false; if (timer) clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+
+  return useMemo(() => {
+    const out: ExtremePoint[] = [];
+    for (const c of cities) {
+      const coords = _cityGeoCache.get(`${c.country}|${c.name}`);
+      if (coords) out.push({ name: c.name, country: c.country, lat: coords.lat, lng: coords.lng });
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+}
 
 function getCities(tr: Trip): City[] {
   const raw = (tr as unknown as { cities?: unknown }).cities;
@@ -202,6 +283,23 @@ function ProfilePage() {
     };
   }, [trips.data, prof.data, lang]);
 
+  // Every distinct visited city (name+country), used to resolve the
+  // farthest-points compass below.
+  const visitedCities = useMemo<City[]>(
+    () => stats.citiesRanked.map((c) => ({ name: c.name, country: c.country })),
+    [stats.citiesRanked],
+  );
+  const extremePoints = useExtremePoints(visitedCities);
+  const extremes = useMemo(() => {
+    if (extremePoints.length === 0) return null;
+    return {
+      north: extremePoints.reduce((a, b) => (b.lat > a.lat ? b : a)),
+      south: extremePoints.reduce((a, b) => (b.lat < a.lat ? b : a)),
+      east: extremePoints.reduce((a, b) => (b.lng > a.lng ? b : a)),
+      west: extremePoints.reduce((a, b) => (b.lng < a.lng ? b : a)),
+    };
+  }, [extremePoints]);
+
   const homeCountryIso = profData?.home_country;
   const birthCountryIso = profData?.birth_country;
   const username = profData?.username;
@@ -275,6 +373,27 @@ function ProfilePage() {
             ))}
           </div>
         </div>
+
+        {extremes && (
+          <div className="mt-4 rounded-3xl border border-border bg-card p-5 shadow-soft">
+            <h3 className="text-center font-serif text-base font-semibold">{t("extremes_title")}</h3>
+            <div className="mx-auto mt-4 grid max-w-xs grid-cols-3 grid-rows-3 items-center justify-items-center gap-2">
+              <div />
+              <CompassChip dir="N" title={t("northernmost")} point={extremes.north} lang={lang} />
+              <div />
+
+              <CompassChip dir="W" title={t("westernmost")} point={extremes.west} lang={lang} />
+              <span aria-hidden className="grid h-12 w-12 place-items-center rounded-full bg-primary/10 text-primary">
+                <Compass className="h-6 w-6" />
+              </span>
+              <CompassChip dir="E" title={t("easternmost")} point={extremes.east} lang={lang} />
+
+              <div />
+              <CompassChip dir="S" title={t("southernmost")} point={extremes.south} lang={lang} />
+              <div />
+            </div>
+          </div>
+        )}
 
         {stats.countriesRanked.length > 0 && (
           <div className="mt-4 space-y-4">
@@ -364,6 +483,30 @@ function Stat({ icon: Icon, label, value }: { icon: React.ComponentType<{ classN
       <Icon className="h-4 w-4 text-primary" />
       <p className="mt-2 text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
       <p className="mt-0.5 font-serif text-2xl font-semibold tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+// One corner of the farthest-points compass — cardinal letter (universal,
+// language-independent), flag, localized city + country name. `title` (the
+// translated "northernmost"/"southernmost"/etc.) is used as a tooltip so the
+// compact badge still stays accessible/understandable.
+function CompassChip({
+  dir, title, point, lang,
+}: { dir: string; title: string; point: ExtremePoint; lang: string }) {
+  return (
+    <div
+      className="flex w-full flex-col items-center gap-0.5 rounded-2xl border border-border/60 bg-secondary/40 px-1.5 py-2 text-center"
+      title={title}
+    >
+      <span className="text-[10px] font-bold uppercase tracking-wider text-primary">{dir}</span>
+      <span className="text-lg leading-none">{flagOf(point.country)}</span>
+      <span className="w-full truncate text-xs font-medium leading-tight">
+        {cityNameLocalized(point.name, lang)}
+      </span>
+      <span className="w-full truncate text-[10px] leading-tight text-muted-foreground">
+        {countryNameLocalized(point.country, lang)}
+      </span>
     </div>
   );
 }
