@@ -1123,6 +1123,21 @@ function TransportDialog({
 
   const isStopBased = mode === "train" || mode === "plane" || mode === "metro" || mode === "tram";
 
+  // The dialog stays mounted around its trigger, so the useState initializers run
+  // once — before the trip's items have loaded (existing = undefined). Re-seed the
+  // form from `existing` every time the dialog opens, so editing an already-saved
+  // journey shows its data instead of an empty "plane" form.
+  useEffect(() => {
+    if (!open) return;
+    setMode((existing?.meta?.mode as TransportMode) ?? "plane");
+    setLegs(
+      existing?.meta?.legs && existing.meta.legs.length > 0
+        ? existing.meta.legs.map((l) => ({ ...emptyLeg(), ...l }))
+        : [emptyLeg()],
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
   function updateLeg(i: number, patch: Partial<Leg>) {
     setLegs((arr) => arr.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
   }
