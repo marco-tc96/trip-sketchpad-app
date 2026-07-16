@@ -66,11 +66,21 @@ const CONTINENT_EMOJI: Record<string, string> = {
 // ── Farthest-points compass: geocode every visited city (once, then cached —
 // both in-memory for the session and persisted to localStorage so a return
 // visit is instant) and track the N/S/E/W extremes among them. ────────────
-const CITY_GEOCACHE_KEY = "voyager_citygeocache_v1";
-let _cityGeoPersisted: Record<string, { lat: number; lng: number } | null> = {};
+const CITY_GEOCACHE_KEY = "voyager_citygeocache_v2";
+// Persisted cache holds ONLY successful geocodes. A failure is never written,
+// so a city that failed once (transient rate-limit / timeout) is retried on
+// the next visit instead of being permanently missing — which is exactly the
+// bug that made a far-east city (e.g. Inje, KR) drop out and a closer one
+// (e.g. Novalja, HR) be wrongly shown as the easternmost.
+let _cityGeoPersisted: Record<string, { lat: number; lng: number }> = {};
 try {
   const raw = typeof localStorage !== "undefined" ? localStorage.getItem(CITY_GEOCACHE_KEY) : null;
-  if (raw) _cityGeoPersisted = JSON.parse(raw) as Record<string, { lat: number; lng: number } | null>;
+  if (raw) {
+    const parsed = JSON.parse(raw) as Record<string, { lat: number; lng: number } | null>;
+    for (const [k, v] of Object.entries(parsed)) {
+      if (v && typeof v.lat === "number" && typeof v.lng === "number") _cityGeoPersisted[k] = v;
+    }
+  }
 } catch {
   /* ignore */
 }
@@ -86,18 +96,29 @@ function persistCityGeoCache() {
   }, 500);
 }
 
-const _cityGeoCache = new Map<string, { lat: number; lng: number } | null>(
+// In-memory cache of ONLY successfully resolved coordinates.
+const _cityGeoCache = new Map<string, { lat: number; lng: number }>(
   Object.entries(_cityGeoPersisted),
 );
 
+// Geocode a single city, retrying transient failures (rate limits / timeouts)
+// with backoff. Only a valid result is cached/persisted; a persistent failure
+// returns null WITHOUT poisoning the cache, so it stays eligible for retry.
 async function coordsFor(name: string, country: string): Promise<{ lat: number; lng: number } | null> {
   const key = `${country}|${name}`;
-  if (_cityGeoCache.has(key)) return _cityGeoCache.get(key)!;
-  const c = await geocodeCity(name, country);
-  _cityGeoCache.set(key, c);
-  _cityGeoPersisted[key] = c;
-  persistCityGeoCache();
-  return c;
+  const cached = _cityGeoCache.get(key);
+  if (cached) return cached;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const c = await geocodeCity(name, country);
+    if (c && typeof c.lat === "number" && typeof c.lng === "number") {
+      _cityGeoCache.set(key, c);
+      _cityGeoPersisted[key] = c;
+      persistCityGeoCache();
+      return c;
+    }
+    await new Promise<void>((r) => setTimeout(r, 800 * (attempt + 1)));
+  }
+  return null;
 }
 
 type ExtremePoint = { name: string; country: string; lat: number; lng: number };
@@ -501,10 +522,7 @@ function CompassChip({
   dir, title, point, lang,
 }: { dir: string; title: string; point: ExtremePoint; lang: string }) {
   return (
-    <div
-      className="flex w-full flex-col items-center gap-0.5 rounded-2xl border border-border/60 bg-secondary/40 px-1.5 py-2 text-center"
-      title={title}
-    >
+    <div className="flex w-full flex-col items-center gap-0.5 text-center" title={title}>
       <span className="text-[10px] font-bold uppercase tracking-wider text-primary">{dir}</span>
       <span className="text-lg leading-none">{flagOf(point.country)}</span>
       <span className="w-full truncate text-xs font-medium leading-tight">
