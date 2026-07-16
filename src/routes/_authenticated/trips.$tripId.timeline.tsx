@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { citiesOfCountry, flagOf, cityNameLocalized, countryNameLocalized } from "@/lib/country-data";
+import { citiesOfCountry, flagOf, cityNameLocalized } from "@/lib/country-data";
 import { cn } from "@/lib/utils";
 import { withRomanization, registerEnName } from "@/lib/romanize";
 import { useCityPhoto } from "@/hooks/use-city-photo";
@@ -49,7 +49,6 @@ type ItemRow = {
 
 type TransportMode = "car" | "moto" | "train" | "plane" | "ferry" | "bus" | "metro" | "tram";
 type Waypoint = { name: string; enter?: boolean; lat?: number | null; lng?: number | null; country?: string | null };
-type Highway = { ref: string; lat: number; lng: number; country?: string | null; from?: string | null; to?: string | null };
 type Leg = {
   from: string;
   to: string;
@@ -58,7 +57,6 @@ type Leg = {
   carrier: string;
   number: string;
   waypoints?: Waypoint[];
-  highways?: Highway[];
 };
 const emptyLeg = (): Leg => ({
   from: "", to: "", depart_at: "", arrive_at: "", carrier: "", number: "",
@@ -66,19 +64,16 @@ const emptyLeg = (): Leg => ({
 
 // Small localized labels for the road-leg editor (kept local so we don't have to
 // touch the global i18n bundle for these few strings).
-const WP_LABELS: Record<string, {
-  cities: string; place: string; addCity: string; via: string;
-  highways: string; hwSearch: string; hwNone: string; hwPick: string;
-}> = {
-  it: { cities: "Tappe di stop (città)", place: "Città o luogo", addCity: "Aggiungi città", via: "via", highways: "Autostrade / superstrade", hwSearch: "Cerca autostrada…", hwNone: "Nessuna trovata", hwPick: "Seleziona autostrade" },
-  en: { cities: "Stops (cities)", place: "City or place", addCity: "Add city", via: "via", highways: "Motorways / highways", hwSearch: "Search motorway…", hwNone: "None found", hwPick: "Select motorways" },
-  es: { cities: "Paradas (ciudades)", place: "Ciudad o lugar", addCity: "Añadir ciudad", via: "vía", highways: "Autopistas / autovías", hwSearch: "Buscar autopista…", hwNone: "Ninguna", hwPick: "Seleccionar autopistas" },
-  fr: { cities: "Étapes (villes)", place: "Ville ou lieu", addCity: "Ajouter une ville", via: "via", highways: "Autoroutes / voies rapides", hwSearch: "Rechercher autoroute…", hwNone: "Aucune", hwPick: "Sélectionner les autoroutes" },
-  de: { cities: "Stopps (Städte)", place: "Stadt oder Ort", addCity: "Stadt hinzufügen", via: "über", highways: "Autobahnen / Schnellstraßen", hwSearch: "Autobahn suchen…", hwNone: "Keine gefunden", hwPick: "Autobahnen auswählen" },
-  pt: { cities: "Paradas (cidades)", place: "Cidade ou lugar", addCity: "Adicionar cidade", via: "via", highways: "Autoestradas / vias rápidas", hwSearch: "Procurar autoestrada…", hwNone: "Nenhuma", hwPick: "Selecionar autoestradas" },
-  ja: { cities: "立ち寄り（都市）", place: "都市または場所", addCity: "都市を追加", via: "経由", highways: "高速道路 / 幹線道路", hwSearch: "高速道路を検索…", hwNone: "見つかりません", hwPick: "高速道路を選択" },
-  ko: { cities: "경유(도시)", place: "도시 또는 장소", addCity: "도시 추가", via: "경유", highways: "고속도로 / 간선도로", hwSearch: "고속도로 검색…", hwNone: "없음", hwPick: "고속도로 선택" },
-  zh: { cities: "停靠（城市）", place: "城市或地点", addCity: "添加城市", via: "途经", highways: "高速公路 / 快速路", hwSearch: "搜索高速…", hwNone: "未找到", hwPick: "选择高速公路" },
+const WP_LABELS: Record<string, { cities: string; place: string; addCity: string; via: string }> = {
+  it: { cities: "Tappe di stop (città)", place: "Città o luogo", addCity: "Aggiungi città", via: "via" },
+  en: { cities: "Stops (cities)", place: "City or place", addCity: "Add city", via: "via" },
+  es: { cities: "Paradas (ciudades)", place: "Ciudad o lugar", addCity: "Añadir ciudad", via: "vía" },
+  fr: { cities: "Étapes (villes)", place: "Ville ou lieu", addCity: "Ajouter une ville", via: "via" },
+  de: { cities: "Stopps (Städte)", place: "Stadt oder Ort", addCity: "Stadt hinzufügen", via: "über" },
+  pt: { cities: "Paradas (cidades)", place: "Cidade ou lugar", addCity: "Adicionar cidade", via: "via" },
+  ja: { cities: "立ち寄り（都市）", place: "都市または場所", addCity: "都市を追加", via: "経由" },
+  ko: { cities: "경유(도시)", place: "도시 또는 장소", addCity: "도시 추가", via: "경유" },
+  zh: { cities: "停靠（城市）", place: "城市或地点", addCity: "添加城市", via: "途经" },
 };
 const wpL = (lang: string | undefined) => WP_LABELS[(lang || "it").slice(0, 2)] ?? WP_LABELS.it;
 type MixedLeg = {
@@ -1091,9 +1086,6 @@ function TransportLegs({ meta, compact }: { meta: TransportMeta | null; compact?
             {l.waypoints && l.waypoints.length > 0 && (
               <span className="ml-1.5 opacity-80">· {wpL(lang).via} {l.waypoints.map((w) => w.name).join(", ")}</span>
             )}
-            {l.highways && l.highways.length > 0 && (
-              <span className="ml-1.5 opacity-80">· {l.highways.map((h) => h.ref).join(", ")}</span>
-            )}
             {l.depart_at && <span className="ml-1.5">· {fmtDT(l.depart_at, lang)}</span>}
             {l.arrive_at && <span className="ml-1">→ {fmtDT(l.arrive_at, lang)}</span>}
           </span>
@@ -1153,13 +1145,12 @@ function TransportDialog({
   // Geographic corridor between the road leg's start and end — used to limit the
   // waypoint city suggestions to the countries the trip actually crosses.
   const [corridorBox, setCorridorBox] = useState<CorridorBox | null>(null);
-  const [corridorEnds, setCorridorEnds] = useState<{ a: [number, number]; b: [number, number] } | null>(null);
   const legFrom = legs[0]?.from ?? "";
   const legTo = legs[0]?.to ?? "";
   useEffect(() => {
-    if (mode !== "car" && mode !== "moto") { setCorridorBox(null); setCorridorEnds(null); return; }
+    if (mode !== "car" && mode !== "moto") { setCorridorBox(null); return; }
     const from = legFrom.trim(), to = legTo.trim();
-    if (!from || !to) { setCorridorBox(null); setCorridorEnds(null); return; }
+    if (!from || !to) { setCorridorBox(null); return; }
     let alive = true;
     (async () => {
       const [a, b] = await Promise.all([geocodePlaceName(from), geocodePlaceName(to)]);
@@ -1169,7 +1160,6 @@ function TransportDialog({
         minLat: Math.min(a.lat, b.lat) - m, maxLat: Math.max(a.lat, b.lat) + m,
         minLng: Math.min(a.lng, b.lng) - m, maxLng: Math.max(a.lng, b.lng) + m,
       });
-      setCorridorEnds({ a: [a.lat, a.lng], b: [b.lat, b.lng] });
     })();
     return () => { alive = false; };
   }, [mode, legFrom, legTo]);
@@ -1400,19 +1390,6 @@ function TransportDialog({
                       >
                         <Plus className="mr-1.5 h-3.5 w-3.5" /> {wpL(lang).addCity}
                       </Button>
-                    </div>
-                    {/* Motorways / trunk roads the route must run along. */}
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">
-                        {wpL(lang).highways} <span className="opacity-60">{t("optional")}</span>
-                      </Label>
-                      <HighwayMultiSelect
-                        ends={corridorEnds}
-                        vias={(leg.waypoints ?? []).filter((w) => typeof w.lat === "number" && typeof w.lng === "number").map((w) => [w.lat as number, w.lng as number] as [number, number])}
-                        lang={lang}
-                        selected={leg.highways ?? []}
-                        onChange={(list) => updateLeg(i, { highways: list })}
-                      />
                     </div>
                   </div>
                 )}
@@ -2386,264 +2363,6 @@ function WaypointCombobox({
   );
 }
 
-// ── Motorway search along the corridor ───────────────────────────────────────
-type CorridorHighway = { ref: string; lat: number; lng: number; country?: string; from?: string; to?: string };
-const _highwayCache = new Map<string, CorridorHighway[]>();
-
-// Rough bounding boxes [minLat, minLng, maxLat, maxLng] for European countries, to
-// resolve the country of a motorway point offline (for the flag + grouping) when
-// the OSM `network` tag has no country prefix. Smallest matching box wins.
-const EU_BBOX: Record<string, [number, number, number, number]> = {
-  IT: [36.6, 6.6, 47.1, 18.5], CH: [45.8, 5.9, 47.8, 10.5], AT: [46.3, 9.5, 49.0, 17.2],
-  DE: [47.2, 5.8, 55.1, 15.0], FR: [41.3, -5.2, 51.1, 9.6], BE: [49.5, 2.5, 51.5, 6.4],
-  LU: [49.4, 5.7, 50.2, 6.6], NL: [50.7, 3.3, 53.6, 7.2], SI: [45.4, 13.3, 46.9, 16.6],
-  ES: [36.0, -9.4, 43.8, 3.4], PT: [36.9, -9.6, 42.2, -6.1], GB: [49.9, -8.7, 58.7, 1.9],
-  IE: [51.4, -10.6, 55.5, -5.9], CZ: [48.5, 12.0, 51.1, 18.9], SK: [47.7, 16.8, 49.7, 22.6],
-  PL: [49.0, 14.1, 54.9, 24.2], HU: [45.7, 16.1, 48.6, 22.9], HR: [42.3, 13.4, 46.6, 19.5],
-  DK: [54.5, 8.0, 57.8, 15.2], SE: [55.3, 11.0, 69.1, 24.2], NO: [57.9, 4.5, 71.2, 31.2],
-  GR: [34.8, 19.3, 41.8, 28.3], RO: [43.6, 20.2, 48.3, 29.7], RS: [42.2, 18.8, 46.2, 23.1],
-  BA: [42.5, 15.7, 45.3, 19.7], BG: [41.2, 22.3, 44.2, 28.6], EE: [57.5, 21.7, 59.7, 28.2],
-  LV: [55.6, 20.9, 58.1, 28.3], LT: [53.8, 20.9, 56.5, 26.9], MK: [40.8, 20.4, 42.4, 23.0],
-  AL: [39.6, 19.2, 42.7, 21.1], ME: [41.8, 18.4, 43.6, 20.4],
-};
-function countryAtPoint(lat: number, lng: number): string | undefined {
-  let best: string | undefined, bestArea = Infinity;
-  for (const iso in EU_BBOX) {
-    const [a1, o1, a2, o2] = EU_BBOX[iso];
-    if (lat >= a1 && lat <= a2 && lng >= o1 && lng <= o2) {
-      const area = (a2 - a1) * (o2 - o1);
-      if (area < bestArea) { bestArea = area; best = iso; }
-    }
-  }
-  return best;
-}
-
-function haversineKm(p: [number, number], q: [number, number]): number {
-  const R = 6371, toRad = Math.PI / 180;
-  const dLat = (q[0] - p[0]) * toRad, dLng = (q[1] - p[1]) * toRad;
-  const s = Math.sin(dLat / 2) ** 2 + Math.cos(p[0] * toRad) * Math.cos(q[0] * toRad) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
-}
-
-// The real driving route through an ordered list of points (start, the city stops
-// the traveller will visit, end), so the corridor follows the roads actually taken
-// — e.g. via the Brennero into Austria when a stop in Germany is planned, instead
-// of the fastest bare Italy→Belgium path through Switzerland/France.
-async function fetchDrivingRoute(points: Array<[number, number]>): Promise<Array<[number, number]> | null> {
-  if (points.length < 2) return null;
-  try {
-    const coords = points.map((p) => `${p[1]},${p[0]}`).join(";");
-    const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`;
-    const r = await fetch(url, { headers: { Accept: "application/json" } });
-    if (!r.ok) return null;
-    const d = (await r.json()) as { routes?: Array<{ geometry?: { coordinates?: [number, number][] } }> };
-    const c = d.routes?.[0]?.geometry?.coordinates;
-    if (Array.isArray(c) && c.length > 1) return c.map(([lng, lat]) => [lat, lng] as [number, number]);
-  } catch { /* ignore */ }
-  return null;
-}
-
-// Points spaced ~stepKm apart along a polyline (capped to `max` points).
-function sampleAlong(route: Array<[number, number]>, max = 18): Array<[number, number]> {
-  if (route.length === 0) return [];
-  let total = 0;
-  for (let i = 1; i < route.length; i++) total += haversineKm(route[i - 1], route[i]);
-  const stepKm = Math.max(45, total / max);
-  const pts: Array<[number, number]> = [route[0]];
-  let acc = 0;
-  for (let i = 1; i < route.length; i++) {
-    acc += haversineKm(route[i - 1], route[i]);
-    if (acc >= stepKm) { pts.push(route[i]); acc = 0; }
-  }
-  pts.push(route[route.length - 1]);
-  return pts;
-}
-
-// Straight-line fallback when OSRM is unavailable.
-function corridorSamples(a: [number, number], b: [number, number]): Array<[number, number]> {
-  const km = Math.hypot((b[0] - a[0]) * 111, (b[1] - a[1]) * 111 * Math.cos(((a[0] + b[0]) / 2) * Math.PI / 180));
-  const n = Math.max(2, Math.min(14, Math.round(km / 90)));
-  const pts: Array<[number, number]> = [];
-  for (let i = 0; i <= n; i++) {
-    const t = i / n;
-    pts.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
-  }
-  return pts;
-}
-
-async function fetchCorridorHighways(a: [number, number], vias: Array<[number, number]>, b: [number, number]): Promise<CorridorHighway[]> {
-  const viaKey = vias.map((v) => `${v[0].toFixed(2)},${v[1].toFixed(2)}`).join("_");
-  const key = `${a[0].toFixed(2)},${a[1].toFixed(2)}|${viaKey}|${b[0].toFixed(2)},${b[1].toFixed(2)}`;
-  if (_highwayCache.has(key)) return _highwayCache.get(key)!;
-  // Sample along the ACTUAL driving route THROUGH the planned city stops (so the
-  // corridor follows the roads taken, in the right direction), falling back to the
-  // straight line if OSRM is down.
-  const route = await fetchDrivingRoute([a, ...vias, b]);
-  const samples = route ? sampleAlong(route) : corridorSamples(a, b);
-  const mid = samples[Math.floor(samples.length / 2)] ?? a;
-  // Countries actually crossed by the route — used to drop motorways of countries
-  // only clipped at a border (e.g. Netherlands near Verviers) or off-route ones.
-  const routeCountries = new Set<string>();
-  for (const p of samples) { const cc = countryAtPoint(p[0], p[1]); if (cc) routeCountries.add(cc); }
-  // MOTORWAYS ONLY. `highway=motorway` ways near each route point give the ref + a
-  // point on the road; road route relations add endpoints (from/to). A generous
-  // radius captures the alternatives/deviations you could take (from Carpi: A22, or
-  // branch onto A4 / A1), while following the route keeps wrong-direction roads
-  // (e.g. A14 Bologna→Taranto) out. `out center` includes tags + a centre point
-  // (NB: "out tags center" is invalid Overpass and returns nothing).
-  const wClauses = samples.map((p) => `way["highway"="motorway"]["ref"](around:65000,${p[0]},${p[1]});`).join("");
-  const rClauses = samples.map((p) => `relation["type"="route"]["route"="road"]["ref"](around:65000,${p[0]},${p[1]});`).join("");
-  const q = `[out:json][timeout:40];(${wClauses})->.w;.w out center;(${rClauses})->.r;.r out center;`;
-  try {
-    const data = (await overpassFetch(q, 30000)) as {
-      elements: Array<{ type: string; tags?: Record<string, string>; center?: { lat: number; lon: number } }>;
-    };
-    // Per motorway ref, keep the way segment nearest the route midpoint.
-    const coord = new Map<string, { lat: number; lng: number; d: number; country?: string }>();
-    const relMeta = new Map<string, { from?: string; to?: string; country?: string; d: number; ft: boolean }>();
-    for (const el of data.elements) {
-      const refTag = el.tags?.ref;
-      const c = el.center;
-      if (!refTag || !c) continue;
-      const iso = /^([A-Za-z]{2}):/.exec(el.tags?.network ?? "")?.[1]?.toUpperCase();
-      const d = (c.lat - mid[0]) ** 2 + (c.lon - mid[1]) ** 2;
-      const refs = refTag.split(";").map((s) => s.trim()).filter(Boolean);
-      if (el.type === "way") {
-        for (const ref of refs) {
-          const prev = coord.get(ref);
-          if (!prev || d < prev.d) coord.set(ref, { lat: c.lat, lng: c.lon, d, country: iso });
-        }
-      } else if (el.type === "relation") {
-        const from = el.tags?.from?.trim();
-        const to = el.tags?.to?.trim();
-        const ft = !!(from || to);
-        for (const ref of refs) {
-          const prev = relMeta.get(ref);
-          if (!prev || (ft && !prev.ft) || (ft === prev.ft && d < prev.d)) relMeta.set(ref, { from, to, country: iso, d, ft });
-        }
-      }
-    }
-    const out: CorridorHighway[] = [...coord.entries()]
-      .map(([ref, c]) => {
-        const m = relMeta.get(ref);
-        // Country: OSM network prefix → else resolve offline from the point, so
-        // every motorway gets a flag and can be grouped by state.
-        const country = m?.country ?? c.country ?? countryAtPoint(c.lat, c.lng);
-        return { ref, lat: c.lat, lng: c.lng, country, from: m?.from, to: m?.to };
-      })
-      // Keep only motorways whose country is actually on the route.
-      .filter((h) => !h.country || routeCountries.size === 0 || routeCountries.has(h.country))
-      .sort((a2, b2) => a2.ref.localeCompare(b2.ref, undefined, { numeric: true }));
-    _highwayCache.set(key, out);
-    return out;
-  } catch {
-    return [];
-  }
-}
-
-function HighwayMultiSelect({
-  ends, vias, selected, onChange, lang,
-}: {
-  ends: { a: [number, number]; b: [number, number] } | null;
-  vias: Array<[number, number]>;
-  selected: Highway[];
-  onChange: (list: Highway[]) => void;
-  lang: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const [options, setOptions] = useState<CorridorHighway[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [q, setQ] = useState("");
-  const viaKey = vias.map((v) => `${v[0].toFixed(2)},${v[1].toFixed(2)}`).join("_");
-  const endKey = ends ? `${ends.a[0].toFixed(2)},${ends.a[1].toFixed(2)}|${viaKey}|${ends.b[0].toFixed(2)},${ends.b[1].toFixed(2)}` : "";
-  useEffect(() => {
-    if (!ends) { setOptions([]); return; }
-    let alive = true;
-    setLoading(true);
-    fetchCorridorHighways(ends.a, vias, ends.b).then((h) => { if (alive) { setOptions(h); setLoading(false); } });
-    return () => { alive = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [endKey]);
-  const L = wpL(lang);
-  const selRefs = new Set(selected.map((s) => s.ref));
-  const ql = q.trim().toLowerCase();
-  const filtered = options.filter(
-    (o) => o.ref.toLowerCase().includes(ql) || (o.from ?? "").toLowerCase().includes(ql) || (o.to ?? "").toLowerCase().includes(ql),
-  );
-  // Group the motorways by country (state), each group under a flag + name header.
-  const groups = (() => {
-    const m = new Map<string, CorridorHighway[]>();
-    for (const o of filtered) {
-      const cc = o.country || "??";
-      (m.get(cc) ?? m.set(cc, []).get(cc)!).push(o);
-    }
-    return [...m.entries()].sort((x, y) => {
-      if (x[0] === "??") return 1;
-      if (y[0] === "??") return -1;
-      return countryNameLocalized(x[0], lang).localeCompare(countryNameLocalized(y[0], lang), lang);
-    });
-  })();
-  const toggle = (h: CorridorHighway) => {
-    if (selRefs.has(h.ref)) onChange(selected.filter((s) => s.ref !== h.ref));
-    else onChange([...selected, { ref: h.ref, lat: h.lat, lng: h.lng, country: h.country, from: h.from, to: h.to }]);
-  };
-  const routeOf = (h: { from?: string | null; to?: string | null }) => [h.from, h.to].filter(Boolean).join(" • ");
-  return (
-    <div className="space-y-1.5">
-      {selected.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {selected.map((s) => (
-            <span key={s.ref} className="inline-flex items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 text-xs font-medium text-primary">
-              {s.country ? `${flagOf(s.country)} ` : ""}{s.ref}
-              <button type="button" onClick={() => onChange(selected.filter((x) => x.ref !== s.ref))}>
-                <X className="h-3 w-3" />
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
-      <div className="relative">
-        <button
-          type="button"
-          onClick={() => setOpen((o) => !o)}
-          className="flex w-full items-center justify-between rounded-md border border-border bg-card px-3 py-2 text-left text-sm text-muted-foreground"
-        >
-          <span>{L.hwPick}</span>
-          <ChevronsUpDown className="h-4 w-4 opacity-60" />
-        </button>
-        {open && (
-          <div className="absolute left-0 right-0 top-full z-50 mt-1 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
-            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={L.hwSearch} className="mb-1" />
-            <div className="max-h-56 overflow-auto">
-              {loading && <div className="px-2 py-1.5 text-xs text-muted-foreground">…</div>}
-              {!loading && filtered.length === 0 && <div className="px-2 py-1.5 text-xs text-muted-foreground">{L.hwNone}</div>}
-              {groups.map(([cc, list]) => (
-                <div key={cc}>
-                  <div className="flex items-center gap-1.5 px-2 pb-0.5 pt-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    {cc !== "??" && <span>{flagOf(cc)}</span>}
-                    <span>{cc === "??" ? "—" : countryNameLocalized(cc, lang)}</span>
-                  </div>
-                  {list.map((h) => (
-                    <button
-                      type="button"
-                      key={h.ref}
-                      onClick={() => toggle(h)}
-                      className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
-                    >
-                      <Check className={cn("h-4 w-4 shrink-0", selRefs.has(h.ref) ? "opacity-100" : "opacity-0")} />
-                      <span className="shrink-0 font-medium">{h.ref}</span>
-                      {routeOf(h) && <span className="min-w-0 flex-1 truncate text-muted-foreground">{routeOf(h)}</span>}
-                    </button>
-                  ))}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 function HubCombobox({
   mode, countries, value, onChange, placeholder,

@@ -17,17 +17,6 @@ const waypointSchema = z.object({
   country: z.string().max(2).optional().nullable(),
 });
 
-// Selected motorway/trunk road (autostrada/superstrada) the route must run along,
-// with a representative point on it (in the corridor) used to shape the route.
-const highwaySchema = z.object({
-  ref: z.string().max(40),
-  lat: z.number(),
-  lng: z.number(),
-  country: z.string().max(2).optional().nullable(),
-  from: z.string().max(120).optional().nullable(),
-  to: z.string().max(120).optional().nullable(),
-});
-
 const legSchema = z.object({
   from: z.string().max(160).optional().nullable(),
   to: z.string().max(160).optional().nullable(),
@@ -36,10 +25,8 @@ const legSchema = z.object({
   carrier: z.string().max(120).optional().nullable(),
   number: z.string().max(40).optional().nullable(),
   notes: z.string().max(500).optional().nullable(),
-  // Road legs (car/moto): city stops to visit + motorways/trunk roads to follow,
-  // both used to shape the drawn route.
+  // Road legs (car/moto): city stops to visit, used to shape the drawn route.
   waypoints: z.array(waypointSchema).max(12).optional().nullable(),
-  highways: z.array(highwaySchema).max(20).optional().nullable(),
 });
 
 const metaSchema = z

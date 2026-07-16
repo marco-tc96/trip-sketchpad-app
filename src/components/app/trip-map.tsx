@@ -7,8 +7,7 @@ import { withRomanization, registerEnName } from "@/lib/romanize";
 
 export type MapCity = { name: string; country: string; lat?: number; lng?: number };
 export type MapWaypoint = { name: string; enter?: boolean; lat?: number | null; lng?: number | null; country?: string | null };
-export type MapHighway = { ref: string; lat: number; lng: number; country?: string | null };
-export type MapRoute = { from: string; to: string; mode: string; country?: string; line?: string; city?: string; waypoints?: MapWaypoint[]; highways?: MapHighway[] };
+export type MapRoute = { from: string; to: string; mode: string; country?: string; line?: string; city?: string; waypoints?: MapWaypoint[] };
 
 // Approximate country centroids (lat, lng) keyed by ISO-2.
 // Used as a fallback when no city coordinates are available.
@@ -788,8 +787,8 @@ export function TripMap({
   // For transit-with-line legs `center` is the geocoded CITY (reliable), never the
   // stop names (which can collide with far-away towns, e.g. "Roses" → Girona).
   const routeLines = useMemo(() => {
-    // A via can be a city stop (shown as a hollow pin) or a highway shaping point
-    // (no pin). Both pull the OSRM route through them, ordered along the trip.
+    // A via is a city stop (shown as a hollow pin) that pulls the OSRM route
+    // through it, ordered along the trip.
     type Via = { ll: LL; label: string; pin: boolean };
     type Line = {
       a: LL | null; b: LL | null; mode: string; from: string; to: string;
@@ -808,8 +807,8 @@ export function TripMap({
       const ck = center ? `${Math.round(center[0] * 100) / 100},${Math.round(center[1] * 100) / 100}` : "";
       const a = resolve(r.from, r.country);
       const b = resolve(r.to, r.country);
-      // Build the road-leg vias (car/moto): city stops (with a pin) + selected
-      // motorways/trunk roads (no pin). `viasReady` waits for city coordinates.
+      // Build the road-leg vias (car/moto): city stops (with a pin).
+      // `viasReady` waits for city coordinates.
       const vias: Via[] = [];
       let viasReady = true;
       if (r.mode === "car" || r.mode === "moto") {
@@ -824,11 +823,6 @@ export function TripMap({
           if (!(gk in routeGeo)) { viasReady = false; continue; } // geocode pending
           const g = routeGeo[gk];
           if (g) vias.push({ ll: [g.lat, g.lng], label: nm, pin: true }); // null → skip
-        }
-        for (const h of (r.highways ?? [])) {
-          if (typeof h.lat === "number" && typeof h.lng === "number") {
-            vias.push({ ll: [h.lat, h.lng], label: h.ref, pin: false });
-          }
         }
         // Order vias from origin to destination (parametric position along a→b)
         // so OSRM traverses them sensibly.

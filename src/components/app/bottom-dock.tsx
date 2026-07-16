@@ -1,5 +1,5 @@
-import { Link, useLocation, useNavigate } from "@tanstack/react-router";
-import { Compass, Globe2, User, Plus, Bell } from "lucide-react";
+import { Link, useLocation } from "@tanstack/react-router";
+import { Compass, Globe2, User, Bell } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -22,7 +22,6 @@ const NAV_ITEMS: NavItem[] = [
 export function BottomDock() {
   const { t } = useTranslation();
   const loc = useLocation();
-  const nav = useNavigate();
 
   const countFn = useServerFn(countUnreadNotifications);
   const { data: countData } = useQuery({
@@ -32,8 +31,6 @@ export function BottomDock() {
     refetchOnWindowFocus: true,
   });
   const unreadCount = countData?.count ?? 0;
-
-  const isNewTripPage = loc.pathname === "/trips/new";
 
   return (
     <nav
@@ -75,22 +72,6 @@ export function BottomDock() {
         <Globe2 className="h-5 w-5 sm:h-4 sm:w-4" />
         <span className="hidden sm:inline">{t("map")}</span>
       </Link>
-
-      {/* Nuovo — apre la pagina con toggle viaggio/wishlist interno */}
-      <button
-        type="button"
-        onClick={() => nav({ to: "/trips/new" })}
-        aria-label={t("new_trip")}
-        className={cn(
-          "flex items-center gap-1.5 rounded-full px-4 py-3 sm:px-3.5 sm:py-2 text-xs font-medium transition",
-          isNewTripPage
-            ? "bg-primary text-primary-foreground shadow-soft"
-            : "text-muted-foreground hover:bg-muted hover:text-foreground",
-        )}
-      >
-        <Plus className="h-5 w-5 sm:h-4 sm:w-4" />
-        <span className="hidden sm:inline">{t("new")}</span>
-      </button>
 
       {/* Profile nav */}
       {(() => {
