@@ -1408,6 +1408,7 @@ function TransportDialog({
                       </Label>
                       <HighwayMultiSelect
                         ends={corridorEnds}
+                        vias={(leg.waypoints ?? []).filter((w) => typeof w.lat === "number" && typeof w.lng === "number").map((w) => [w.lat as number, w.lng as number] as [number, number])}
                         lang={lang}
                         selected={leg.highways ?? []}
                         onChange={(list) => updateLeg(i, { highways: list })}
@@ -2424,11 +2425,15 @@ function haversineKm(p: [number, number], q: [number, number]): number {
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
 }
 
-// The real driving route A→B (OSRM), so the corridor follows the roads actually
-// taken (e.g. over the Brennero), not the straight line across the Alps.
-async function fetchDrivingRoute(a: [number, number], b: [number, number]): Promise<Array<[number, number]> | null> {
+// The real driving route through an ordered list of points (start, the city stops
+// the traveller will visit, end), so the corridor follows the roads actually taken
+// — e.g. via the Brennero into Austria when a stop in Germany is planned, instead
+// of the fastest bare Italy→Belgium path through Switzerland/France.
+async function fetchDrivingRoute(points: Array<[number, number]>): Promise<Array<[number, number]> | null> {
+  if (points.length < 2) return null;
   try {
-    const url = `https://router.project-osrm.org/route/v1/driving/${a[1]},${a[0]};${b[1]},${b[0]}?overview=full&geometries=geojson`;
+    const coords = points.map((p) => `${p[1]},${p[0]}`).join(";");
+    const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`;
     const r = await fetch(url, { headers: { Accept: "application/json" } });
     if (!r.ok) return null;
     const d = (await r.json()) as { routes?: Array<{ geometry?: { coordinates?: [number, number][] } }> };
@@ -2466,14 +2471,20 @@ function corridorSamples(a: [number, number], b: [number, number]): Array<[numbe
   return pts;
 }
 
-async function fetchCorridorHighways(a: [number, number], b: [number, number]): Promise<CorridorHighway[]> {
-  const key = `${a[0].toFixed(2)},${a[1].toFixed(2)}|${b[0].toFixed(2)},${b[1].toFixed(2)}`;
+async function fetchCorridorHighways(a: [number, number], vias: Array<[number, number]>, b: [number, number]): Promise<CorridorHighway[]> {
+  const viaKey = vias.map((v) => `${v[0].toFixed(2)},${v[1].toFixed(2)}`).join("_");
+  const key = `${a[0].toFixed(2)},${a[1].toFixed(2)}|${viaKey}|${b[0].toFixed(2)},${b[1].toFixed(2)}`;
   if (_highwayCache.has(key)) return _highwayCache.get(key)!;
-  // Sample along the ACTUAL driving route (so the corridor follows the roads taken,
-  // in the right direction), falling back to the straight line if OSRM is down.
-  const route = await fetchDrivingRoute(a, b);
+  // Sample along the ACTUAL driving route THROUGH the planned city stops (so the
+  // corridor follows the roads taken, in the right direction), falling back to the
+  // straight line if OSRM is down.
+  const route = await fetchDrivingRoute([a, ...vias, b]);
   const samples = route ? sampleAlong(route) : corridorSamples(a, b);
   const mid = samples[Math.floor(samples.length / 2)] ?? a;
+  // Countries actually crossed by the route — used to drop motorways of countries
+  // only clipped at a border (e.g. Netherlands near Verviers) or off-route ones.
+  const routeCountries = new Set<string>();
+  for (const p of samples) { const cc = countryAtPoint(p[0], p[1]); if (cc) routeCountries.add(cc); }
   // MOTORWAYS ONLY. `highway=motorway` ways near each route point give the ref + a
   // point on the road; road route relations add endpoints (from/to). `around` is
   // index-backed and light, and following the route keeps wrong-direction roads
@@ -2518,6 +2529,8 @@ async function fetchCorridorHighways(a: [number, number], b: [number, number]): 
         const country = m?.country ?? c.country ?? countryAtPoint(c.lat, c.lng);
         return { ref, lat: c.lat, lng: c.lng, country, from: m?.from, to: m?.to };
       })
+      // Keep only motorways whose country is actually on the route.
+      .filter((h) => !h.country || routeCountries.size === 0 || routeCountries.has(h.country))
       .sort((a2, b2) => a2.ref.localeCompare(b2.ref, undefined, { numeric: true }));
     _highwayCache.set(key, out);
     return out;
@@ -2527,9 +2540,10 @@ async function fetchCorridorHighways(a: [number, number], b: [number, number]): 
 }
 
 function HighwayMultiSelect({
-  ends, selected, onChange, lang,
+  ends, vias, selected, onChange, lang,
 }: {
   ends: { a: [number, number]; b: [number, number] } | null;
+  vias: Array<[number, number]>;
   selected: Highway[];
   onChange: (list: Highway[]) => void;
   lang: string;
@@ -2538,12 +2552,13 @@ function HighwayMultiSelect({
   const [options, setOptions] = useState<CorridorHighway[]>([]);
   const [loading, setLoading] = useState(false);
   const [q, setQ] = useState("");
-  const endKey = ends ? `${ends.a[0].toFixed(2)},${ends.a[1].toFixed(2)}|${ends.b[0].toFixed(2)},${ends.b[1].toFixed(2)}` : "";
+  const viaKey = vias.map((v) => `${v[0].toFixed(2)},${v[1].toFixed(2)}`).join("_");
+  const endKey = ends ? `${ends.a[0].toFixed(2)},${ends.a[1].toFixed(2)}|${viaKey}|${ends.b[0].toFixed(2)},${ends.b[1].toFixed(2)}` : "";
   useEffect(() => {
     if (!ends) { setOptions([]); return; }
     let alive = true;
     setLoading(true);
-    fetchCorridorHighways(ends.a, ends.b).then((h) => { if (alive) { setOptions(h); setLoading(false); } });
+    fetchCorridorHighways(ends.a, vias, ends.b).then((h) => { if (alive) { setOptions(h); setLoading(false); } });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [endKey]);
