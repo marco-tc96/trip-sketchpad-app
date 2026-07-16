@@ -2444,7 +2444,7 @@ async function fetchDrivingRoute(points: Array<[number, number]>): Promise<Array
 }
 
 // Points spaced ~stepKm apart along a polyline (capped to `max` points).
-function sampleAlong(route: Array<[number, number]>, max = 24): Array<[number, number]> {
+function sampleAlong(route: Array<[number, number]>, max = 18): Array<[number, number]> {
   if (route.length === 0) return [];
   let total = 0;
   for (let i = 1; i < route.length; i++) total += haversineKm(route[i - 1], route[i]);
@@ -2486,12 +2486,14 @@ async function fetchCorridorHighways(a: [number, number], vias: Array<[number, n
   const routeCountries = new Set<string>();
   for (const p of samples) { const cc = countryAtPoint(p[0], p[1]); if (cc) routeCountries.add(cc); }
   // MOTORWAYS ONLY. `highway=motorway` ways near each route point give the ref + a
-  // point on the road; road route relations add endpoints (from/to). `around` is
-  // index-backed and light, and following the route keeps wrong-direction roads
-  // (e.g. A14 Bologna→Taranto) out because they aren't near the corridor.
-  const wClauses = samples.map((p) => `way["highway"="motorway"]["ref"](around:25000,${p[0]},${p[1]});`).join("");
-  const rClauses = samples.map((p) => `relation["type"="route"]["route"="road"]["ref"](around:25000,${p[0]},${p[1]});`).join("");
-  const q = `[out:json][timeout:30];(${wClauses})->.w;.w out tags center;(${rClauses})->.r;.r out center;`;
+  // point on the road; road route relations add endpoints (from/to). A generous
+  // radius captures the alternatives/deviations you could take (from Carpi: A22, or
+  // branch onto A4 / A1), while following the route keeps wrong-direction roads
+  // (e.g. A14 Bologna→Taranto) out. `out center` includes tags + a centre point
+  // (NB: "out tags center" is invalid Overpass and returns nothing).
+  const wClauses = samples.map((p) => `way["highway"="motorway"]["ref"](around:65000,${p[0]},${p[1]});`).join("");
+  const rClauses = samples.map((p) => `relation["type"="route"]["route"="road"]["ref"](around:65000,${p[0]},${p[1]});`).join("");
+  const q = `[out:json][timeout:40];(${wClauses})->.w;.w out center;(${rClauses})->.r;.r out center;`;
   try {
     const data = (await overpassFetch(q, 30000)) as {
       elements: Array<{ type: string; tags?: Record<string, string>; center?: { lat: number; lon: number } }>;
