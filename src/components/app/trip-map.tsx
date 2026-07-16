@@ -425,6 +425,30 @@ function trimPath(path: LL[], a: LL, b: LL): LL[] {
 // search endpoint with the full place name (+ an optional country filter).
 const AIRPORT_RE = /(airport|aeroporto|aeropuerto|aéroport|aeroport|flughafen|repülőtér|luchthaven|lotnisko|공항|空港|机场|機場)/i;
 
+// Fast, rate-limit-friendly geocoder (Photon) for cities/stations/streets.
+async function photonGeocode(query: string, country?: string): Promise<{ lat: number; lng: number } | null> {
+  const qq = (query ?? "").replace(/\s*\/\s*/g, " ").trim();
+  if (!qq) return null;
+  try {
+    const params = new URLSearchParams({ q: qq, limit: "1" });
+    const r = await fetch(`https://photon.komoot.io/api/?${params.toString()}`, { headers: { Accept: "application/json" } });
+    if (!r.ok) return null;
+    const data = (await r.json()) as {
+      features?: Array<{ properties?: Record<string, string>; geometry?: { coordinates?: [number, number] } }>;
+    };
+    for (const f of data.features ?? []) {
+      const c = f.geometry?.coordinates;
+      if (!c) continue;
+      // If a country hint was given, prefer a matching result but don't hard-fail.
+      if (country && (f.properties?.countrycode || "").toUpperCase() !== country.toUpperCase()) continue;
+      return { lat: c[1], lng: c[0] };
+    }
+    const c0 = data.features?.[0]?.geometry?.coordinates;
+    if (c0) return { lat: c0[1], lng: c0[0] };
+  } catch { /* ignore */ }
+  return null;
+}
+
 // Pull the 3-letter IATA code out of a flight endpoint label, e.g.
 // "BLQ - Bologna", "Bologna Guglielmo Marconi Airport (BLQ)".
 function extractIATA(label: string): string | null {
@@ -460,6 +484,13 @@ async function geocodePlace(query: string, country?: string, airportHint = false
   if (isAirport && iata) {
     const byIata = await fetchAirportByIata(iata);
     if (byIata) return byIata;
+  }
+  // Non-airport places (cities/stations/streets): use Photon first — it's fast and
+  // isn't rate-limited like Nominatim, which under many parallel lookups returns
+  // nothing for some places (e.g. a plain "Verona"), leaving legs undrawn.
+  if (!isAirport) {
+    const ph = await photonGeocode(q, country);
+    if (ph) return ph;
   }
   // Clean up messy labels ("Seoul / Incheon International Airport") and bias the
   // search toward the airport itself when the label doesn't say "airport".

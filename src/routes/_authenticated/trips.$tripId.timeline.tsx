@@ -751,6 +751,11 @@ function JourneyLeg({
   const fromPhoto = useCityPhoto(fromCity);
   const toPhoto = useCityPhoto(toCity);
   const ModeIcon = meta?.mode ? MODE_ICON[meta.mode] : kind === "outbound" ? PlaneTakeoff : PlaneLanding;
+  // Per-leg modes — when the journey changes vehicle (e.g. train → car) we show
+  // the sequence of mode icons instead of a single one.
+  const legModes = (legs.length > 0 ? legs.map((l) => l.mode ?? meta?.mode) : [meta?.mode])
+    .filter(Boolean) as TransportMode[];
+  const multiMode = new Set(legModes).size > 1;
 
   const departISO = first?.depart_at || item?.start_at || null;
   const arriveISO = last?.arrive_at || item?.end_at || null;
@@ -831,9 +836,21 @@ function JourneyLeg({
                     <span className="whitespace-nowrap">{durationLabel(departISO, arriveISO) || "—"}</span>
                     <div className="flex items-center gap-1">
                       <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-white/70" />
-                      <span className="h-px w-4 bg-white/40 sm:w-8" />
-                      <ModeIcon className="h-4 w-4 shrink-0" />
-                      <span className="h-px w-4 bg-white/40 sm:w-8" />
+                      <span className="h-px w-3 bg-white/40 sm:w-6" />
+                      {multiMode ? (
+                        legModes.map((m, idx) => {
+                          const Ic = MODE_ICON[m] ?? ModeIcon;
+                          return (
+                            <Fragment key={idx}>
+                              {idx > 0 && <span className="h-px w-2 bg-white/40 sm:w-3" />}
+                              <Ic className="h-4 w-4 shrink-0" />
+                            </Fragment>
+                          );
+                        })
+                      ) : (
+                        <ModeIcon className="h-4 w-4 shrink-0" />
+                      )}
+                      <span className="h-px w-3 bg-white/40 sm:w-6" />
                       <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-white/70" />
                     </div>
                     {legs.length > 1 ? (
