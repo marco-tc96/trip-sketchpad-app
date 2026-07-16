@@ -662,6 +662,80 @@ function rememberGeo(m: Map<string, Coord>, updates: Record<string, Coord>) {
   _geoFlush = setTimeout(flushGeoCache, 1200);
 }
 
+// ── Persisted route-GEOMETRY cache (road/rail/transit lines) ────────────────
+// Geocoding alone isn't what makes a cold load slow — the LINE GEOMETRY itself
+// (OSRM road routing, BRouter rail tracing, Overpass transit relations) is the
+// expensive part, and until now it only lived in the module-level Maps above,
+// which reset on every full page reload. Persisting a size-capped, point-
+// simplified copy to localStorage means a route already drawn once paints
+// instantly on the next visit (even after closing the tab), while only truly
+// new/changed legs go back to the network.
+const ROUTE_LS_KEY = "voyager_routecache_v1";
+const ROUTE_PERSIST_CAP = 60;   // max entries persisted per cache type (road/rail/transit)
+const ROUTE_MAX_POINTS = 250;   // max points kept per polyline once persisted
+
+// Evenly-spaced downsample — keeps the route's overall shape while bounding
+// how much JSON we write to localStorage. The in-memory copy used for the
+// current session stays full-resolution; only the persisted copy is thinned.
+function simplifyLL(pts: LL[], maxPoints = ROUTE_MAX_POINTS): LL[] {
+  if (!Array.isArray(pts) || pts.length <= maxPoints) return pts;
+  const step = pts.length / maxPoints;
+  const out: LL[] = [];
+  for (let i = 0; i < maxPoints; i++) out.push(pts[Math.floor(i * step)]);
+  out.push(pts[pts.length - 1]);
+  return out;
+}
+// Most-recently-added N entries of a Map, without mutating it (persistence
+// caps are independent from the larger in-memory session caps below).
+function lastEntries<T>(m: Map<string, T>, n: number): Array<[string, T]> {
+  const arr = [...m.entries()];
+  return arr.length <= n ? arr : arr.slice(arr.length - n);
+}
+
+(function loadRouteCache() {
+  try {
+    if (typeof localStorage === "undefined") return;
+    const raw = localStorage.getItem(ROUTE_LS_KEY);
+    if (!raw) return;
+    const o = JSON.parse(raw) as {
+      road?: Record<string, LL[]>;
+      rail?: Record<string, LL[]>;
+      transit?: Record<string, TransitLine>;
+    };
+    for (const [k, v] of Object.entries(o.road ?? {})) memRoad.set(k, v);
+    for (const [k, v] of Object.entries(o.rail ?? {})) memRail.set(k, v);
+    for (const [k, v] of Object.entries(o.transit ?? {})) memTransit.set(k, v);
+  } catch { /* ignore corrupt/unavailable storage */ }
+})();
+
+let _routeFlush: ReturnType<typeof setTimeout> | null = null;
+function flushRouteCache() {
+  try {
+    if (typeof localStorage === "undefined") return;
+    const road: Record<string, LL[]> = {};
+    for (const [k, v] of lastEntries(memRoad, ROUTE_PERSIST_CAP)) road[k] = simplifyLL(v);
+    const rail: Record<string, LL[]> = {};
+    for (const [k, v] of lastEntries(memRail, ROUTE_PERSIST_CAP)) rail[k] = simplifyLL(v);
+    const transit: Record<string, TransitLine> = {};
+    for (const [k, v] of lastEntries(memTransit, ROUTE_PERSIST_CAP)) {
+      transit[k] = {
+        color: v.color,
+        // Keep only the 2 richest variants (most stops) — enough to resolve
+        // boarding/alighting on reload; rarer alternates are refetched if needed.
+        variants: [...v.variants]
+          .sort((a, b) => b.stops.length - a.stops.length)
+          .slice(0, 2)
+          .map((variant) => ({ path: simplifyLL(variant.path), stops: variant.stops })),
+      };
+    }
+    localStorage.setItem(ROUTE_LS_KEY, JSON.stringify({ road, rail, transit }));
+  } catch { /* ignore quota errors — the in-memory cache still speeds up this session */ }
+}
+function rememberRoute() {
+  if (_routeFlush) clearTimeout(_routeFlush);
+  _routeFlush = setTimeout(flushRouteCache, 1200);
+}
+
 export function TripMap({
   cities,
   countries,
@@ -967,6 +1041,7 @@ export function TripMap({
       if (!cancelled && Object.keys(updates).length > 0) {
         for (const [k, v] of Object.entries(updates)) memRoad.set(k, v);
         capMap(memRoad, 120);
+        rememberRoute();
         setPathCache((prev) => ({ ...prev, ...updates }));
       }
     })();
@@ -989,6 +1064,7 @@ export function TripMap({
       if (!cancelled && Object.keys(updates).length > 0) {
         for (const [k, v] of Object.entries(updates)) memRail.set(k, v);
         capMap(memRail, 120);
+        rememberRoute();
         setRailCache((prev) => ({ ...prev, ...updates }));
       }
     })();
@@ -1018,8 +1094,10 @@ export function TripMap({
         // Persist ONLY successful results across navigation. An empty result
         // (transient Overpass failure) stays in local state to avoid a refetch
         // loop this mount, but is NOT cached, so it's retried next time.
-        for (const [k, v] of Object.entries(updates)) if (v.variants.length > 0) memTransit.set(k, v);
+        let anyOk = false;
+        for (const [k, v] of Object.entries(updates)) if (v.variants.length > 0) { memTransit.set(k, v); anyOk = true; }
         capMap(memTransit, 80);
+        if (anyOk) rememberRoute();
         setTransitPathCache((prev) => ({ ...prev, ...updates }));
       }
     })();
