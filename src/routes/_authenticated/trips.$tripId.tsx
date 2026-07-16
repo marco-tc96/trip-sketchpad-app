@@ -649,36 +649,36 @@ function TripLayout() {
 
         <header
           className={cn(
-            "flex flex-col items-center gap-3 rounded-3xl border border-border/50 bg-background/70 p-4 text-center shadow-soft backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:text-left",
-            hasReservedSpace ? "mt-3 mb-6" : "mt-3 mb-10",
+            "flex flex-col items-center gap-2 rounded-3xl border border-border/50 bg-background/70 p-3 text-center shadow-soft backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:p-4 sm:text-left",
+            hasReservedSpace ? "mt-2 mb-4" : "mt-2 mb-6",
           )}
         >
-        <div className="flex min-w-0 flex-col items-center gap-3 sm:flex-row sm:items-center">
-          <span className="relative grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-secondary text-3xl">
+        <div className="flex min-w-0 flex-col items-center gap-2 sm:flex-row sm:items-center sm:gap-3">
+          <span className="relative grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-secondary text-2xl sm:h-14 sm:w-14 sm:text-3xl">
             {trip.data.cover_emoji ?? "✈️"}
             <span
               aria-label={t(tripType)}
               title={t(tripType)}
               className={cn(
-                "absolute -bottom-1 -right-1 grid h-6 w-6 place-items-center rounded-full border-2 border-background text-primary-foreground shadow-soft",
+                "absolute -bottom-1 -right-1 grid h-5 w-5 place-items-center rounded-full border-2 border-background text-primary-foreground shadow-soft sm:h-6 sm:w-6",
                 typeColor,
               )}
             >
-              <TypeIcon className="h-3 w-3" />
+              <TypeIcon className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
             </span>
           </span>
           <div className="min-w-0">
             {/* No truncate / no single-line clamp here: long titles now
                 wrap onto multiple lines on narrow (mobile) viewports
                 instead of being cut off mid-word. */}
-            <h1 className="font-serif text-2xl font-bold tracking-tight sm:text-3xl">
+            <h1 className="font-serif text-lg font-bold tracking-tight sm:text-3xl">
               {trip.data.title}
             </h1>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-xs text-muted-foreground sm:text-sm">
               {[citiesLabel, countriesLabel].filter(Boolean).join(", ")}
             </p>
             {!isWishlist && (
-              <p className="text-xs text-muted-foreground/80">
+              <p className="text-[11px] text-muted-foreground/80">
                 {fmtRange(trip.data.start_date, trip.data.end_date, lang)}
               </p>
             )}

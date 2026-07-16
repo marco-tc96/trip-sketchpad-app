@@ -650,7 +650,7 @@ function cleanPlace(s: string): string {
     .trim();
 }
 
-function FitBounds({ points }: { points: [number, number][] }) {
+function FitBounds({ points, restrictBounds }: { points: [number, number][]; restrictBounds?: L.LatLngBounds }) {
   const map = useMap();
   useEffect(() => {
     if (points.length === 0) return;
@@ -660,6 +660,31 @@ function FitBounds({ points }: { points: [number, number][] }) {
     }
     const b = L.latLngBounds(points);
     map.fitBounds(b, { padding: [32, 32], maxZoom: 6 });
+  }, [map, points]);
+  // Cap how far the user can zoom out so panning never leaves the trip's own
+  // area of interest — also keeps far-away, irrelevant map tiles from loading.
+  useEffect(() => {
+    if (!restrictBounds) return;
+    const z = map.getBoundsZoom(restrictBounds, false);
+    map.setMinZoom(Math.max(1, z - 1));
+  }, [map, restrictBounds]);
+  // Leaflet caches the container size at mount time; if the wrapper's real
+  // size settles later (flex layout, safe-area insets, async header content
+  // on mobile), the map stays sized/centred on stale dimensions. Re-measure
+  // and re-fit whenever the container actually resizes.
+  useEffect(() => {
+    const el = map.getContainer();
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      map.invalidateSize();
+      if (points.length === 1) {
+        map.setView(points[0], map.getZoom(), { animate: false });
+      } else if (points.length > 1) {
+        map.fitBounds(L.latLngBounds(points), { padding: [32, 32], maxZoom: 6 });
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
   }, [map, points]);
   return null;
 }
@@ -1474,6 +1499,16 @@ export function TripMap({
     [cityPoints, legEndpoints, drawn, showRoutes],
   );
 
+  // Trip-wide area of interest — every city, leg endpoint and drawn route,
+  // regardless of the "Città"/"Tratte" toggle — padded generously and used
+  // to cap panning/zooming so the map can't wander off to an unrelated
+  // continent (and so it doesn't fetch tiles for areas outside the trip).
+  const restrictBounds = useMemo(() => {
+    const pts: [number, number][] = [...cityPoints, ...legEndpoints.map((e) => e.ll), ...drawn.flatMap((d) => d.positions)];
+    if (pts.length === 0) return undefined;
+    return L.latLngBounds(pts).pad(0.6);
+  }, [cityPoints, legEndpoints, drawn]);
+
   if (boundsPoints.length === 0) {
     return (
       <div
@@ -1498,6 +1533,8 @@ export function TripMap({
       keyboard
       attributionControl={false}
       zoomControl={!compact}
+      maxBounds={restrictBounds}
+      maxBoundsViscosity={1.0}
       className="h-full w-full"
       style={{ background: "transparent" }}
     >
@@ -1580,7 +1617,7 @@ export function TripMap({
       {/* "Città" view shows ONLY the trip's own cities — leg endpoints (stations,
           airports, etc.) are shown solely in the "Tratte" (routes) view above,
           as coloured mode pins. */}
-      <FitBounds points={boundsPoints} />
+      <FitBounds points={boundsPoints} restrictBounds={restrictBounds} />
     </MapContainer>
       {showRoutes && missingTransit > 0 && (
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1000] flex justify-center p-2">
