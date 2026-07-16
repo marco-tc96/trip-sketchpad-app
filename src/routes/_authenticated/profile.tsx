@@ -123,7 +123,7 @@ async function coordsFor(name: string, country: string): Promise<{ lat: number; 
   const key = `${country}|${name}`;
   const cached = _cityGeoCache.get(key);
   if (cached) return cached;
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 2; attempt++) {
     const c = await geocodeCity(name, country);
     if (c && typeof c.lat === "number" && typeof c.lng === "number") {
       _cityGeoCache.set(key, c);
@@ -131,7 +131,7 @@ async function coordsFor(name: string, country: string): Promise<{ lat: number; 
       persistCityGeoCache();
       return c;
     }
-    await new Promise<void>((r) => setTimeout(r, 800 * (attempt + 1)));
+    await new Promise<void>((r) => setTimeout(r, 1500));
   }
   return null;
 }
@@ -153,18 +153,20 @@ function resolvedPointsFor(cities: City[]): ExtremePoint[] {
   return out;
 }
 
-function useExtremePoints(cities: City[]): ExtremePoint[] {
+function useExtremePoints(cities: City[]): { points: ExtremePoint[]; resolving: boolean } {
   const key = cities.map((c) => `${c.country}|${c.name}`).join(",");
   const [points, setPoints] = useState<ExtremePoint[]>(() => resolvedPointsFor(cities));
+  const [resolving, setResolving] = useState(false);
 
   useEffect(() => {
     let alive = true;
     // Re-sync immediately for the new city list (covers cities already
     // cached, e.g. from a previous visit) before kicking off any new fetches.
     setPoints(resolvedPointsFor(cities));
-    if (cities.length === 0) return;
+    if (cities.length === 0) { setResolving(false); return; }
     const pending = cities.filter((c) => !_cityGeoCache.has(`${c.country}|${c.name}`));
-    if (pending.length === 0) return;
+    if (pending.length === 0) { setResolving(false); return; }
+    setResolving(true);
     let timer: ReturnType<typeof setTimeout> | undefined;
     (async () => {
       for (let i = 0; i < pending.length; i++) {
@@ -173,16 +175,23 @@ function useExtremePoints(cities: City[]): ExtremePoint[] {
         await coordsFor(c.name, c.country);
         if (!alive) break;
         setPoints(resolvedPointsFor(cities));
+        // Nominatim's usage policy caps client-side use at ~1 request/sec —
+        // matches the pacing already used elsewhere in this codebase
+        // (see useLocalizedCityNames) to avoid getting rate-limited/blocked,
+        // which previously made every single city fail and the whole panel
+        // disappear.
         if (i < pending.length - 1) {
-          await new Promise<void>((r) => { timer = setTimeout(r, 350); });
+          await new Promise<void>((r) => { timer = setTimeout(r, 1100); });
         }
       }
-    })().catch(() => { /* ignore */ });
+    })()
+      .catch(() => { /* ignore */ })
+      .finally(() => { if (alive) setResolving(false); });
     return () => { alive = false; if (timer) clearTimeout(timer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
-  return points;
+  return { points, resolving };
 }
 
 function getCities(tr: Trip): City[] {
@@ -331,7 +340,7 @@ function ProfilePage() {
     () => stats.citiesRanked.map((c) => ({ name: c.name, country: c.country })),
     [stats.citiesRanked],
   );
-  const extremePoints = useExtremePoints(visitedCities);
+  const { points: extremePoints, resolving: extremesResolving } = useExtremePoints(visitedCities);
   const extremes = useMemo(() => {
     if (extremePoints.length === 0) return null;
     return {
@@ -416,24 +425,30 @@ function ProfilePage() {
           </div>
         </div>
 
-        {extremes && (
+        {visitedCities.length > 0 && (
           <div className="mt-4 rounded-3xl border border-border bg-card p-5 shadow-soft">
             <h3 className="text-center font-serif text-base font-semibold">{t("extremes_title")}</h3>
-            <div className="mx-auto mt-4 grid max-w-xs grid-cols-3 grid-rows-3 items-center justify-items-center gap-2">
-              <div />
-              <CompassChip dir="N" title={t("northernmost")} point={extremes.north} lang={lang} />
-              <div />
+            {extremes ? (
+              <div className="mx-auto mt-4 grid max-w-xs grid-cols-3 grid-rows-3 items-center justify-items-center gap-2">
+                <div />
+                <CompassChip dir="N" title={t("northernmost")} point={extremes.north} lang={lang} />
+                <div />
 
-              <CompassChip dir="W" title={t("westernmost")} point={extremes.west} lang={lang} />
-              <span aria-hidden className="grid h-12 w-12 place-items-center rounded-full bg-primary/10 text-primary">
-                <Compass className="h-6 w-6" />
-              </span>
-              <CompassChip dir="E" title={t("easternmost")} point={extremes.east} lang={lang} />
+                <CompassChip dir="W" title={t("westernmost")} point={extremes.west} lang={lang} />
+                <span aria-hidden className="grid h-12 w-12 place-items-center rounded-full bg-primary/10 text-primary">
+                  <Compass className="h-6 w-6" />
+                </span>
+                <CompassChip dir="E" title={t("easternmost")} point={extremes.east} lang={lang} />
 
-              <div />
-              <CompassChip dir="S" title={t("southernmost")} point={extremes.south} lang={lang} />
-              <div />
-            </div>
+                <div />
+                <CompassChip dir="S" title={t("southernmost")} point={extremes.south} lang={lang} />
+                <div />
+              </div>
+            ) : (
+              <p className="mt-4 text-center text-sm text-muted-foreground">
+                {extremesResolving ? t("loading") : t("no_trips")}
+              </p>
+            )}
           </div>
         )}
 
