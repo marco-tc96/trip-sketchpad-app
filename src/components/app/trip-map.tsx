@@ -107,6 +107,23 @@ const modeStyle = (mode: string) => MODE_STYLE[mode] ?? { color: PRIMARY };
 // straight (dotted/dashed) since there are no roads to follow.
 const GROUND_MODES = new Set(["car", "moto"]);
 
+// Squared planar distance — fine at road/rail/transit scale, avoids a sqrt.
+function _distSq2(p: [number, number], q: [number, number]): number {
+  const dx = p[0] - q[0], dy = p[1] - q[1];
+  return dx * dx + dy * dy;
+}
+// A routing/track geometry should walk from `start` to `end` — never the
+// opposite way (e.g. a "centro → aeroporto" leg must stay centro → aeroporto
+// on the map, not draw the reverse trip). Flips the array when BOTH ends
+// clearly indicate a reversal, so a route that's merely short (start/end close
+// together) isn't misdiagnosed and flipped by mistake.
+function orientPath(path: [number, number][], start: [number, number], end: [number, number]): [number, number][] {
+  if (path.length < 2) return path;
+  const startsNearEnd = _distSq2(path[0], end) < _distSq2(path[0], start);
+  const endsNearStart = _distSq2(path[path.length - 1], start) < _distSq2(path[path.length - 1], end);
+  return startsNearEnd && endsNearStart ? path.slice().reverse() : path;
+}
+
 // Ask OSRM for a road-following geometry through an ordered list of points
 // (start, optional waypoints, end). Returns the full polyline ([lat,lng][]) or
 // null on failure (caller falls back to a straight line).
@@ -124,7 +141,11 @@ async function fetchRoadPathVia(points: [number, number][]): Promise<[number, nu
     };
     const coords = data.routes?.[0]?.geometry?.coordinates;
     if (Array.isArray(coords) && coords.length > 1) {
-      return coords.map(([lng, lat]) => [lat, lng] as [number, number]);
+      const path = coords.map(([lng, lat]) => [lat, lng] as [number, number]);
+      // OSRM should already honour waypoint order (and one-way restrictions),
+      // but guard against a reversed result regardless — the drawn road leg
+      // must always match the real direction of travel, never the opposite.
+      return orientPath(path, points[0], points[points.length - 1]);
     }
   } catch { /* ignore */ }
   return null;
@@ -165,7 +186,8 @@ async function fetchRailPath(
     };
     const coords = data.features?.[0]?.geometry?.coordinates;
     if (Array.isArray(coords) && coords.length > 1) {
-      return coords.map((c) => [c[1], c[0]] as [number, number]);
+      const path = coords.map((c) => [c[1], c[0]] as [number, number]);
+      return orientPath(path, a, b);
     }
   } catch { /* ignore */ }
   return null;
@@ -1026,6 +1048,42 @@ export function TripMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routes, showRoutes, resolve, routeGeo, cityGeo]);
 
+  // ── Auto-retry unresolved legs until the map is fully drawn ─────────────────
+  // A transient OSRM/BRouter/Overpass hiccup shouldn't leave a leg permanently
+  // undrawn (or a transit leg stuck on the "missing" notice) for the rest of the
+  // session — `retryTick` re-triggers the three fetch effects below on a backoff
+  // schedule until every leg resolves or a bounded retry budget is spent.
+  const RETRY_MAX_ATTEMPTS = 6;
+  const RETRY_DELAYS_MS = [3000, 5000, 8000, 12000, 20000, 30000];
+  const retryAttemptRef = useRef(0);
+  const [retryTick, setRetryTick] = useState(0);
+
+  const roadPending = useMemo(
+    () => routeLines.filter((l) => GROUND_MODES.has(l.mode) && l.a && l.b && l.viasReady && !(l.pathKey in pathCache)).length,
+    [routeLines, pathCache],
+  );
+  const railPending = useMemo(
+    () => routeLines.filter((l) => l.mode === "train" && !l.line && l.a && l.b && !(l.key in railCache)).length,
+    [routeLines, railCache],
+  );
+  const transitPending = useMemo(
+    () => routeLines.filter((l) => TRANSIT_MODES.has(l.mode) && l.line && l.center && !(l.cacheKey in transitPathCache)).length,
+    [routeLines, transitPathCache],
+  );
+  const hasUnresolved = !!showRoutes && (roadPending > 0 || railPending > 0 || transitPending > 0);
+
+  useEffect(() => {
+    if (!hasUnresolved) return;
+    if (retryAttemptRef.current >= RETRY_MAX_ATTEMPTS) return;
+    const delay = RETRY_DELAYS_MS[Math.min(retryAttemptRef.current, RETRY_DELAYS_MS.length - 1)];
+    const timer = setTimeout(() => {
+      retryAttemptRef.current += 1;
+      setRetryTick((n) => n + 1);
+    }, delay);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasUnresolved, retryTick]);
+
   // Snap ground legs (car/moto) to real roads via OSRM so they follow streets,
   // routing through any waypoints (intermediate stops/detours) in order.
   useEffect(() => {
@@ -1041,13 +1099,12 @@ export function TripMap({
       if (!cancelled && Object.keys(updates).length > 0) {
         for (const [k, v] of Object.entries(updates)) memRoad.set(k, v);
         capMap(memRoad, 120);
-        rememberRoute();
         setPathCache((prev) => ({ ...prev, ...updates }));
       }
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeLines]);
+  }, [routeLines, retryTick]);
 
   // Snap train legs (station→station, no line ref) to the real railway via BRouter
   // so they follow the tracks instead of drawing a straight line.
@@ -1064,13 +1121,12 @@ export function TripMap({
       if (!cancelled && Object.keys(updates).length > 0) {
         for (const [k, v] of Object.entries(updates)) memRail.set(k, v);
         capMap(memRail, 120);
-        rememberRoute();
         setRailCache((prev) => ({ ...prev, ...updates }));
       }
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeLines]);
+  }, [routeLines, retryTick]);
 
   // Fetch exact OSM geometry for transit legs that carry a line ref, once their
   // stop coordinates are geocoded (so we can search around the real location).
@@ -1080,30 +1136,34 @@ export function TripMap({
     );
     if (todo.length === 0) return;
     let cancelled = false;
+    // Only record a genuine, permanent failure once the retry budget is spent —
+    // until then a leg that comes back empty simply stays absent from the cache
+    // (read as "pending", no notice yet) and is retried on the next tick.
+    const isLastAttempt = retryAttemptRef.current >= RETRY_MAX_ATTEMPTS;
     (async () => {
       const updates: Record<string, TransitLine> = {};
       for (const l of todo) {
         if (l.cacheKey in transitPathCache || l.cacheKey in updates) continue;
+        let result: TransitLine;
         try {
-          updates[l.cacheKey] = await fetchTransitGeometry(l.center!, l.radiusM, l.mode, l.line!);
+          result = await fetchTransitGeometry(l.center!, l.radiusM, l.mode, l.line!);
         } catch {
-          updates[l.cacheKey] = { variants: [] };
+          result = { variants: [] };
         }
+        if (result.variants.length > 0 || isLastAttempt) updates[l.cacheKey] = result;
       }
       if (!cancelled && Object.keys(updates).length > 0) {
         // Persist ONLY successful results across navigation. An empty result
         // (transient Overpass failure) stays in local state to avoid a refetch
         // loop this mount, but is NOT cached, so it's retried next time.
-        let anyOk = false;
-        for (const [k, v] of Object.entries(updates)) if (v.variants.length > 0) { memTransit.set(k, v); anyOk = true; }
+        for (const [k, v] of Object.entries(updates)) if (v.variants.length > 0) memTransit.set(k, v);
         capMap(memTransit, 80);
-        if (anyOk) rememberRoute();
         setTransitPathCache((prev) => ({ ...prev, ...updates }));
       }
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeLines]);
+  }, [routeLines, retryTick]);
 
   // Resolve every transit leg from the OSM relation ONLY: boarding, alighting and
   // intermediate stops are real relation stops, so the pins always sit on the drawn
@@ -1145,18 +1205,31 @@ export function TripMap({
       const alight = matchStop(l.to, union);
       if (!board || !alight) { map[key] = { state: "failed" }; return; }
 
-      // Pick the variant whose track passes closest to BOTH matched stops.
-      let chosen: TransitVariant | null = null, bestScore = Infinity;
+      // Pick the variant whose track passes closest to BOTH matched stops,
+      // preferring one where board comes BEFORE alight in the track's own point
+      // order — i.e. the real, tagged direction of travel. Many lines carry
+      // separate outbound/inbound (or looping) relations that both happen to
+      // pass near both stops; picking one indiscriminately by proximity alone
+      // can draw the correct stops but via the wrong arc/direction (e.g. the
+      // long way around a loop, or the opposite carriageway). A same-direction
+      // candidate always wins over a reversed one, even with a slightly worse
+      // proximity score.
+      let chosen: TransitVariant | null = null, bestScore = Infinity, chosenForward = false;
       for (const v of tl.variants) {
         if (v.path.length < 2) continue;
+        const forward = nearestIdx(v.path, board.ll) <= nearestIdx(v.path, alight.ll);
         const score = minDistSq(v.path, board.ll) + minDistSq(v.path, alight.ll);
-        if (score < bestScore) { bestScore = score; chosen = v; }
+        if (!chosen || (forward && !chosenForward) || (forward === chosenForward && score < bestScore)) {
+          chosen = v; bestScore = score; chosenForward = forward;
+        }
       }
 
       let positions: LL[];
       let mids: TransitStop[] = [];
       if (chosen) {
-        positions = trimPath(chosen.path, board.ll, alight.ll);
+        // Orient the trimmed segment so it always starts near `board` and ends
+        // near `alight`, matching the real direction of travel end to end.
+        positions = orientPath(trimPath(chosen.path, board.ll, alight.ll), board.ll, alight.ll);
         const bi = nearestStopIdx(chosen.stops, board.ll);
         const ai = nearestStopIdx(chosen.stops, alight.ll);
         const lo = Math.min(bi, ai), hi = Math.max(bi, ai);
@@ -1255,6 +1328,17 @@ export function TripMap({
     }
     return n;
   }, [showRoutes, routes, transitResolved]);
+
+  // Persist to localStorage ONLY once this map is fully drawn — every leg
+  // resolved and no "tratta mancante" notice showing. An incomplete/partial
+  // result isn't worth caching (and would otherwise persist a broken-looking
+  // map); this fires again on every render while fully resolved, but
+  // `rememberRoute` just (re)schedules a single debounced write.
+  useEffect(() => {
+    if (!showRoutes || !routes || routes.length === 0) return;
+    if (hasUnresolved || missingTransit > 0) return;
+    rememberRoute();
+  }, [showRoutes, routes, hasUnresolved, missingTransit]);
 
   // Country centroid fallback when ALL cities have no coordinates.
   const fallbackPoints = useMemo<[number, number][]>(() => {
