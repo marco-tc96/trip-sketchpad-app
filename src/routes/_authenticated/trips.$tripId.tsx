@@ -49,7 +49,7 @@ function buildMapRoutes(
     const meta = (it.meta ?? {}) as {
       mode?: string;
       legs?: Array<{
-        mode?: string; from?: string; to?: string;
+        mode?: string; from?: string; to?: string; number?: string;
         waypoints?: Array<{ name: string; enter?: boolean; lat?: number | null; lng?: number | null; country?: string | null }>;
       }>;
       mixed_legs?: Array<{ mode?: string; vehicle?: string; from_stop?: string; to_stop?: string }>;
@@ -71,6 +71,9 @@ function buildMapRoutes(
           to: l.to,
           mode: legMode,
           ...(isRoad && l.waypoints?.length ? { waypoints: l.waypoints } : {}),
+          // Flight number, shown on the map's departure pin for plane legs only
+          // (not a transit "line" ref — doesn't trigger OSM line lookup).
+          ...(legMode === "plane" && l.number ? { line: l.number } : {}),
         });
       }
       continue;

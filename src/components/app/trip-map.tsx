@@ -597,25 +597,36 @@ const MODE_GLYPH: Record<string, string> = {
   metro: `<rect x="5" y="4" width="14" height="12" rx="4"/><path d="M5 10h14"/><circle cx="9" cy="18" r="1.3"/><circle cx="15" cy="18" r="1.3"/>`,
   tram: `<rect x="5" y="6" width="14" height="10" rx="2"/><path d="M12 6V3M9 3h6M5 11h14"/><circle cx="9" cy="18" r="1.3"/><circle cx="15" cy="18" r="1.3"/>`,
 };
-// Line ref is shown only for these — matches "la linea solo per bus, tram e metro".
-const LINE_LABEL_MODES = new Set(["bus", "tram", "metro"]);
+// Line ref / flight number is carried by these — matches "la linea solo per
+// bus, tram e metro" (+ flight number for planes).
+const LINE_LABEL_MODES = new Set(["bus", "tram", "metro", "plane"]);
+// Down-arrow glyph shown at the alighting/arrival pin instead of the line ref
+// — the label only makes sense at boarding, so the arrival end gets a plain
+// "you get off here" marker next to the vehicle icon instead.
+const DOWN_ARROW_SVG = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="white" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v13M6 13l6 6 6-6"/></svg>`;
 
 function escapeHtml(s: string): string {
   return (s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
 }
 
 // Bigger endpoint pin for a leg's departure/arrival: mode-coloured badge with
-// the vehicle icon inside, plus the line ref alongside it for bus/tram/metro
-// (so e.g. two metro lines crossing at the same station stay distinguishable).
-// Uses a zero-size icon + CSS centering so the badge can be a plain circle OR
-// a wider capsule (icon + text) without any anchor-offset math either way.
-function endpointIcon(mode: string, color: string, line?: string | null): L.DivIcon {
+// the vehicle icon inside. For bus/tram/metro/plane (which carry a line ref or
+// flight number), the BOARDING pin shows the icon + that ref; the ALIGHTING
+// pin shows the icon + a down arrow instead, so the two ends of the same leg
+// read differently at a glance. Uses a zero-size icon + CSS centering so the
+// badge can be a plain circle OR a wider capsule without any anchor-offset math.
+function endpointIcon(mode: string, color: string, line: string | undefined | null, isBoarding: boolean): L.DivIcon {
   const glyph = MODE_GLYPH[mode] ?? `<circle cx="12" cy="12" r="5"/>`;
   const svg = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0">${glyph}</svg>`;
-  const showLine = LINE_LABEL_MODES.has(mode) && !!(line ?? "").trim();
-  const html = showLine
-    ? `<span style="position:relative;transform:translate(-50%,-50%);display:inline-flex;align-items:center;gap:4px;height:26px;padding:0 8px 0 6px;border-radius:9999px;background:${color};border:2.5px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.35);white-space:nowrap">${svg}<span style="color:white;font:700 11px/1 -apple-system,BlinkMacSystemFont,sans-serif;letter-spacing:.2px">${escapeHtml((line ?? "").trim())}</span></span>`
-    : `<span style="position:relative;transform:translate(-50%,-50%);display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:9999px;background:${color};border:2.5px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.35)">${svg}</span>`;
+  const hasLine = LINE_LABEL_MODES.has(mode) && !!(line ?? "").trim();
+  let html: string;
+  if (hasLine && isBoarding) {
+    html = `<span style="position:relative;transform:translate(-50%,-50%);display:inline-flex;align-items:center;gap:4px;height:26px;padding:0 8px 0 6px;border-radius:9999px;background:${color};border:2.5px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.35);white-space:nowrap">${svg}<span style="color:white;font:700 11px/1 -apple-system,BlinkMacSystemFont,sans-serif;letter-spacing:.2px">${escapeHtml((line ?? "").trim())}</span></span>`;
+  } else if (hasLine) {
+    html = `<span style="position:relative;transform:translate(-50%,-50%);display:inline-flex;align-items:center;gap:3px;height:26px;padding:0 7px 0 6px;border-radius:9999px;background:${color};border:2.5px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.35)">${svg}${DOWN_ARROW_SVG}</span>`;
+  } else {
+    html = `<span style="position:relative;transform:translate(-50%,-50%);display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:9999px;background:${color};border:2.5px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.35)">${svg}</span>`;
+  }
   return L.divIcon({ className: "voyager-pin", html, iconSize: [0, 0], iconAnchor: [0, 0] });
 }
 
@@ -1490,15 +1501,18 @@ export function TripMap({
         ))}
 
       {/* Stop / waypoint pins — mode colour. A leg's own departure/arrival (big,
-          not hollow) gets a bigger badge with the vehicle icon inside (+ line
-          ref for bus/tram/metro) so it reads at a glance and stays visually
-          distinct from a trip-city pin. HOLLOW pins (road waypoints) and small
-          mid-route stops keep the plain coloured dot. */}
+          not hollow) gets a bigger badge with the vehicle icon inside — the
+          boarding end shows the line ref/flight number (bus/tram/metro/plane),
+          the alighting end shows a down arrow instead — so it reads at a glance
+          and stays visually distinct from a trip-city pin. HOLLOW pins (road
+          waypoints) and small mid-route stops keep the plain coloured dot. */}
       {showRoutes &&
-        drawn.flatMap((d) =>
-          d.pins.map((p, idx) =>
+        drawn.flatMap((d) => {
+          const bigIdxs = d.pins.reduce<number[]>((acc, p, i) => { if (p.big && !p.hollow) acc.push(i); return acc; }, []);
+          const boardIdx = bigIdxs[0];
+          return d.pins.map((p, idx) =>
             p.big && !p.hollow ? (
-              <Marker key={`${d.key}-p${idx}`} position={p.ll} icon={endpointIcon(d.mode, d.color, d.line)}>
+              <Marker key={`${d.key}-p${idx}`} position={p.ll} icon={endpointIcon(d.mode, d.color, d.line, idx === boardIdx)}>
                 {p.name && (
                   <>
                     <Popup><strong>{withRomanization(p.name, lang)}</strong></Popup>
@@ -1526,8 +1540,8 @@ export function TripMap({
                 )}
               </CircleMarker>
             ),
-          ),
-        )}
+          );
+        })}
 
       {enrichedCities
         .filter(
