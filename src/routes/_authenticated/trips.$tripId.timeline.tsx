@@ -49,7 +49,7 @@ type ItemRow = {
 
 type TransportMode = "car" | "moto" | "train" | "plane" | "ferry" | "bus" | "metro" | "tram";
 type Waypoint = { name: string; enter?: boolean; lat?: number | null; lng?: number | null; country?: string | null };
-type Highway = { ref: string; lat: number; lng: number; country?: string | null };
+type Highway = { ref: string; lat: number; lng: number; country?: string | null; from?: string | null; to?: string | null };
 type Leg = {
   from: string;
   to: string;
@@ -2378,32 +2378,57 @@ function WaypointCombobox({
 }
 
 // ── Motorway / trunk-road search along the corridor ──────────────────────────
-type CorridorHighway = { ref: string; lat: number; lng: number };
+type CorridorHighway = { ref: string; lat: number; lng: number; country?: string; from?: string; to?: string };
 const _highwayCache = new Map<string, CorridorHighway[]>();
 async function fetchCorridorHighways(box: CorridorBox): Promise<CorridorHighway[]> {
   const key = `${box.minLat.toFixed(1)},${box.minLng.toFixed(1)},${box.maxLat.toFixed(1)},${box.maxLng.toFixed(1)}`;
   if (_highwayCache.has(key)) return _highwayCache.get(key)!;
-  const q = `[out:json][timeout:40];way["highway"~"^(motorway|trunk)$"]["ref"](${box.minLat},${box.minLng},${box.maxLat},${box.maxLng});out tags geom 2500;`;
+  const bbox = `${box.minLat},${box.minLng},${box.maxLat},${box.maxLng}`;
+  // Road ROUTE RELATIONS give ref + from/to + network (→ country); motorway/trunk
+  // WAYS give a representative point on the road for routing. Two separate `out`
+  // statements (a single "out tags geom" is invalid Overpass syntax).
+  const q =
+    `[out:json][timeout:60];` +
+    `relation["type"="route"]["route"="road"]["ref"](${bbox});out tags;` +
+    `way["highway"~"^(motorway|trunk)$"]["ref"](${bbox});out geom 3000;`;
   try {
-    const data = (await overpassFetch(q, 30000)) as { elements: Array<{ tags?: Record<string, string>; geometry?: Array<{ lat: number; lon: number }> }> };
+    const data = (await overpassFetch(q, 45000)) as {
+      elements: Array<{ type: string; tags?: Record<string, string>; geometry?: Array<{ lat: number; lon: number }> }>;
+    };
     const cx = (box.minLat + box.maxLat) / 2, cy = (box.minLng + box.maxLng) / 2;
-    // Keep, per road ref, the segment whose midpoint is closest to the corridor
-    // centre — a good representative point to pull the route onto that road.
-    const best = new Map<string, { lat: number; lng: number; d: number }>();
+    const meta = new Map<string, { country?: string; from?: string; to?: string }>();
+    const coord = new Map<string, { lat: number; lng: number; d: number }>();
     for (const el of data.elements) {
       const refTag = el.tags?.ref;
-      const geom = el.geometry;
-      if (!refTag || !geom || geom.length === 0) continue;
-      const mid = geom[Math.floor(geom.length / 2)];
-      const d = (mid.lat - cx) ** 2 + (mid.lon - cy) ** 2;
-      for (const ref of refTag.split(";").map((s) => s.trim()).filter(Boolean)) {
-        const prev = best.get(ref);
-        if (!prev || d < prev.d) best.set(ref, { lat: mid.lat, lng: mid.lon, d });
+      if (!refTag) continue;
+      const refs = refTag.split(";").map((s) => s.trim()).filter(Boolean);
+      if (el.type === "relation") {
+        const iso = /^([A-Za-z]{2}):/.exec(el.tags?.network ?? "")?.[1]?.toUpperCase();
+        const from = el.tags?.from?.trim();
+        const to = el.tags?.to?.trim();
+        for (const ref of refs) {
+          const prev = meta.get(ref);
+          meta.set(ref, {
+            country: prev?.country ?? iso,
+            from: prev?.from ?? from,
+            to: prev?.to ?? to,
+          });
+        }
+      } else if (el.type === "way" && el.geometry && el.geometry.length > 0) {
+        const mid = el.geometry[Math.floor(el.geometry.length / 2)];
+        const d = (mid.lat - cx) ** 2 + (mid.lon - cy) ** 2;
+        for (const ref of refs) {
+          const prev = coord.get(ref);
+          if (!prev || d < prev.d) coord.set(ref, { lat: mid.lat, lng: mid.lon, d });
+        }
       }
     }
-    const out = [...best.entries()]
-      .map(([ref, v]) => ({ ref, lat: v.lat, lng: v.lng }))
-      .sort((a, b) => a.ref.localeCompare(b.ref, undefined, { numeric: true }));
+    const out: CorridorHighway[] = [];
+    for (const [ref, c] of coord) {
+      const m = meta.get(ref);
+      out.push({ ref, lat: c.lat, lng: c.lng, country: m?.country, from: m?.from, to: m?.to });
+    }
+    out.sort((a, b) => a.ref.localeCompare(b.ref, undefined, { numeric: true }));
     _highwayCache.set(key, out);
     return out;
   } catch {
@@ -2432,18 +2457,22 @@ function HighwayMultiSelect({
   }, [box]);
   const L = wpL(lang);
   const selRefs = new Set(selected.map((s) => s.ref));
-  const filtered = options.filter((o) => o.ref.toLowerCase().includes(q.trim().toLowerCase()));
+  const ql = q.trim().toLowerCase();
+  const filtered = options.filter(
+    (o) => o.ref.toLowerCase().includes(ql) || (o.from ?? "").toLowerCase().includes(ql) || (o.to ?? "").toLowerCase().includes(ql),
+  );
   const toggle = (h: CorridorHighway) => {
     if (selRefs.has(h.ref)) onChange(selected.filter((s) => s.ref !== h.ref));
-    else onChange([...selected, { ref: h.ref, lat: h.lat, lng: h.lng }]);
+    else onChange([...selected, { ref: h.ref, lat: h.lat, lng: h.lng, country: h.country, from: h.from, to: h.to }]);
   };
+  const routeOf = (h: { from?: string | null; to?: string | null }) => [h.from, h.to].filter(Boolean).join(" • ");
   return (
     <div className="space-y-1.5">
       {selected.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {selected.map((s) => (
             <span key={s.ref} className="inline-flex items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 text-xs font-medium text-primary">
-              {s.ref}
+              {s.country ? `${flagOf(s.country)} ` : ""}{s.ref}
               <button type="button" onClick={() => onChange(selected.filter((x) => x.ref !== s.ref))}>
                 <X className="h-3 w-3" />
               </button>
@@ -2474,7 +2503,9 @@ function HighwayMultiSelect({
                   className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
                 >
                   <Check className={cn("h-4 w-4 shrink-0", selRefs.has(h.ref) ? "opacity-100" : "opacity-0")} />
-                  <span className="min-w-0 flex-1 truncate">{h.ref}</span>
+                  {h.country && <span className="shrink-0">{flagOf(h.country)}</span>}
+                  <span className="shrink-0 font-medium">{h.ref}</span>
+                  {routeOf(h) && <span className="min-w-0 flex-1 truncate text-muted-foreground">{routeOf(h)}</span>}
                 </button>
               ))}
             </div>

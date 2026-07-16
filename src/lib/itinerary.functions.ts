@@ -24,6 +24,8 @@ const highwaySchema = z.object({
   lat: z.number(),
   lng: z.number(),
   country: z.string().max(2).optional().nullable(),
+  from: z.string().max(120).optional().nullable(),
+  to: z.string().max(120).optional().nullable(),
 });
 
 const legSchema = z.object({
