@@ -2405,39 +2405,51 @@ async function fetchCorridorHighways(a: [number, number], b: [number, number]): 
   const key = `${a[0].toFixed(2)},${a[1].toFixed(2)}|${b[0].toFixed(2)},${b[1].toFixed(2)}`;
   if (_highwayCache.has(key)) return _highwayCache.get(key)!;
   const samples = corridorSamples(a, b);
-  // Instead of one giant bounding box (which times out over a cross-country
-  // corridor), find road route relations NEAR each sample point along the way —
-  // `around` uses the spatial index and stays fast. `out center` adds one point
-  // per relation (no member geometry). Relations carry ref + from/to + network.
-  const clauses = samples
-    .map((p) => `relation["type"="route"]["route"="road"]["ref"](around:45000,${p[0]},${p[1]});`)
-    .join("");
-  const q = `[out:json][timeout:40];(${clauses});out center;`;
+  // MOTORWAYS ONLY (no trunk/superstrade). Query `highway=motorway` ways NEAR each
+  // sample point along the route (`around` is index-backed and light — motorways
+  // are sparse). Those give the ref + a point ON the motorway inside the corridor.
+  // Road route relations (also `around`, `out center`) add the endpoints (from/to)
+  // and country. We keep only refs that appear as motorway ways, so trunk roads
+  // are excluded.
+  const wClauses = samples.map((p) => `way["highway"="motorway"]["ref"](around:45000,${p[0]},${p[1]});`).join("");
+  const rClauses = samples.map((p) => `relation["type"="route"]["route"="road"]["ref"](around:45000,${p[0]},${p[1]});`).join("");
+  const q = `[out:json][timeout:45];(${wClauses})->.w;.w out tags center;(${rClauses})->.r;.r out center;`;
   const cx = (a[0] + b[0]) / 2, cy = (a[1] + b[1]) / 2;
   try {
-    const data = (await overpassFetch(q, 40000)) as {
+    const data = (await overpassFetch(q, 45000)) as {
       elements: Array<{ type: string; tags?: Record<string, string>; center?: { lat: number; lon: number } }>;
     };
-    type Acc = { lat: number; lng: number; d: number; country?: string; from?: string; to?: string; ft: boolean };
-    const best = new Map<string, Acc>();
+    // Coordinate (on the motorway, nearest the corridor centre) from the ways.
+    const coord = new Map<string, { lat: number; lng: number; d: number; country?: string }>();
+    // Endpoints + country from the route relations.
+    const relMeta = new Map<string, { from?: string; to?: string; country?: string; d: number; ft: boolean }>();
     for (const el of data.elements) {
       const refTag = el.tags?.ref;
       const c = el.center;
       if (!refTag || !c) continue;
-      const iso = /^([A-Za-z]{2}):/.exec(el.tags?.network ?? "")?.[1]?.toUpperCase();
-      const from = el.tags?.from?.trim();
-      const to = el.tags?.to?.trim();
-      const ft = !!(from || to);
       const d = (c.lat - cx) ** 2 + (c.lon - cy) ** 2;
-      for (const ref of refTag.split(";").map((s) => s.trim()).filter(Boolean)) {
-        const prev = best.get(ref);
-        if (!prev || (ft && !prev.ft) || (ft === prev.ft && d < prev.d)) {
-          best.set(ref, { lat: c.lat, lng: c.lon, d, country: iso, from, to, ft });
+      const iso = /^([A-Za-z]{2}):/.exec(el.tags?.network ?? "")?.[1]?.toUpperCase();
+      const refs = refTag.split(";").map((s) => s.trim()).filter(Boolean);
+      if (el.type === "way") {
+        for (const ref of refs) {
+          const prev = coord.get(ref);
+          if (!prev || d < prev.d) coord.set(ref, { lat: c.lat, lng: c.lon, d, country: iso });
+        }
+      } else if (el.type === "relation") {
+        const from = el.tags?.from?.trim();
+        const to = el.tags?.to?.trim();
+        const ft = !!(from || to);
+        for (const ref of refs) {
+          const prev = relMeta.get(ref);
+          if (!prev || (ft && !prev.ft) || (ft === prev.ft && d < prev.d)) relMeta.set(ref, { from, to, country: iso, d, ft });
         }
       }
     }
-    const out: CorridorHighway[] = [...best.entries()]
-      .map(([ref, v]) => ({ ref, lat: v.lat, lng: v.lng, country: v.country, from: v.from, to: v.to }))
+    const out: CorridorHighway[] = [...coord.entries()]
+      .map(([ref, c]) => {
+        const m = relMeta.get(ref);
+        return { ref, lat: c.lat, lng: c.lng, country: m?.country ?? c.country, from: m?.from, to: m?.to };
+      })
       .sort((a2, b2) => a2.ref.localeCompare(b2.ref, undefined, { numeric: true }));
     _highwayCache.set(key, out);
     return out;
