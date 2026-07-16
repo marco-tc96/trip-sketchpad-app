@@ -1153,12 +1153,13 @@ function TransportDialog({
   // Geographic corridor between the road leg's start and end — used to limit the
   // waypoint city suggestions to the countries the trip actually crosses.
   const [corridorBox, setCorridorBox] = useState<CorridorBox | null>(null);
+  const [corridorEnds, setCorridorEnds] = useState<{ a: [number, number]; b: [number, number] } | null>(null);
   const legFrom = legs[0]?.from ?? "";
   const legTo = legs[0]?.to ?? "";
   useEffect(() => {
-    if (mode !== "car" && mode !== "moto") { setCorridorBox(null); return; }
+    if (mode !== "car" && mode !== "moto") { setCorridorBox(null); setCorridorEnds(null); return; }
     const from = legFrom.trim(), to = legTo.trim();
-    if (!from || !to) { setCorridorBox(null); return; }
+    if (!from || !to) { setCorridorBox(null); setCorridorEnds(null); return; }
     let alive = true;
     (async () => {
       const [a, b] = await Promise.all([geocodePlaceName(from), geocodePlaceName(to)]);
@@ -1168,6 +1169,7 @@ function TransportDialog({
         minLat: Math.min(a.lat, b.lat) - m, maxLat: Math.max(a.lat, b.lat) + m,
         minLng: Math.min(a.lng, b.lng) - m, maxLng: Math.max(a.lng, b.lng) + m,
       });
+      setCorridorEnds({ a: [a.lat, a.lng], b: [b.lat, b.lng] });
     })();
     return () => { alive = false; };
   }, [mode, legFrom, legTo]);
@@ -1405,7 +1407,7 @@ function TransportDialog({
                         {wpL(lang).highways} <span className="opacity-60">{t("optional")}</span>
                       </Label>
                       <HighwayMultiSelect
-                        box={corridorBox}
+                        ends={corridorEnds}
                         lang={lang}
                         selected={leg.highways ?? []}
                         onChange={(list) => updateLeg(i, { highways: list })}
@@ -2285,34 +2287,40 @@ async function geocodePlaceName(q: string): Promise<{ lat: number; lng: number }
 type CorridorBox = { minLat: number; minLng: number; maxLat: number; maxLng: number };
 type WpSuggestion = { name: string; label: string; country: string; lat: number; lng: number };
 
-// Suggest cities matching `q` within the geographic box between the leg's start
-// and end — so only places the trip actually crosses (departure/arrival country
-// + everything in between) appear, and far-off same-name towns don't.
+// Suggest cities matching `q` as the user types, biased to the corridor between
+// the leg's start and end. Uses Photon (a type-ahead geocoder) which does proper
+// prefix matching and returns names in the user's language — unlike Nominatim's
+// /search, which only matched full names.
 async function searchCorridorCities(q: string, box: CorridorBox | null, lang: string): Promise<WpSuggestion[]> {
   const query = q.trim();
   if (query.length < 2) return [];
   try {
-    const params = new URLSearchParams({ q: query, format: "json", limit: "8", addressdetails: "1" });
-    params.set("accept-language", lang);
+    const params = new URLSearchParams({ q: query, limit: "10", lang: (lang || "en").slice(0, 2) });
     if (box) {
-      params.set("viewbox", `${box.minLng},${box.maxLat},${box.maxLng},${box.minLat}`);
-      params.set("bounded", "1");
+      // Restrict to the corridor box + bias toward its centre.
+      params.set("bbox", `${box.minLng},${box.minLat},${box.maxLng},${box.maxLat}`);
+      params.set("lat", String((box.minLat + box.maxLat) / 2));
+      params.set("lon", String((box.minLng + box.maxLng) / 2));
     }
-    const r = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`, { headers: { Accept: "application/json" } });
-    const hits = (await r.json()) as Array<{ lat: string; lon: string; type: string; class: string; display_name: string; name?: string; address?: Record<string, string> }>;
+    const r = await fetch(`https://photon.komoot.io/api/?${params.toString()}`, { headers: { Accept: "application/json" } });
+    const data = (await r.json()) as {
+      features?: Array<{ properties?: Record<string, string>; geometry?: { coordinates?: [number, number] } }>;
+    };
     const out: WpSuggestion[] = [];
     const seen = new Set<string>();
-    for (const h of hits) {
-      if (h.class !== "place" && h.class !== "boundary") continue;
-      const a = h.address ?? {};
-      const nm = a.city || a.town || a.village || a.municipality || h.name || h.display_name.split(",")[0];
-      if (!nm) continue;
-      const country = (a.country_code || "").toUpperCase();
-      const region = a.state || a.county || a.country || "";
+    for (const f of data.features ?? []) {
+      const p = f.properties ?? {};
+      if (p.osm_key !== "place") continue;
+      if (!["city", "town", "village", "municipality", "hamlet"].includes(p.osm_value ?? "")) continue;
+      const nm = p.name;
+      const coords = f.geometry?.coordinates;
+      if (!nm || !coords) continue;
+      const country = (p.countrycode || "").toUpperCase();
+      const region = p.state || p.county || p.country || "";
       const key = `${nm}|${country}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      out.push({ name: nm, label: region ? `${nm}, ${region}` : nm, country, lat: parseFloat(h.lat), lng: parseFloat(h.lon) });
+      out.push({ name: nm, label: region ? `${nm}, ${region}` : nm, country, lat: coords[1], lng: coords[0] });
     }
     return out;
   } catch {
@@ -2341,7 +2349,7 @@ function WaypointCombobox({
     const timer = setTimeout(async () => {
       const res = await searchCorridorCities(q, box, lang);
       if (alive) { setItems(res); setLoading(false); }
-    }, 250);
+    }, 200);
     return () => { alive = false; clearTimeout(timer); };
   }, [value, box, lang]);
 
@@ -2380,20 +2388,36 @@ function WaypointCombobox({
 // ── Motorway / trunk-road search along the corridor ──────────────────────────
 type CorridorHighway = { ref: string; lat: number; lng: number; country?: string; from?: string; to?: string };
 const _highwayCache = new Map<string, CorridorHighway[]>();
-async function fetchCorridorHighways(box: CorridorBox): Promise<CorridorHighway[]> {
-  const key = `${box.minLat.toFixed(1)},${box.minLng.toFixed(1)},${box.maxLat.toFixed(1)},${box.maxLng.toFixed(1)}`;
+
+// Sample points every ~70 km along the straight line from A to B.
+function corridorSamples(a: [number, number], b: [number, number]): Array<[number, number]> {
+  const km = Math.hypot((b[0] - a[0]) * 111, (b[1] - a[1]) * 111 * Math.cos(((a[0] + b[0]) / 2) * Math.PI / 180));
+  const n = Math.max(2, Math.min(22, Math.round(km / 70)));
+  const pts: Array<[number, number]> = [];
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    pts.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
+  }
+  return pts;
+}
+
+async function fetchCorridorHighways(a: [number, number], b: [number, number]): Promise<CorridorHighway[]> {
+  const key = `${a[0].toFixed(2)},${a[1].toFixed(2)}|${b[0].toFixed(2)},${b[1].toFixed(2)}`;
   if (_highwayCache.has(key)) return _highwayCache.get(key)!;
-  const bbox = `${box.minLat},${box.minLng},${box.maxLat},${box.maxLng}`;
-  // Road ROUTE RELATIONS carry ref + from/to + network (→ country). `out center`
-  // returns just their bounding-box centre (one point each, NO member geometry),
-  // so this stays light even over a long cross-country corridor. That centre is a
-  // good enough point to pull the route onto the road.
-  const q = `[out:json][timeout:50];relation["type"="route"]["route"="road"]["ref"](${bbox});out tags center;`;
+  const samples = corridorSamples(a, b);
+  // Instead of one giant bounding box (which times out over a cross-country
+  // corridor), find road route relations NEAR each sample point along the way —
+  // `around` uses the spatial index and stays fast. `out center` adds one point
+  // per relation (no member geometry). Relations carry ref + from/to + network.
+  const clauses = samples
+    .map((p) => `relation["type"="route"]["route"="road"]["ref"](around:45000,${p[0]},${p[1]});`)
+    .join("");
+  const q = `[out:json][timeout:40];(${clauses});out center;`;
+  const cx = (a[0] + b[0]) / 2, cy = (a[1] + b[1]) / 2;
   try {
-    const data = (await overpassFetch(q, 45000)) as {
+    const data = (await overpassFetch(q, 40000)) as {
       elements: Array<{ type: string; tags?: Record<string, string>; center?: { lat: number; lon: number } }>;
     };
-    const cx = (box.minLat + box.maxLat) / 2, cy = (box.minLng + box.maxLng) / 2;
     type Acc = { lat: number; lng: number; d: number; country?: string; from?: string; to?: string; ft: boolean };
     const best = new Map<string, Acc>();
     for (const el of data.elements) {
@@ -2407,7 +2431,6 @@ async function fetchCorridorHighways(box: CorridorBox): Promise<CorridorHighway[
       const d = (c.lat - cx) ** 2 + (c.lon - cy) ** 2;
       for (const ref of refTag.split(";").map((s) => s.trim()).filter(Boolean)) {
         const prev = best.get(ref);
-        // Prefer the relation that carries from/to, then the one nearest the centre.
         if (!prev || (ft && !prev.ft) || (ft === prev.ft && d < prev.d)) {
           best.set(ref, { lat: c.lat, lng: c.lon, d, country: iso, from, to, ft });
         }
@@ -2415,7 +2438,7 @@ async function fetchCorridorHighways(box: CorridorBox): Promise<CorridorHighway[
     }
     const out: CorridorHighway[] = [...best.entries()]
       .map(([ref, v]) => ({ ref, lat: v.lat, lng: v.lng, country: v.country, from: v.from, to: v.to }))
-      .sort((a, b) => a.ref.localeCompare(b.ref, undefined, { numeric: true }));
+      .sort((a2, b2) => a2.ref.localeCompare(b2.ref, undefined, { numeric: true }));
     _highwayCache.set(key, out);
     return out;
   } catch {
@@ -2424,9 +2447,9 @@ async function fetchCorridorHighways(box: CorridorBox): Promise<CorridorHighway[
 }
 
 function HighwayMultiSelect({
-  box, selected, onChange, lang,
+  ends, selected, onChange, lang,
 }: {
-  box: CorridorBox | null;
+  ends: { a: [number, number]; b: [number, number] } | null;
   selected: Highway[];
   onChange: (list: Highway[]) => void;
   lang: string;
@@ -2435,13 +2458,15 @@ function HighwayMultiSelect({
   const [options, setOptions] = useState<CorridorHighway[]>([]);
   const [loading, setLoading] = useState(false);
   const [q, setQ] = useState("");
+  const endKey = ends ? `${ends.a[0].toFixed(2)},${ends.a[1].toFixed(2)}|${ends.b[0].toFixed(2)},${ends.b[1].toFixed(2)}` : "";
   useEffect(() => {
-    if (!box) { setOptions([]); return; }
+    if (!ends) { setOptions([]); return; }
     let alive = true;
     setLoading(true);
-    fetchCorridorHighways(box).then((h) => { if (alive) { setOptions(h); setLoading(false); } });
+    fetchCorridorHighways(ends.a, ends.b).then((h) => { if (alive) { setOptions(h); setLoading(false); } });
     return () => { alive = false; };
-  }, [box]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [endKey]);
   const L = wpL(lang);
   const selRefs = new Set(selected.map((s) => s.ref));
   const ql = q.trim().toLowerCase();
