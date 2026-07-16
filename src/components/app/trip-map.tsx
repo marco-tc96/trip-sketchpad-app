@@ -801,10 +801,25 @@ export function TripMap({
     [enrichedCities],
   );
 
-  // Resolve a route endpoint to coordinates (geocode → centroid fallback).
+  // Trip cities keyed by normalised name, so a leg endpoint that matches one of the
+  // trip's cities uses the SAME coordinate as its marker (avoids two mismatched
+  // dots for the same place, e.g. a route end + a city pin geocoded differently).
+  const cityByName = useMemo(() => {
+    const m = new Map<string, [number, number]>();
+    for (const c of enrichedCities) {
+      if (typeof c.lat === "number" && typeof c.lng === "number") {
+        m.set(_normName(cleanPlace(c.name)), [c.lat, c.lng]);
+      }
+    }
+    return m;
+  }, [enrichedCities]);
+
+  // Resolve a route endpoint to coordinates (trip city → geocode → centroid).
   const resolve = useMemo(() => {
     return (raw: string, country?: string): [number, number] | null => {
       const name = cleanPlace(raw);
+      const byCity = cityByName.get(_normName(name));
+      if (byCity) return byCity;
       const key = `${country ?? ""}|${name}`;
       const cached = routeGeo[key];
       if (cached) return [cached.lat, cached.lng];
@@ -814,7 +829,7 @@ export function TripMap({
       }
       return null;
     };
-  }, [routeGeo]);
+  }, [routeGeo, cityByName]);
 
   // Leg list used by the fetch effects (endpoints may be null until geocoded).
   // For transit-with-line legs `center` is the geocoded CITY (reliable), never the
@@ -881,7 +896,7 @@ export function TripMap({
         cacheKey: `${r.mode}|${r.line ?? ""}|${ck}`,
         vias,
         viasReady,
-        pathKey: `${key}|${vias.map((v) => `${v.label}@${v.ll[0].toFixed(3)},${v.ll[1].toFixed(3)}`).join(">")}`,
+        pathKey: `${key}|${a ? `${a[0].toFixed(3)},${a[1].toFixed(3)}` : "?"}|${b ? `${b[0].toFixed(3)},${b[1].toFixed(3)}` : "?"}|${vias.map((v) => `${v.label}@${v.ll[0].toFixed(3)},${v.ll[1].toFixed(3)}`).join(">")}`,
       };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
