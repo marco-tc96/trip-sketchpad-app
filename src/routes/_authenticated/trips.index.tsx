@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { MapPin, Calendar, Briefcase, Palmtree, Footprints, Cloud, Compass, Globe2, ChevronDown } from "lucide-react";
+import { MapPin, Calendar, Briefcase, Palmtree, Footprints, Cloud, Compass, Globe2, ChevronDown, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { listTrips, getTodayInboundItems } from "@/lib/trips.functions";
@@ -21,56 +21,82 @@ function naiveLocalToUtcMs(naiveDateStr: string, utcPlusMinutes: number): number
   return new Date(naiveDateStr).getTime() - utcPlusMinutes * 60_000;
 }
 
+// Darken an oklch() colour by scaling its lightness — used for the record ring.
+function darkenOklch(c: string, f = 0.62): string {
+  const m = /oklch\(\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)/.exec(c);
+  if (!m) return c;
+  const L = Math.max(0, parseFloat(m[1]) * f);
+  return `oklch(${L.toFixed(3)} ${m[2]} ${m[3]})`;
+}
+
 // ── Stat ring (Apple Activity Rings style) ──────────────────────────────────
+// Outer (lighter) ring = this year's value. Inner (darker) ring = the best single
+// year on record for the same metric, with that record value + year shown below.
 function StatRing({
   label,
   value,
   max,
-  sublabel,
   color,
+  recordValue,
+  recordYear,
 }: {
   label: string;
   value: number;
   max: number;
-  sublabel?: string;
   color: string;
+  recordValue?: number;
+  recordYear?: number;
 }) {
-  const R = 36;
-  const circ = 2 * Math.PI * R;
-  const pct = max > 0 ? Math.min(value / max, 1) : 0;
-  const offset = circ * (1 - pct);
+  const dark = darkenOklch(color);
+  const Ro = 40, Ri = 28, sw = 8;
+  const circO = 2 * Math.PI * Ro, circI = 2 * Math.PI * Ri;
+  const pctO = max > 0 ? Math.min(value / max, 1) : 0;
+  const pctR = max > 0 ? Math.min((recordValue ?? 0) / max, 1) : 0;
+  const hasRecord = typeof recordValue === "number" && !!recordYear;
   return (
     <div className="flex flex-1 flex-col items-center gap-1.5">
       <div className="relative h-20 w-20">
         <svg width="80" height="80" viewBox="0 0 100 100">
-          {/* Track */}
+          {/* Tracks */}
+          <circle cx="50" cy="50" r={Ro} fill="none" strokeWidth={sw} className="stroke-muted/30" />
+          <circle cx="50" cy="50" r={Ri} fill="none" strokeWidth={sw} className="stroke-muted/20" />
+          {/* Record ring (inner, darker) */}
+          {hasRecord && (
+            <circle
+              cx="50" cy="50" r={Ri}
+              fill="none"
+              stroke={dark}
+              strokeWidth={sw}
+              strokeLinecap="round"
+              strokeDasharray={`${circI} ${circI}`}
+              strokeDashoffset={circI * (1 - pctR)}
+              transform="rotate(-90 50 50)"
+              style={{ transition: "stroke-dashoffset 0.8s cubic-bezier(0.16,1,0.3,1)" }}
+            />
+          )}
+          {/* This-year ring (outer, lighter) */}
           <circle
-            cx="50" cy="50" r={R}
-            fill="none"
-            strokeWidth="11"
-            className="stroke-muted/30"
-          />
-          {/* Progress */}
-          <circle
-            cx="50" cy="50" r={R}
+            cx="50" cy="50" r={Ro}
             fill="none"
             stroke={color}
-            strokeWidth="11"
+            strokeWidth={sw}
             strokeLinecap="round"
-            strokeDasharray={`${circ} ${circ}`}
-            strokeDashoffset={offset}
+            strokeDasharray={`${circO} ${circO}`}
+            strokeDashoffset={circO * (1 - pctO)}
             transform="rotate(-90 50 50)"
             style={{ transition: "stroke-dashoffset 0.8s cubic-bezier(0.16,1,0.3,1)" }}
           />
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-xl font-bold tabular-nums leading-none">{value}</span>
+          <span className="text-lg font-bold tabular-nums leading-none">{value}</span>
           <span className="text-[10px] leading-tight text-muted-foreground">/{max}</span>
         </div>
       </div>
       <p className="text-center text-xs font-medium leading-tight">{label}</p>
-      {sublabel && (
-        <p className="text-center text-[10px] leading-tight text-muted-foreground">{sublabel}</p>
+      {hasRecord && (
+        <p className="text-center text-[10px] font-semibold leading-tight tabular-nums" style={{ color: dark }}>
+          {recordValue} · {recordYear}
+        </p>
       )}
     </div>
   );
@@ -327,6 +353,43 @@ function TripsList() {
     return days.size;
   }, [past, ongoing, yearStr]);
 
+  // ── Stats: best single year on record (inner ring) ──────────────────────────
+  const yearStats = useMemo(() => {
+    const map = new Map<number, { countries: Set<string>; cities: Set<string>; days: Set<string> }>();
+    const ensure = (y: number) => {
+      let s = map.get(y);
+      if (!s) { s = { countries: new Set(), cities: new Set(), days: new Set() }; map.set(y, s); }
+      return s;
+    };
+    for (const tr of [...past, ...ongoing]) {
+      const cs = (tr as unknown as { countries?: string[] }).countries;
+      const startY = parseInt(tr.start_date.slice(0, 4), 10);
+      const endY = parseInt(tr.end_date.slice(0, 4), 10);
+      for (let y = startY; y <= endY; y++) {
+        const s = ensure(y);
+        if (Array.isArray(cs)) cs.forEach((c) => s.countries.add(c));
+        for (const c of getCities(tr)) s.cities.add(`${c.country}|${c.name.toLowerCase()}`);
+      }
+      const end = tr.end_date < today ? tr.end_date : today;
+      if (tr.start_date > end) continue;
+      for (let d = new Date(tr.start_date); d <= new Date(end); d.setDate(d.getDate() + 1)) {
+        const iso = d.toISOString().slice(0, 10);
+        ensure(parseInt(iso.slice(0, 4), 10)).days.add(iso);
+      }
+    }
+    return map;
+  }, [past, ongoing, today]);
+
+  const records = useMemo(() => {
+    const best = { countries: { year: 0, val: 0 }, cities: { year: 0, val: 0 }, days: { year: 0, val: 0 } };
+    for (const [y, s] of yearStats) {
+      if (s.countries.size > best.countries.val) best.countries = { year: y, val: s.countries.size };
+      if (s.cities.size > best.cities.val) best.cities = { year: y, val: s.cities.size };
+      if (s.days.size > best.days.val) best.days = { year: y, val: s.days.size };
+    }
+    return best;
+  }, [yearStats]);
+
   const allTripsCount = trips.length;
 
   return (
@@ -336,6 +399,13 @@ function TripsList() {
           <Compass className="h-5 w-5 text-primary" />
           <h1 className="font-serif text-2xl font-bold">{t("trips")}</h1>
         </div>
+        <Link
+          to="/trips/new"
+          className="inline-flex items-center gap-1.5 rounded-full bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground shadow-soft transition hover:opacity-90"
+        >
+          <Plus className="h-4 w-4" />
+          <span className="hidden sm:inline">{t("new_trip")}</span>
+        </Link>
       </div>
 
       {/* ── Countdown + stats: always visible once loaded, regardless of favorites ── */}
@@ -359,20 +429,26 @@ function TripsList() {
                 <StatRing
                   label={t("countries")}
                   value={countriesThisYear}
-                  max={Math.max(visitedCountries.length, countriesThisYear, 1)}
+                  max={Math.max(visitedCountries.length, countriesThisYear, records.countries.val, 1)}
                   color="oklch(0.62 0.22 25)"
+                  recordValue={records.countries.val || undefined}
+                  recordYear={records.countries.year || undefined}
                 />
                 <StatRing
                   label={t("cities")}
                   value={citiesThisYear}
-                  max={Math.max(totalCities, citiesThisYear, 1)}
+                  max={Math.max(totalCities, citiesThisYear, records.cities.val, 1)}
                   color="oklch(0.7 0.18 95)"
+                  recordValue={records.cities.val || undefined}
+                  recordYear={records.cities.year || undefined}
                 />
                 <StatRing
                   label={t("days_traveled")}
                   value={daysThisYear}
-                  max={Math.max(dayOfYear, daysThisYear, 1)}
+                  max={Math.max(dayOfYear, daysThisYear, records.days.val, 1)}
                   color="oklch(0.62 0.16 255)"
+                  recordValue={records.days.val || undefined}
+                  recordYear={records.days.year || undefined}
                 />
               </div>
             </section>
