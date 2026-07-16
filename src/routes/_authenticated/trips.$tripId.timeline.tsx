@@ -66,16 +66,16 @@ const isStopMode = (m: TransportMode) => m === "train" || m === "plane" || m ===
 
 // Small localized labels for the road-leg editor (kept local so we don't have to
 // touch the global i18n bundle for these few strings).
-const WP_LABELS: Record<string, { cities: string; place: string; addCity: string; via: string }> = {
-  it: { cities: "Tappe di stop (città)", place: "Città o luogo", addCity: "Aggiungi città", via: "via" },
-  en: { cities: "Stops (cities)", place: "City or place", addCity: "Add city", via: "via" },
-  es: { cities: "Paradas (ciudades)", place: "Ciudad o lugar", addCity: "Añadir ciudad", via: "vía" },
-  fr: { cities: "Étapes (villes)", place: "Ville ou lieu", addCity: "Ajouter une ville", via: "via" },
-  de: { cities: "Stopps (Städte)", place: "Stadt oder Ort", addCity: "Stadt hinzufügen", via: "über" },
-  pt: { cities: "Paradas (cidades)", place: "Cidade ou lugar", addCity: "Adicionar cidade", via: "via" },
-  ja: { cities: "立ち寄り（都市）", place: "都市または場所", addCity: "都市を追加", via: "経由" },
-  ko: { cities: "경유(도시)", place: "도시 또는 장소", addCity: "도시 추가", via: "경유" },
-  zh: { cities: "停靠（城市）", place: "城市或地点", addCity: "添加城市", via: "途经" },
+const WP_LABELS: Record<string, { cities: string; place: string; addCity: string; via: string; recommended: string }> = {
+  it: { cities: "Tappe di stop (città)", place: "Città o luogo", addCity: "Aggiungi città", via: "via", recommended: "Consigliato" },
+  en: { cities: "Stops (cities)", place: "City or place", addCity: "Add city", via: "via", recommended: "Recommended" },
+  es: { cities: "Paradas (ciudades)", place: "Ciudad o lugar", addCity: "Añadir ciudad", via: "vía", recommended: "Recomendado" },
+  fr: { cities: "Étapes (villes)", place: "Ville ou lieu", addCity: "Ajouter une ville", via: "via", recommended: "Recommandé" },
+  de: { cities: "Stopps (Städte)", place: "Stadt oder Ort", addCity: "Stadt hinzufügen", via: "über", recommended: "Empfohlen" },
+  pt: { cities: "Paradas (cidades)", place: "Cidade ou lugar", addCity: "Adicionar cidade", via: "via", recommended: "Recomendado" },
+  ja: { cities: "立ち寄り（都市）", place: "都市または場所", addCity: "都市を追加", via: "経由", recommended: "おすすめ" },
+  ko: { cities: "경유(도시)", place: "도시 또는 장소", addCity: "도시 추가", via: "경유", recommended: "추천" },
+  zh: { cities: "停靠（城市）", place: "城市或地点", addCity: "添加城市", via: "途经", recommended: "推荐" },
 };
 const wpL = (lang: string | undefined) => WP_LABELS[(lang || "it").slice(0, 2)] ?? WP_LABELS.it;
 type MixedLeg = {
@@ -1282,6 +1282,7 @@ function TransportDialog({
                       value={leg.from}
                       onChange={(v) => updateLeg(i, { from: v })}
                       placeholder={fromLabelOf(leg.mode)}
+                      suggested={legs[i - 1]?.to?.trim() || undefined}
                     />
                   </div>
                   <div className="space-y-1">
@@ -1292,6 +1293,7 @@ function TransportDialog({
                       value={leg.to}
                       onChange={(v) => updateLeg(i, { to: v })}
                       placeholder={toLabelOf(leg.mode)}
+                      suggested={legs[i + 1]?.from?.trim() || undefined}
                     />
                   </div>
                   <div className="space-y-1">
@@ -2378,15 +2380,21 @@ function WaypointCombobox({
 
 
 function HubCombobox({
-  mode, countries, value, onChange, placeholder,
+  mode, countries, value, onChange, placeholder, suggested,
 }: {
   mode: TransportMode;
   countries: string[];
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
+  // Endpoint of an adjacent leg (e.g. the train station or airport used just
+  // before/after this car/moto leg), offered as the recommended first option —
+  // so a multi-modal journey's road leg can pick up exactly where the previous
+  // leg left off (or hand off exactly where the next leg starts).
+  suggested?: string;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language || "it";
   const [open, setOpen] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const isPlane = mode === "plane";
@@ -2400,9 +2408,11 @@ function HubCombobox({
       citiesOfCountry(iso).map((c) => ({ name: c.name, country: c.country })),
     );
     const q = value.trim().toLowerCase();
-    const filteredCities = q
+    const filteredCities = (q
       ? cityList.filter((c) => c.name.toLowerCase().includes(q)).slice(0, 300)
-      : cityList.slice(0, 300);
+      : cityList.slice(0, 300)
+    ).filter((c) => c.name !== suggested);
+    const showSuggested = !!suggested && (!q || suggested.toLowerCase().includes(q));
     return (
       <div className="relative">
         <Input
@@ -2413,8 +2423,22 @@ function HubCombobox({
           onChange={(e) => { onChange(e.target.value); setOpen(true); }}
           autoComplete="off"
         />
-        {open && filteredCities.length > 0 && (
+        {open && (showSuggested || filteredCities.length > 0) && (
           <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-72 overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+            {showSuggested && (
+              <button
+                type="button"
+                key="suggested"
+                onMouseDown={(e) => { e.preventDefault(); onChange(suggested!); setOpen(false); }}
+                className="mb-1 flex w-full items-center gap-2 rounded-sm border border-primary/30 bg-primary/10 px-2 py-1.5 text-left text-sm hover:bg-primary/20"
+              >
+                <Check className={cn("h-4 w-4 shrink-0", value === suggested ? "opacity-100" : "opacity-0")} />
+                <span className="min-w-0 flex-1 truncate font-medium">{suggested}</span>
+                <span className="shrink-0 rounded-full bg-primary/20 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                  {wpL(lang).recommended}
+                </span>
+              </button>
+            )}
             {filteredCities.map((c, i) => {
               const sel = value === c.name;
               return (

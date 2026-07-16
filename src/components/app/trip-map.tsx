@@ -124,6 +124,23 @@ async function fetchRoadPathVia(points: [number, number][]): Promise<[number, nu
   return null;
 }
 
+// Snap a geocoded point onto the nearest real road via OSRM's "nearest" service,
+// so a city pin never lands in the middle of a square/park/field away from any
+// street. Returns the snapped coordinate, or null (caller keeps the original).
+async function snapToRoad(lat: number, lng: number): Promise<{ lat: number; lng: number } | null> {
+  try {
+    const url = `https://router.project-osrm.org/nearest/v1/driving/${lng},${lat}?number=1`;
+    const r = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!r.ok) return null;
+    const data = (await r.json()) as { waypoints?: Array<{ location?: [number, number] }> };
+    const loc = data.waypoints?.[0]?.location;
+    if (Array.isArray(loc) && loc.length === 2 && Number.isFinite(loc[0]) && Number.isFinite(loc[1])) {
+      return { lat: loc[1], lng: loc[0] };
+    }
+  } catch { /* ignore — caller falls back to the unsnapped coordinate */ }
+  return null;
+}
+
 // Ask BRouter (rail profile) for a railway-following geometry between two points,
 // so train legs trace the actual tracks instead of a straight line. Returns the
 // polyline ([lat,lng][]) or null on failure (caller falls back to a straight line).
@@ -720,7 +737,14 @@ export function TripMap({
         // Structured lookup first; if the town isn't in that table (e.g. Manises)
         // fall back to a free-form search before giving up (avoids the country
         // centroid placing small towns in the middle of the country).
-        updates[key] = (await geocodeCity(city.name, city.country)) ?? (await geocodePlace(city.name, city.country));
+        let coord = (await geocodeCity(city.name, city.country)) ?? (await geocodePlace(city.name, city.country));
+        // City pins must always sit on a road, never in the middle of a square,
+        // park or open field — snap the raw geocode onto the nearest street.
+        if (coord) {
+          const snapped = await snapToRoad(coord.lat, coord.lng);
+          if (snapped) coord = snapped;
+        }
+        updates[key] = coord;
       }
       if (!cancelled && Object.keys(updates).length > 0) {
         rememberGeo(memGeoCity, updates);
