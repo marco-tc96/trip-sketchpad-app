@@ -49,7 +49,7 @@ function buildMapRoutes(
     const meta = (it.meta ?? {}) as {
       mode?: string;
       legs?: Array<{
-        from?: string; to?: string;
+        mode?: string; from?: string; to?: string;
         waypoints?: Array<{ name: string; enter?: boolean; lat?: number | null; lng?: number | null; country?: string | null }>;
       }>;
       mixed_legs?: Array<{ mode?: string; vehicle?: string; from_stop?: string; to_stop?: string }>;
@@ -59,7 +59,9 @@ function buildMapRoutes(
     if (Array.isArray(meta.legs) && meta.legs.length > 0) {
       for (const l of meta.legs) {
         if (!l.from || !l.to) continue;
-        const legMode = meta.mode ?? it.kind;
+        // Each leg can carry its own mode (multi-modal journeys); fall back to the
+        // journey mode / item kind for legacy items.
+        const legMode = l.mode ?? meta.mode ?? it.kind;
         const isRoad = legMode === "car" || legMode === "moto";
         // NB: no country restriction here — road trips are often cross-border
         // (e.g. Italy→Belgium), so forcing the trip country would misplace the

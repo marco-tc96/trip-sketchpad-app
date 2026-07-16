@@ -637,7 +637,9 @@ export function TripMap({
   // ferries, and transit legs WITHOUT a line ref). Transit-with-line legs are
   // located from their OSM relation instead, so we skip their stops here.
   const routeEndpoints = useMemo<Array<{ name: string; country?: string; airport: boolean; iata?: string | null }>>(() => {
-    if (!showRoutes || !routes || routes.length === 0) return [];
+    // Geocode leg endpoints even in the "cities" view, so every leg endpoint (e.g.
+    // a departure city that isn't in the trip's city list) can appear on the map.
+    if (!routes || routes.length === 0) return [];
     const seen = new Map<string, { name: string; country?: string; airport: boolean; iata?: string | null }>();
     for (const r of routes) {
       if (isTransitWithLine(r)) continue;
@@ -1108,10 +1110,42 @@ export function TripMap({
   }, [compact]);
 
   const cityPoints = points.length > 0 ? points : fallbackPoints;
-  // When showing routes, fit the view to include every leg endpoint too.
+
+  // Every leg endpoint (from/to of each route), resolved to coordinates — so a
+  // departure/arrival that isn't in the trip's own city list still shows on the map.
+  const legEndpoints = useMemo<Array<{ ll: [number, number]; name: string }>>(() => {
+    if (!routes) return [];
+    const seen = new Set<string>();
+    const out: Array<{ ll: [number, number]; name: string }> = [];
+    for (const r of routes) {
+      for (const raw of [r.from, r.to]) {
+        const ll = resolve(raw, r.country);
+        if (!ll) continue;
+        const k = `${ll[0].toFixed(3)},${ll[1].toFixed(3)}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        out.push({ ll, name: cleanPlace(raw) });
+      }
+    }
+    return out;
+  }, [routes, resolve]);
+
+  // Leg endpoints that aren't already one of the trip's city markers (deduped by
+  // rounded coordinate) — rendered as pins in the "cities" view.
+  const extraLegMarkers = useMemo(() => {
+    const cityKeys = new Set(
+      enrichedCities
+        .filter((c) => typeof c.lat === "number" && typeof c.lng === "number")
+        .map((c) => `${(c.lat as number).toFixed(2)},${(c.lng as number).toFixed(2)}`),
+    );
+    return legEndpoints.filter((e) => !cityKeys.has(`${e.ll[0].toFixed(2)},${e.ll[1].toFixed(2)}`));
+  }, [legEndpoints, enrichedCities]);
+
+  // Fit the view to include the trip cities AND every leg endpoint (both views),
+  // plus the drawn route geometry when routes are shown.
   const boundsPoints = useMemo<[number, number][]>(
-    () => (showRoutes ? [...cityPoints, ...drawn.flatMap((d) => d.positions)] : cityPoints),
-    [cityPoints, drawn, showRoutes],
+    () => [...cityPoints, ...legEndpoints.map((e) => e.ll), ...(showRoutes ? drawn.flatMap((d) => d.positions) : [])],
+    [cityPoints, legEndpoints, drawn, showRoutes],
   );
 
   if (boundsPoints.length === 0) {
@@ -1195,6 +1229,24 @@ export function TripMap({
             <Tooltip direction="top" offset={[0, -8]}>
               {withRomanization(c.name, lang)}
             </Tooltip>
+          </Marker>
+        ))}
+
+      {/* In the cities view, also mark leg endpoints not already in the trip's
+          city list (routes view shows them as coloured leg pins). */}
+      {!showRoutes &&
+        extraLegMarkers.map((e, i) => (
+          <Marker key={`leg-${i}`} position={e.ll} icon={pinIcon}>
+            {e.name && (
+              <>
+                <Popup>
+                  <strong>{withRomanization(e.name, lang)}</strong>
+                </Popup>
+                <Tooltip direction="top" offset={[0, -8]}>
+                  {withRomanization(e.name, lang)}
+                </Tooltip>
+              </>
+            )}
           </Marker>
         ))}
       <FitBounds points={boundsPoints} />

@@ -18,6 +18,8 @@ const waypointSchema = z.object({
 });
 
 const legSchema = z.object({
+  // Per-leg transport mode (multi-modal journeys). Falls back to meta.mode.
+  mode: z.enum(["car", "moto", "train", "plane", "ferry", "bus", "metro", "tram"]).optional().nullable(),
   from: z.string().max(160).optional().nullable(),
   to: z.string().max(160).optional().nullable(),
   depart_at: z.string().optional().nullable(),

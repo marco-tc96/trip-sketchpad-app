@@ -50,6 +50,7 @@ type ItemRow = {
 type TransportMode = "car" | "moto" | "train" | "plane" | "ferry" | "bus" | "metro" | "tram";
 type Waypoint = { name: string; enter?: boolean; lat?: number | null; lng?: number | null; country?: string | null };
 type Leg = {
+  mode: TransportMode;
   from: string;
   to: string;
   depart_at: string;
@@ -58,9 +59,10 @@ type Leg = {
   number: string;
   waypoints?: Waypoint[];
 };
-const emptyLeg = (): Leg => ({
-  from: "", to: "", depart_at: "", arrive_at: "", carrier: "", number: "",
+const emptyLeg = (mode: TransportMode = "car"): Leg => ({
+  mode, from: "", to: "", depart_at: "", arrive_at: "", carrier: "", number: "",
 });
+const isStopMode = (m: TransportMode) => m === "train" || m === "plane" || m === "metro" || m === "tram";
 
 // Small localized labels for the road-leg editor (kept local so we don't have to
 // touch the global i18n bundle for these few strings).
@@ -1114,27 +1116,29 @@ function TransportDialog({
   const createFn = useServerFn(createItem);
   const delFn = useServerFn(deleteItem);
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<TransportMode>((existing?.meta?.mode as TransportMode) ?? "plane");
-  const [legs, setLegs] = useState<Leg[]>(
-    existing?.meta?.legs && existing.meta.legs.length > 0
-      ? existing.meta.legs.map((l) => ({ ...emptyLeg(), ...l }))
-      : [emptyLeg()],
-  );
+  // A journey can now mix several modes — each leg carries its own `mode`
+  // (e.g. train + car, car + plane). Legacy items stored a single meta.mode which
+  // becomes every leg's fallback mode.
+  const seedLegs = (): Leg[] => {
+    const fallback = (existing?.meta?.mode as TransportMode) ?? "plane";
+    const ex = existing?.meta?.legs;
+    if (ex && ex.length > 0) {
+      return ex.map((l) => {
+        const m = ((l as { mode?: TransportMode }).mode ?? fallback) as TransportMode;
+        return { ...emptyLeg(m), ...l, mode: m };
+      });
+    }
+    return [emptyLeg(fallback)];
+  };
+  const [legs, setLegs] = useState<Leg[]>(seedLegs);
 
-  const isStopBased = mode === "train" || mode === "plane" || mode === "metro" || mode === "tram";
-
-  // The dialog stays mounted around its trigger, so the useState initializers run
+  // The dialog stays mounted around its trigger, so the useState initializer runs
   // once — before the trip's items have loaded (existing = undefined). Re-seed the
   // form from `existing` every time the dialog opens, so editing an already-saved
-  // journey shows its data instead of an empty "plane" form.
+  // journey shows its data instead of an empty form.
   useEffect(() => {
     if (!open) return;
-    setMode((existing?.meta?.mode as TransportMode) ?? "plane");
-    setLegs(
-      existing?.meta?.legs && existing.meta.legs.length > 0
-        ? existing.meta.legs.map((l) => ({ ...emptyLeg(), ...l }))
-        : [emptyLeg()],
-    );
+    setLegs(seedLegs());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
@@ -1142,14 +1146,14 @@ function TransportDialog({
     setLegs((arr) => arr.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
   }
 
-  // Geographic corridor between the road leg's start and end — used to limit the
-  // waypoint city suggestions to the countries the trip actually crosses.
+  // Geographic corridor from the FIRST road leg (car/moto) — used to limit the
+  // waypoint city suggestions to the countries that leg actually crosses.
+  const roadLeg = legs.find((l) => l.mode === "car" || l.mode === "moto");
+  const roadFrom = roadLeg?.from ?? "";
+  const roadTo = roadLeg?.to ?? "";
   const [corridorBox, setCorridorBox] = useState<CorridorBox | null>(null);
-  const legFrom = legs[0]?.from ?? "";
-  const legTo = legs[0]?.to ?? "";
   useEffect(() => {
-    if (mode !== "car" && mode !== "moto") { setCorridorBox(null); return; }
-    const from = legFrom.trim(), to = legTo.trim();
+    const from = roadFrom.trim(), to = roadTo.trim();
     if (!from || !to) { setCorridorBox(null); return; }
     let alive = true;
     (async () => {
@@ -1162,14 +1166,15 @@ function TransportDialog({
       });
     })();
     return () => { alive = false; };
-  }, [mode, legFrom, legTo]);
+  }, [roadFrom, roadTo]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     try {
       const first = legs[0];
       const last = legs[legs.length - 1];
-      const title = `${t(`mode_${mode}`)} ${[first?.from, last?.to].filter(Boolean).join(" → ") || ""}`.trim();
+      const journeyMode = first?.mode ?? "car";
+      const title = `${t(`mode_${journeyMode}`)} ${[first?.from, last?.to].filter(Boolean).join(" → ") || ""}`.trim();
       // Drop empty waypoint rows before saving.
       const cleanLegs = legs.map((l) => {
         const wp = (l.waypoints ?? []).filter((w) => w.name.trim());
@@ -1188,7 +1193,7 @@ function TransportDialog({
           end_at: last?.arrive_at || null,
           notes: null,
           position: 0,
-          meta: { mode, legs: cleanLegs },
+          meta: { mode: journeyMode, legs: cleanLegs },
         },
       });
       qc.invalidateQueries({ queryKey: ["items", tripId] });
@@ -1198,14 +1203,10 @@ function TransportDialog({
     }
   }
 
-  const fromLabel = (mode === "train" || mode === "metro" || mode === "tram") ? t("from_station")
-    : mode === "plane" ? t("from_airport")
-    : mode === "ferry" ? t("from_port")
-    : t("from_point");
-  const toLabel = (mode === "train" || mode === "metro" || mode === "tram") ? t("to_station")
-    : mode === "plane" ? t("to_airport")
-    : mode === "ferry" ? t("to_port")
-    : t("to_point");
+  const fromLabelOf = (m: TransportMode) => (m === "train" || m === "metro" || m === "tram") ? t("from_station")
+    : m === "plane" ? t("from_airport") : m === "ferry" ? t("from_port") : t("from_point");
+  const toLabelOf = (m: TransportMode) => (m === "train" || m === "metro" || m === "tram") ? t("to_station")
+    : m === "plane" ? t("to_airport") : m === "ferry" ? t("to_port") : t("to_point");
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -1215,37 +1216,12 @@ function TransportDialog({
           <DialogTitle>{t(kind)}</DialogTitle>
         </DialogHeader>
         <form className="space-y-4" onSubmit={submit}>
-          <div className="space-y-1.5">
-            <Label>{t("transport_mode")}</Label>
-            <div className="grid grid-cols-4 gap-1.5">
-              {(Object.keys(MODE_ICON) as TransportMode[]).map((m) => {
-                const Icon = MODE_ICON[m];
-                const active = m === mode;
-                return (
-                  <button
-                    type="button"
-                    key={m}
-                    onClick={() => setMode(m)}
-                    className={`flex flex-col items-center gap-1 rounded-xl border p-2 text-xs transition ${
-                      active
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border bg-card hover:bg-muted"
-                    }`}
-                  >
-                    <Icon className="h-4 w-4" />
-                    {t(`mode_${m}`)}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
           <div className="space-y-3">
             {legs.map((leg, i) => (
               <div key={i} className="rounded-xl border border-border bg-muted/30 p-3">
                 <div className="mb-2 flex items-center justify-between">
                   <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    {isStopBased ? (legs.length === 1 ? t("leg") : `${t("leg")} ${i + 1}`) : t("route")}
+                    {legs.length === 1 ? t("route") : `${t("route")} ${i + 1}`}
                   </p>
                   {legs.length > 1 && (
                     <Button
@@ -1258,25 +1234,47 @@ function TransportDialog({
                     </Button>
                   )}
                 </div>
+                {/* Per-leg transport mode — lets a journey mix modes (train+car…). */}
+                <div className="mb-2 grid grid-cols-4 gap-1.5">
+                  {(Object.keys(MODE_ICON) as TransportMode[]).map((m) => {
+                    const Icon = MODE_ICON[m];
+                    const active = m === leg.mode;
+                    return (
+                      <button
+                        type="button"
+                        key={m}
+                        onClick={() => updateLeg(i, { mode: m })}
+                        className={`flex flex-col items-center gap-1 rounded-lg border p-1.5 text-[10px] transition ${
+                          active
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-border bg-card hover:bg-muted"
+                        }`}
+                      >
+                        <Icon className="h-3.5 w-3.5" />
+                        {t(`mode_${m}`)}
+                      </button>
+                    );
+                  })}
+                </div>
                 <div className="grid gap-2 sm:grid-cols-2">
                   <div className="space-y-1">
-                    <Label className="text-xs">{fromLabel}</Label>
+                    <Label className="text-xs">{fromLabelOf(leg.mode)}</Label>
                     <HubCombobox
-                      mode={mode}
+                      mode={leg.mode}
                       countries={tripCountries}
                       value={leg.from}
                       onChange={(v) => updateLeg(i, { from: v })}
-                      placeholder={fromLabel}
+                      placeholder={fromLabelOf(leg.mode)}
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs">{toLabel}</Label>
+                    <Label className="text-xs">{toLabelOf(leg.mode)}</Label>
                     <HubCombobox
-                      mode={mode}
+                      mode={leg.mode}
                       countries={tripCountries}
                       value={leg.to}
                       onChange={(v) => updateLeg(i, { to: v })}
-                      placeholder={toLabel}
+                      placeholder={toLabelOf(leg.mode)}
                     />
                   </div>
                   <div className="space-y-1">
@@ -1327,11 +1325,11 @@ function TransportDialog({
                       }}
                     />
                   </div>
-                  {(mode === "train" || mode === "plane" || mode === "ferry") && (
+                  {(leg.mode === "train" || leg.mode === "plane" || leg.mode === "ferry") && (
                     <>
                       <div className="space-y-1">
                         <Label className="text-xs">
-                          {mode === "plane" ? t("airline") : mode === "train" ? t("operator_label") : t("company")}
+                          {leg.mode === "plane" ? t("airline") : leg.mode === "train" ? t("operator_label") : t("company")}
                         </Label>
                         <Input
                           value={leg.carrier}
@@ -1340,7 +1338,7 @@ function TransportDialog({
                       </div>
                       <div className="space-y-1">
                         <Label className="text-xs">
-                          {mode === "plane" ? t("flight_number") : mode === "train" ? t("train_number") : t("service_number")}
+                          {leg.mode === "plane" ? t("flight_number") : leg.mode === "train" ? t("train_number") : t("service_number")}
                         </Label>
                         <Input
                           value={leg.number}
@@ -1350,7 +1348,7 @@ function TransportDialog({
                     </>
                   )}
                 </div>
-                {(mode === "car" || mode === "moto") && (
+                {(leg.mode === "car" || leg.mode === "moto") && (
                   <div className="mt-3 space-y-3 border-t border-border/60 pt-3">
                     {/* City stops — a pin where you actually stop in the town. */}
                     <div className="space-y-2">
@@ -1396,17 +1394,15 @@ function TransportDialog({
               </div>
             ))}
 
-            {isStopBased && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setLegs((arr) => [...arr, emptyLeg()])}
-                className="w-full"
-              >
-                <Plus className="mr-1.5 h-3.5 w-3.5" /> {t("add_layover")}
-              </Button>
-            )}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setLegs((arr) => [...arr, emptyLeg(arr[arr.length - 1]?.mode ?? "car")])}
+              className="w-full"
+            >
+              <Plus className="mr-1.5 h-3.5 w-3.5" /> {t("add_layover")}
+            </Button>
           </div>
 
           <div className="flex justify-between gap-2">
