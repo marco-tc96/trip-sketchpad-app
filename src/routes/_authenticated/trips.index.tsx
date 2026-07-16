@@ -21,6 +21,13 @@ function naiveLocalToUtcMs(naiveDateStr: string, utcPlusMinutes: number): number
   return new Date(naiveDateStr).getTime() - utcPlusMinutes * 60_000;
 }
 
+// Module-level (NOT component state): survives client-side tab navigation
+// within the running app, but resets on a real app/page reload — since a
+// fresh load re-executes this module. Used to tell "cold app start" (always
+// show the top) apart from "came back to the Viaggi tab" (restore the last
+// scroll position), even though both read the same sessionStorage key.
+let hasVisitedTripsThisSession = false;
+
 // Darken an oklch() colour by scaling its lightness — used for the record ring.
 function darkenOklch(c: string, f = 0.62): string {
   const m = /oklch\(\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)/.exec(c);
@@ -141,7 +148,7 @@ function CountdownCard({
     ? (trip as unknown as { countries: string[] }).countries
     : [];
   const flagStr =
-    countries.length > 0 ? countries.slice(0, 4).map(flagOf).join(" ") : "✈️";
+    countries.length > 0 ? countries.map(flagOf).join(" ") : "✈️";
   const cities = getCities(trip);
   const gradient = flagGradient(countries);
   const coverEmoji = (trip as unknown as { cover_emoji?: string | null }).cover_emoji;
@@ -150,7 +157,7 @@ function CountdownCard({
     isOngoing
       ? null
       : daysLeft <= 0
-        ? fmt(trip.start_date)
+        ? fmt(trip.start_date, lang)
         : daysLeft === 1
           ? t("day_to_departure", { n: 1 })
           : t("days_to_departure", { n: daysLeft });
@@ -187,7 +194,7 @@ function CountdownCard({
       {/* Countdown strip */}
       <div className="flex items-center justify-between bg-card px-5 py-3">
         <span className="text-xs text-muted-foreground">
-          {fmt(trip.start_date)} → {isOngoing ? "…" : fmt(trip.end_date)}
+          {isOngoing ? `${fmt(trip.start_date, lang)} → …` : fmtRange(trip.start_date, trip.end_date, lang)}
         </span>
         {isOngoing ? (
           <span className="rounded-full bg-amber-500/15 px-3 py-0.5 text-xs font-bold text-amber-600 dark:text-amber-400">
@@ -222,15 +229,25 @@ function TripsList() {
   const dayOfYear = Math.floor((Date.now() - jan1Ms) / 86400000) + 1;
 
   // ── Scroll restoration on mount ──────────────────────────────────────────
+  // Cold app start (first time this route mounts since the app was loaded)
+  // always opens at the top, never on the historic-trips section, even if a
+  // stale scroll position was left over from before. Coming back to the
+  // Viaggi tab later in the same session restores exactly where it was left.
   useLayoutEffect(() => {
     const prev = history.scrollRestoration;
     history.scrollRestoration = "manual";
-    const saved = sessionStorage.getItem("trips-scroll");
-    if (saved) {
-      window.scrollTo(0, parseInt(saved, 10));
+    if (!hasVisitedTripsThisSession) {
+      hasVisitedTripsThisSession = true;
       sessionStorage.removeItem("trips-scroll");
-    } else {
       window.scrollTo(0, 0);
+    } else {
+      const saved = sessionStorage.getItem("trips-scroll");
+      if (saved) {
+        window.scrollTo(0, parseInt(saved, 10));
+        sessionStorage.removeItem("trips-scroll");
+      } else {
+        window.scrollTo(0, 0);
+      }
     }
     return () => { history.scrollRestoration = prev; };
   }, []);
@@ -863,7 +880,7 @@ function CompactTripCard({ trip }: { trip: Trip }) {
   const coverType = (trip as unknown as { cover_type?: string }).cover_type ?? "auto";
   const coverBg = (trip as unknown as { cover_bg?: string | null }).cover_bg ?? null;
   const gradient = coverType === "color" && coverBg ? coverBg : flagGradient(countries);
-  const flagStr = countries.length > 0 ? countries.slice(0, 3).map(flagOf).join(" ") : "✈️";
+  const flagStr = countries.length > 0 ? countries.map(flagOf).join(" ") : "✈️";
   const isWishlist = trip.start_date >= "2099-01-01";
   const cities = getCities(trip);
   const coverEmoji = (trip as unknown as { cover_emoji?: string | null }).cover_emoji;
@@ -923,7 +940,7 @@ function CompactTripCard({ trip }: { trip: Trip }) {
         {!isWishlist && (
           <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground/70">
             <Calendar className="h-3.5 w-3.5 shrink-0" />
-            {fmt(trip.start_date)} → {fmt(trip.end_date)}
+            {fmtRange(trip.start_date, trip.end_date, lang)}
           </p>
         )}
       </div>
@@ -969,7 +986,7 @@ function TripCard({
   const coverType = (trip as unknown as { cover_type?: string }).cover_type ?? "auto";
   const coverBg = (trip as unknown as { cover_bg?: string | null }).cover_bg ?? null;
   const gradient = coverType === "color" && coverBg ? coverBg : flagGradient(countries);
-  const flagStr = countries.length > 0 ? countries.slice(0, 4).map(flagOf).join(" ") : "";
+  const flagStr = countries.length > 0 ? countries.map(flagOf).join(" ") : "";
 
   function handleClick(e: React.MouseEvent) {
     e.preventDefault();
@@ -1021,7 +1038,7 @@ function TripCard({
         {!isWishlist && (
           <div className="mt-0.5 flex items-center gap-1 text-[11px] text-white/75">
             <Calendar className="h-3 w-3" />
-            {fmt(trip.start_date)} → {fmt(trip.end_date)}
+            {fmtRange(trip.start_date, trip.end_date, lang)}
           </div>
         )}
       </div>
@@ -1029,8 +1046,22 @@ function TripCard({
   );
 }
 
-function fmt(d: string) {
-  return new Date(d).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "2-digit" });
+function fmt(d: string, lang?: string) {
+  return new Date(d).toLocaleDateString(lang, { day: "2-digit", month: "short", year: "numeric" });
+}
+
+// Same month+year → compact to "24-27 set 2026" instead of "24 set 2026 →
+// 27 set 2026", so the pill takes up less room; four-digit year throughout.
+function fmtRange(start: string, end: string, lang?: string): string {
+  const s = new Date(start);
+  const e = new Date(end);
+  if (s.getFullYear() === e.getFullYear() && s.getMonth() === e.getMonth()) {
+    const d1 = s.toLocaleDateString(lang, { day: "2-digit" });
+    const d2 = e.toLocaleDateString(lang, { day: "2-digit" });
+    const my = e.toLocaleDateString(lang, { month: "short", year: "numeric" });
+    return `${d1}-${d2} ${my}`;
+  }
+  return `${fmt(start, lang)} → ${fmt(end, lang)}`;
 }
 
 function TripTypePill({ tripType }: { tripType: "vacation" | "business" | "daytrip" | "wishlist" }) {

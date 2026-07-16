@@ -6,14 +6,12 @@ import { useTranslation } from "react-i18next";
 import {
   Plane, Bus, Car, CarTaxiFront, Bike, Ship, Hotel, MapPin, Sparkles, ArrowRightLeft,
   PlaneTakeoff, PlaneLanding, Plus, Trash2, ChevronsUpDown, Check, Clock,
-  CalendarDays, Wallet, Pencil, X, Menu, TramFront, TrainFront, Train,
+  CalendarDays, Luggage, Pencil, X, Menu, TramFront, TrainFront, Train,
 } from "lucide-react";
 import { toast } from "sonner";
 import { listItems, createItem, updateItem, deleteItem, ITEM_KINDS } from "@/lib/itinerary.functions";
 import { getTrip } from "@/lib/trips.functions";
 import { getProfile } from "@/lib/profile.functions";
-import { listExpenses } from "@/lib/expenses.functions";
-import { formatMoney } from "@/lib/currencies";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -563,8 +561,6 @@ function TimelineView() {
   const trip = useQuery({ queryKey: ["trip", tripId], queryFn: () => tripFn({ data: { id: tripId } }) });
   const items = useQuery({ queryKey: ["items", tripId], queryFn: () => itemFn({ data: { trip_id: tripId } }) });
   const profile = useQuery({ queryKey: ["profile"], queryFn: () => profFn() });
-  const expFn = useServerFn(listExpenses);
-  const expenses = useQuery({ queryKey: ["expenses", tripId], queryFn: () => expFn({ data: { trip_id: tripId } }) });
 
   // Prefetch each transit line's OSM stops so official English names get
   // registered — then the transliteration helper can prefer them in the UI.
@@ -663,7 +659,7 @@ function TimelineView() {
 
   return (
     <div>
-      <TripStats trip={trip.data} expenses={expenses.data ?? []} homeCcy={profile.data?.home_currency ?? "EUR"} isWishlist={isWishlist} wishlistDays={maxDayIndex} />
+      <TripStats trip={trip.data} tripId={tripId} isWishlist={isWishlist} wishlistDays={maxDayIndex} />
 
       <div className="space-y-6">
         <JourneyBlock tripId={tripId} outbound={outbound} ret={ret} tripCountries={hubCountries} />
@@ -850,14 +846,12 @@ function TimelineView() {
 
 function TripStats({
   trip,
-  expenses,
-  homeCcy,
+  tripId,
   isWishlist,
   wishlistDays,
 }: {
   trip: { start_date: string; end_date: string };
-  expenses: Array<{ amount: number; amount_home: number | null; currency: string }>;
-  homeCcy: string;
+  tripId: string;
   isWishlist?: boolean;
   wishlistDays?: number;
 }) {
@@ -868,10 +862,6 @@ function TripStats({
         1,
         Math.round((new Date(trip.end_date).getTime() - new Date(trip.start_date).getTime()) / 86400000) + 1,
       );
-  const total = expenses.reduce(
-    (s, e) => s + Number(e.amount_home ?? (e.currency === homeCcy ? e.amount : 0)),
-    0,
-  );
   return (
     <div className="mb-4 grid gap-3 sm:grid-cols-2">
       <div className="rounded-2xl border border-border bg-card p-4 shadow-soft">
@@ -881,12 +871,134 @@ function TripStats({
           {isWishlist ? (days > 0 ? `${days} ${t("nights")}` : "—") : `${days} ${t("nights")}`}
         </p>
       </div>
-      <div className="rounded-2xl border border-border bg-card p-4 shadow-soft">
-        <Wallet className="h-5 w-5 text-primary" />
-        <p className="mt-2 text-[10px] uppercase tracking-wider text-muted-foreground">{t("total")}</p>
-        <p className="mt-0.5 font-serif text-2xl font-semibold tabular-nums">{formatMoney(total, homeCcy)}</p>
-      </div>
+      <PackingListCard tripId={tripId} />
     </div>
+  );
+}
+
+type PackItem = { id: string; name: string; checked: boolean };
+
+function loadPackingList(tripId: string): PackItem[] {
+  try {
+    const raw = localStorage.getItem(`packing_${tripId}`);
+    return raw ? (JSON.parse(raw) as PackItem[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function savePackingList(tripId: string, items: PackItem[]) {
+  try {
+    localStorage.setItem(`packing_${tripId}`, JSON.stringify(items));
+  } catch {
+    /* ignore */
+  }
+}
+
+// Replaces the old in-timeline "Spese" summary (already shown in its own
+// tab) with a clickable packing-list card — opens a dialog where the user
+// keeps a per-trip checklist of things to bring, persisted in localStorage.
+function PackingListCard({ tripId }: { tripId: string }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const [items, setItems] = useState<PackItem[]>(() => loadPackingList(tripId));
+  const [draft, setDraft] = useState("");
+
+  useEffect(() => { setItems(loadPackingList(tripId)); }, [tripId]);
+
+  function persist(next: PackItem[]) {
+    setItems(next);
+    savePackingList(tripId, next);
+  }
+
+  function addItem() {
+    const name = draft.trim();
+    if (!name) return;
+    persist([...items, { id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, name, checked: false }]);
+    setDraft("");
+  }
+
+  function toggleItem(id: string) {
+    persist(items.map((it) => (it.id === id ? { ...it, checked: !it.checked } : it)));
+  }
+
+  function removeItem(id: string) {
+    persist(items.filter((it) => it.id !== id));
+  }
+
+  const doneCount = items.filter((it) => it.checked).length;
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <button
+          type="button"
+          className="rounded-2xl border border-border bg-card p-4 text-left shadow-soft transition hover:brightness-105"
+        >
+          <Luggage className="h-5 w-5 text-primary" />
+          <p className="mt-2 text-[10px] uppercase tracking-wider text-muted-foreground">
+            {t("packing_list", { defaultValue: "Cose da portare" })}
+          </p>
+          <p className="mt-0.5 font-serif text-2xl font-semibold tabular-nums">
+            {items.length > 0 ? `${doneCount}/${items.length}` : "—"}
+          </p>
+        </button>
+      </DialogTrigger>
+      <DialogContent className="max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{t("packing_list", { defaultValue: "Cose da portare" })}</DialogTitle>
+        </DialogHeader>
+
+        <div className="flex items-center gap-2">
+          <Input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addItem(); } }}
+            placeholder={t("add_packing_item", { defaultValue: "Aggiungi oggetto…" })}
+          />
+          <Button type="button" size="icon" onClick={addItem} disabled={!draft.trim()}>
+            <Plus className="h-4 w-4" />
+          </Button>
+        </div>
+
+        {items.length === 0 ? (
+          <p className="mt-4 text-center text-sm text-muted-foreground">
+            {t("packing_list_empty", { defaultValue: "Nessun oggetto in lista." })}
+          </p>
+        ) : (
+          <ul className="mt-3 divide-y divide-border">
+            {items.map((it) => (
+              <li key={it.id} className="flex items-center gap-3 py-2">
+                <button
+                  type="button"
+                  onClick={() => toggleItem(it.id)}
+                  aria-label={it.checked ? t("completed") : t("mark_done", { defaultValue: "Segna come fatto" })}
+                  className={cn(
+                    "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border transition",
+                    it.checked
+                      ? "border-emerald-500 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                      : "border-border text-transparent",
+                  )}
+                >
+                  <Check className="h-3.5 w-3.5" />
+                </button>
+                <span className={cn("flex-1 text-sm", it.checked && "text-muted-foreground line-through")}>
+                  {it.name}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removeItem(it.id)}
+                  aria-label={t("delete")}
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground/60 transition hover:bg-foreground/8 hover:text-foreground"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
