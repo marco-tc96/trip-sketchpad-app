@@ -166,6 +166,120 @@ async function overpassFetch(
   return Promise.any(attempts);
 }
 
+// ── Flight-duration timezone correction ──────────────────────────────────────
+// depart_at/arrive_at are stored as LOCAL wall-clock time at each airport, so a
+// naive end-minus-start diff is wrong whenever the two airports don't share a
+// UTC offset (the normal case for international flights) — e.g. a flight that
+// lands at the "same" clock time it left can look like it took a full day.
+// Resolve each airport's real IANA timezone once (Overpass for its
+// coordinates, then a free timezone-by-coordinate lookup), cache it, and use
+// the browser's own DST-aware Intl support to convert each wall-clock time to
+// a real UTC instant before diffing — correct for any date, DST included.
+const _airportGeoCache = new Map<string, { lat: number; lng: number } | null>();
+const _airportTzCache = new Map<string, string | null>();
+
+function extractIATA(label: string): string | null {
+  const s = label ?? "";
+  const paren = s.match(/\(([A-Z]{3})\)/);
+  if (paren) return paren[1];
+  const prefix = s.match(/^([A-Z]{3})\s*[-–]\s/);
+  if (prefix) return prefix[1];
+  return null;
+}
+
+async function fetchAirportCoordsByIata(code: string): Promise<{ lat: number; lng: number } | null> {
+  if (_airportGeoCache.has(code)) return _airportGeoCache.get(code)!;
+  try {
+    const q = `[out:json][timeout:20];(node["aeroway"="aerodrome"]["iata"="${code}"];way["aeroway"="aerodrome"]["iata"="${code}"];relation["aeroway"="aerodrome"]["iata"="${code}"];);out center 1;`;
+    const data = (await overpassFetch(q, 15000)) as unknown as {
+      elements: Array<{ lat?: number; lon?: number; center?: { lat: number; lon: number } }>;
+    };
+    const e = data.elements?.[0];
+    const lat = e?.lat ?? e?.center?.lat;
+    const lng = e?.lon ?? e?.center?.lon;
+    const v = typeof lat === "number" && typeof lng === "number" ? { lat, lng } : null;
+    _airportGeoCache.set(code, v);
+    return v;
+  } catch {
+    _airportGeoCache.set(code, null);
+    return null;
+  }
+}
+
+async function fetchTimeZoneAt(lat: number, lng: number): Promise<string | null> {
+  const key = `${lat.toFixed(2)},${lng.toFixed(2)}`;
+  if (_airportTzCache.has(key)) return _airportTzCache.get(key)!;
+  try {
+    const r = await fetch(`https://timeapi.io/api/TimeZone/coordinate?latitude=${lat}&longitude=${lng}`, { headers: { Accept: "application/json" } });
+    if (!r.ok) throw new Error("bad response");
+    const data = (await r.json()) as { timeZone?: string };
+    const tz = data.timeZone ?? null;
+    _airportTzCache.set(key, tz);
+    return tz;
+  } catch {
+    _airportTzCache.set(key, null);
+    return null;
+  }
+}
+
+// Resolve a stored leg-endpoint label (e.g. "ICN - Seoul / Incheon Int'l
+// Airport") to its real IANA timezone, via IATA code → coordinates → tz.
+async function resolveAirportTZ(label: string): Promise<string | null> {
+  const iata = extractIATA(label);
+  if (!iata) return null;
+  const coords = await fetchAirportCoordsByIata(iata);
+  if (!coords) return null;
+  return fetchTimeZoneAt(coords.lat, coords.lng);
+}
+
+// Offset (minutes, east positive) of `timeZone` at the given instant — uses the
+// browser's own tz database, so DST is handled correctly for any date.
+function tzOffsetMinutes(atUTC: number, timeZone: string): number {
+  const dtf = new Intl.DateTimeFormat("en-US", {
+    timeZone, hourCycle: "h23",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  });
+  const parts: Record<string, string> = {};
+  for (const p of dtf.formatToParts(new Date(atUTC))) parts[p.type] = p.value;
+  const asUTC = Date.UTC(
+    Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+    Number(parts.hour), Number(parts.minute), Number(parts.second),
+  );
+  return (asUTC - atUTC) / 60000;
+}
+
+// Converts a stored "local wall-clock" ISO string (no zone info — it's the
+// local time AT that airport) into a real UTC timestamp, given its zone.
+function wallTimeToUTC(iso: string, timeZone: string): number | null {
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (!m) return null;
+  const naiveUTC = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5]), 0);
+  return naiveUTC - tzOffsetMinutes(naiveUTC, timeZone) * 60000;
+}
+
+// Real elapsed travel time between two stored local times at two different
+// airports (accounts for the timezone/DST difference) — null if either
+// airport's timezone can't be resolved, so the caller falls back to the naive
+// same-zone diff instead of showing nothing.
+async function realDurationMs(
+  departISO: string | null, arriveISO: string | null, fromLabel: string, toLabel: string,
+): Promise<number | null> {
+  if (!departISO || !arriveISO) return null;
+  const [tzFrom, tzTo] = await Promise.all([resolveAirportTZ(fromLabel), resolveAirportTZ(toLabel)]);
+  if (!tzFrom || !tzTo) return null;
+  const dep = wallTimeToUTC(departISO, tzFrom);
+  const arr = wallTimeToUTC(arriveISO, tzTo);
+  if (dep == null || arr == null) return null;
+  const ms = arr - dep;
+  return ms > 0 ? ms : null;
+}
+function formatDurationMs(ms: number): string {
+  const h = Math.floor(ms / 3_600_000);
+  const m = Math.floor((ms % 3_600_000) / 60_000);
+  return `${h}h ${m}m`;
+}
+
 // Resolve city name → precise Overpass area query via Nominatim
 async function getAreaQuery(city: string): Promise<string> {
   if (_areaCache.has(city)) return _areaCache.get(city)!;
@@ -818,6 +932,19 @@ function JourneyLeg({
 
   const departISO = first?.depart_at || item?.start_at || null;
   const arriveISO = last?.arrive_at || item?.end_at || null;
+  const [realDuration, setRealDuration] = useState<number | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setRealDuration(null);
+    if (departISO && arriveISO && fromCity && toCity) {
+      realDurationMs(departISO, arriveISO, fromCity, toCity).then((ms) => {
+        if (!cancelled) setRealDuration(ms);
+      });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [departISO, arriveISO, fromCity, toCity]);
   const countdown = kind === "outbound" && departISO ? daysUntil(departISO) : null;
   const showHubCodes = meta?.mode === "plane" || meta?.mode === "ferry";
   // Load airports for IATA lookup (handles legs stored before the IATA-prefix format was introduced)
@@ -892,7 +1019,9 @@ function JourneyLeg({
                   </div>
 
                   <div className="flex w-20 flex-col items-center gap-1 self-center text-center text-[11px] opacity-90 sm:w-28">
-                    <span className="whitespace-nowrap">{durationLabel(departISO, arriveISO) || "—"}</span>
+                    <span className="whitespace-nowrap">
+                      {(realDuration != null ? formatDurationMs(realDuration) : null) || durationLabel(departISO, arriveISO) || "—"}
+                    </span>
                     <div className="flex items-center gap-1">
                       <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-white/70" />
                       <span className="h-px w-3 bg-white/40 sm:w-6" />
@@ -2278,7 +2407,7 @@ function LineCombobox({
     () => (nq
       ? lines.filter(l => norm(l.ref).includes(nq) || norm(l.name).includes(nq))
       : lines
-    ).slice(0, 60),
+    ),
     [lines, nq],
   );
 
