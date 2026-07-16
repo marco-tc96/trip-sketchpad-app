@@ -48,7 +48,11 @@ function buildMapRoutes(
     const city = it.location ?? undefined;
     const meta = (it.meta ?? {}) as {
       mode?: string;
-      legs?: Array<{ from?: string; to?: string; waypoints?: Array<{ name: string; enter?: boolean; lat?: number | null; lng?: number | null; country?: string | null }> }>;
+      legs?: Array<{
+        from?: string; to?: string;
+        waypoints?: Array<{ name: string; enter?: boolean; lat?: number | null; lng?: number | null; country?: string | null }>;
+        highways?: Array<{ ref: string; lat: number; lng: number; country?: string | null }>;
+      }>;
       mixed_legs?: Array<{ mode?: string; vehicle?: string; from_stop?: string; to_stop?: string }>;
       from_stop?: string;
       to_stop?: string;
@@ -66,6 +70,7 @@ function buildMapRoutes(
           to: l.to,
           mode: legMode,
           ...(isRoad && l.waypoints?.length ? { waypoints: l.waypoints } : {}),
+          ...(isRoad && l.highways?.length ? { highways: l.highways } : {}),
         });
       }
       continue;

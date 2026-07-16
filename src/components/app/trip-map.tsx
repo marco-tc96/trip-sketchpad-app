@@ -7,7 +7,8 @@ import { withRomanization, registerEnName } from "@/lib/romanize";
 
 export type MapCity = { name: string; country: string; lat?: number; lng?: number };
 export type MapWaypoint = { name: string; enter?: boolean; lat?: number | null; lng?: number | null; country?: string | null };
-export type MapRoute = { from: string; to: string; mode: string; country?: string; line?: string; city?: string; waypoints?: MapWaypoint[] };
+export type MapHighway = { ref: string; lat: number; lng: number; country?: string | null };
+export type MapRoute = { from: string; to: string; mode: string; country?: string; line?: string; city?: string; waypoints?: MapWaypoint[]; highways?: MapHighway[] };
 
 // Approximate country centroids (lat, lng) keyed by ISO-2.
 // Used as a fallback when no city coordinates are available.
@@ -787,12 +788,14 @@ export function TripMap({
   // For transit-with-line legs `center` is the geocoded CITY (reliable), never the
   // stop names (which can collide with far-away towns, e.g. "Roses" → Girona).
   const routeLines = useMemo(() => {
-    type WP = { ll: LL; enter: boolean; name: string };
+    // A via can be a city stop (shown as a hollow pin) or a highway shaping point
+    // (no pin). Both pull the OSRM route through them, ordered along the trip.
+    type Via = { ll: LL; label: string; pin: boolean };
     type Line = {
       a: LL | null; b: LL | null; mode: string; from: string; to: string;
       line?: string; city?: string; country?: string; key: string;
       center: LL | null; radiusM: number; cacheKey: string;
-      wps: WP[]; vias: WP[]; viasReady: boolean; pathKey: string;
+      vias: Via[]; viasReady: boolean; pathKey: string;
     };
     if (!showRoutes || !routes) return [] as Line[];
     return routes.map((r, i) => {
@@ -803,33 +806,42 @@ export function TripMap({
         if (g) center = [g.lat, g.lng];
       }
       const ck = center ? `${Math.round(center[0] * 100) / 100},${Math.round(center[1] * 100) / 100}` : "";
-      // Resolve road-leg waypoints to coordinates (car/moto). Only "enter the
-      // city" waypoints (enter=true) become OSRM vias — those pull the route off
-      // the motorway into the town. "Transit" waypoints keep the fastest road and
-      // are only shown as a hollow pin. `viasReady` gates routing until every
-      // ENTER waypoint has coordinates.
-      const wps: WP[] = [];
+      const a = resolve(r.from, r.country);
+      const b = resolve(r.to, r.country);
+      // Build the road-leg vias (car/moto): city stops (with a pin) + selected
+      // motorways/trunk roads (no pin). `viasReady` waits for city coordinates.
+      const vias: Via[] = [];
       let viasReady = true;
       if (r.mode === "car" || r.mode === "moto") {
         for (const w of (r.waypoints ?? [])) {
           const nm = cleanPlace(w.name);
           if (!nm) continue;
-          // Prefer coordinates stored when the city was picked from suggestions.
           if (typeof w.lat === "number" && typeof w.lng === "number") {
-            wps.push({ ll: [w.lat, w.lng], enter: !!w.enter, name: nm });
+            vias.push({ ll: [w.lat, w.lng], label: nm, pin: true });
             continue;
           }
           const gk = `${r.country ?? ""}|${nm}`;
-          if (!(gk in routeGeo)) { if (w.enter) viasReady = false; continue; } // enter pending → wait
+          if (!(gk in routeGeo)) { viasReady = false; continue; } // geocode pending
           const g = routeGeo[gk];
-          if (g) wps.push({ ll: [g.lat, g.lng], enter: !!w.enter, name: nm }); // null → failed geocode, skip
+          if (g) vias.push({ ll: [g.lat, g.lng], label: nm, pin: true }); // null → skip
+        }
+        for (const h of (r.highways ?? [])) {
+          if (typeof h.lat === "number" && typeof h.lng === "number") {
+            vias.push({ ll: [h.lat, h.lng], label: h.ref, pin: false });
+          }
+        }
+        // Order vias from origin to destination (parametric position along a→b)
+        // so OSRM traverses them sensibly.
+        if (a && b) {
+          const dx = b[0] - a[0], dy = b[1] - a[1];
+          const den = dx * dx + dy * dy || 1;
+          const tOf = (p: LL) => ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / den;
+          vias.sort((u, v) => tOf(u.ll) - tOf(v.ll));
         }
       }
-      const vias = wps.filter((w) => w.enter);
       const key = `${i}-${r.from}-${r.to}`;
       return {
-        a: resolve(r.from, r.country),
-        b: resolve(r.to, r.country),
+        a, b,
         mode: r.mode,
         from: r.from,
         to: r.to,
@@ -840,10 +852,9 @@ export function TripMap({
         center,
         radiusM,
         cacheKey: `${r.mode}|${r.line ?? ""}|${ck}`,
-        wps,
         vias,
         viasReady,
-        pathKey: `${key}|${vias.map((v) => v.name).join(">")}`,
+        pathKey: `${key}|${vias.map((v) => `${v.label}@${v.ll[0].toFixed(3)},${v.ll[1].toFixed(3)}`).join(">")}`,
       };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1040,12 +1051,11 @@ export function TripMap({
       let positions: LL[] = [a, b];
       if (GROUND_MODES.has(l.mode) && pathCache[l.pathKey]) positions = pathCache[l.pathKey];
       else if (l.mode === "train" && railCache[key]) positions = railCache[key];
-      // Endpoints (departure/arrival) are FILLED pins. Waypoints are HOLLOW pins so
-      // filled ones stay reserved for the trip's own cities + start/end. "Enter the
-      // city" waypoints sit on the (detoured) route; "transit" ones are snapped to
-      // the point on the fast route nearest the town.
+      // Endpoints (departure/arrival) are FILLED pins. City stops are HOLLOW pins
+      // (filled ones stay reserved for the trip's own cities + start/end). Highway
+      // shaping points carry no pin.
       const pins: Pin[] = [{ ll: positions[0], name: cleanPlace(l.from), big: true }];
-      for (const w of l.wps) pins.push({ ll: projectOnPath(positions, w.ll), name: w.name, big: w.enter, hollow: true });
+      for (const v of l.vias) if (v.pin) pins.push({ ll: projectOnPath(positions, v.ll), name: v.label, big: true, hollow: true });
       pins.push({ ll: positions[positions.length - 1], name: cleanPlace(l.to), big: true });
       out.push({ key, color, dash, positions, pins });
     });

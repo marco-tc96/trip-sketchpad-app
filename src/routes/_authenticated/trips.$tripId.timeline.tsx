@@ -49,6 +49,7 @@ type ItemRow = {
 
 type TransportMode = "car" | "moto" | "train" | "plane" | "ferry" | "bus" | "metro" | "tram";
 type Waypoint = { name: string; enter?: boolean; lat?: number | null; lng?: number | null; country?: string | null };
+type Highway = { ref: string; lat: number; lng: number; country?: string | null };
 type Leg = {
   from: string;
   to: string;
@@ -57,23 +58,27 @@ type Leg = {
   carrier: string;
   number: string;
   waypoints?: Waypoint[];
+  highways?: Highway[];
 };
 const emptyLeg = (): Leg => ({
   from: "", to: "", depart_at: "", arrive_at: "", carrier: "", number: "",
 });
 
-// Small localized labels for the road-leg waypoint editor (kept local so we don't
-// have to touch the global i18n bundle for these few strings).
-const WP_LABELS: Record<string, { title: string; place: string; enter: string; transit: string; add: string; via: string }> = {
-  it: { title: "Tappe / deviazioni", place: "Città o luogo", enter: "Entra in città", transit: "Transito", add: "Aggiungi tappa", via: "via" },
-  en: { title: "Stops / detours", place: "City or place", enter: "Enter the city", transit: "Transit", add: "Add stop", via: "via" },
-  es: { title: "Paradas / desvíos", place: "Ciudad o lugar", enter: "Entrar en la ciudad", transit: "Tránsito", add: "Añadir parada", via: "vía" },
-  fr: { title: "Étapes / détours", place: "Ville ou lieu", enter: "Entrer dans la ville", transit: "Transit", add: "Ajouter une étape", via: "via" },
-  de: { title: "Stopps / Umwege", place: "Stadt oder Ort", enter: "In die Stadt fahren", transit: "Durchfahrt", add: "Stopp hinzufügen", via: "über" },
-  pt: { title: "Paradas / desvios", place: "Cidade ou lugar", enter: "Entrar na cidade", transit: "Trânsito", add: "Adicionar parada", via: "via" },
-  ja: { title: "経由地 / 迂回", place: "都市または場所", enter: "市内に入る", transit: "通過", add: "経由地を追加", via: "経由" },
-  ko: { title: "경유지 / 우회", place: "도시 또는 장소", enter: "도심 진입", transit: "통과", add: "경유지 추가", via: "경유" },
-  zh: { title: "途经 / 绕行", place: "城市或地点", enter: "进入城市", transit: "经过", add: "添加途经点", via: "途经" },
+// Small localized labels for the road-leg editor (kept local so we don't have to
+// touch the global i18n bundle for these few strings).
+const WP_LABELS: Record<string, {
+  cities: string; place: string; addCity: string; via: string;
+  highways: string; hwSearch: string; hwNone: string; hwPick: string;
+}> = {
+  it: { cities: "Tappe di stop (città)", place: "Città o luogo", addCity: "Aggiungi città", via: "via", highways: "Autostrade / superstrade", hwSearch: "Cerca autostrada…", hwNone: "Nessuna trovata", hwPick: "Seleziona autostrade" },
+  en: { cities: "Stops (cities)", place: "City or place", addCity: "Add city", via: "via", highways: "Motorways / highways", hwSearch: "Search motorway…", hwNone: "None found", hwPick: "Select motorways" },
+  es: { cities: "Paradas (ciudades)", place: "Ciudad o lugar", addCity: "Añadir ciudad", via: "vía", highways: "Autopistas / autovías", hwSearch: "Buscar autopista…", hwNone: "Ninguna", hwPick: "Seleccionar autopistas" },
+  fr: { cities: "Étapes (villes)", place: "Ville ou lieu", addCity: "Ajouter une ville", via: "via", highways: "Autoroutes / voies rapides", hwSearch: "Rechercher autoroute…", hwNone: "Aucune", hwPick: "Sélectionner les autoroutes" },
+  de: { cities: "Stopps (Städte)", place: "Stadt oder Ort", addCity: "Stadt hinzufügen", via: "über", highways: "Autobahnen / Schnellstraßen", hwSearch: "Autobahn suchen…", hwNone: "Keine gefunden", hwPick: "Autobahnen auswählen" },
+  pt: { cities: "Paradas (cidades)", place: "Cidade ou lugar", addCity: "Adicionar cidade", via: "via", highways: "Autoestradas / vias rápidas", hwSearch: "Procurar autoestrada…", hwNone: "Nenhuma", hwPick: "Selecionar autoestradas" },
+  ja: { cities: "立ち寄り（都市）", place: "都市または場所", addCity: "都市を追加", via: "経由", highways: "高速道路 / 幹線道路", hwSearch: "高速道路を検索…", hwNone: "見つかりません", hwPick: "高速道路を選択" },
+  ko: { cities: "경유(도시)", place: "도시 또는 장소", addCity: "도시 추가", via: "경유", highways: "고속도로 / 간선도로", hwSearch: "고속도로 검색…", hwNone: "없음", hwPick: "고속도로 선택" },
+  zh: { cities: "停靠（城市）", place: "城市或地点", addCity: "添加城市", via: "途经", highways: "高速公路 / 快速路", hwSearch: "搜索高速…", hwNone: "未找到", hwPick: "选择高速公路" },
 };
 const wpL = (lang: string | undefined) => WP_LABELS[(lang || "it").slice(0, 2)] ?? WP_LABELS.it;
 type MixedLeg = {
@@ -1086,6 +1091,9 @@ function TransportLegs({ meta, compact }: { meta: TransportMeta | null; compact?
             {l.waypoints && l.waypoints.length > 0 && (
               <span className="ml-1.5 opacity-80">· {wpL(lang).via} {l.waypoints.map((w) => w.name).join(", ")}</span>
             )}
+            {l.highways && l.highways.length > 0 && (
+              <span className="ml-1.5 opacity-80">· {l.highways.map((h) => h.ref).join(", ")}</span>
+            )}
             {l.depart_at && <span className="ml-1.5">· {fmtDT(l.depart_at, lang)}</span>}
             {l.arrive_at && <span className="ml-1">→ {fmtDT(l.arrive_at, lang)}</span>}
           </span>
@@ -1351,58 +1359,58 @@ function TransportDialog({
                   )}
                 </div>
                 {(mode === "car" || mode === "moto") && (
-                  <div className="mt-3 space-y-2 border-t border-border/60 pt-3">
-                    <Label className="text-xs">
-                      {wpL(lang).title} <span className="opacity-60">{t("optional")}</span>
-                    </Label>
-                    {(leg.waypoints ?? []).map((w, wi) => (
-                      <div key={wi} className="flex items-center gap-2">
-                        <WaypointCombobox
-                          value={w.name}
-                          box={corridorBox}
-                          lang={lang}
-                          placeholder={wpL(lang).place}
-                          onType={(name) =>
-                            updateLeg(i, { waypoints: (leg.waypoints ?? []).map((x, xi) => (xi === wi ? { ...x, name, lat: undefined, lng: undefined, country: undefined } : x)) })
-                          }
-                          onPick={(s) =>
-                            updateLeg(i, { waypoints: (leg.waypoints ?? []).map((x, xi) => (xi === wi ? { ...x, name: s.name, lat: s.lat, lng: s.lng, country: s.country } : x)) })
-                          }
-                        />
-                        <div className="flex shrink-0 overflow-hidden rounded-md border border-border text-xs">
-                          {[false, true].map((val) => {
-                            const active = !!w.enter === val;
-                            return (
-                              <button
-                                type="button"
-                                key={String(val)}
-                                onClick={() => updateLeg(i, { waypoints: (leg.waypoints ?? []).map((x, xi) => (xi === wi ? { ...x, enter: val } : x)) })}
-                                className={`px-2 py-1 transition ${active ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:bg-muted"}`}
-                              >
-                                {val ? wpL(lang).enter : wpL(lang).transit}
-                              </button>
-                            );
-                          })}
+                  <div className="mt-3 space-y-3 border-t border-border/60 pt-3">
+                    {/* City stops — a pin where you actually stop in the town. */}
+                    <div className="space-y-2">
+                      <Label className="text-xs">
+                        {wpL(lang).cities} <span className="opacity-60">{t("optional")}</span>
+                      </Label>
+                      {(leg.waypoints ?? []).map((w, wi) => (
+                        <div key={wi} className="flex items-center gap-2">
+                          <WaypointCombobox
+                            value={w.name}
+                            box={corridorBox}
+                            lang={lang}
+                            placeholder={wpL(lang).place}
+                            onType={(name) =>
+                              updateLeg(i, { waypoints: (leg.waypoints ?? []).map((x, xi) => (xi === wi ? { ...x, name, enter: true, lat: undefined, lng: undefined, country: undefined } : x)) })
+                            }
+                            onPick={(s) =>
+                              updateLeg(i, { waypoints: (leg.waypoints ?? []).map((x, xi) => (xi === wi ? { ...x, name: s.name, enter: true, lat: s.lat, lng: s.lng, country: s.country } : x)) })
+                            }
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => updateLeg(i, { waypoints: (leg.waypoints ?? []).filter((_, xi) => xi !== wi) })}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
                         </div>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => updateLeg(i, { waypoints: (leg.waypoints ?? []).filter((_, xi) => xi !== wi) })}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    ))}
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="w-full"
-                      onClick={() => updateLeg(i, { waypoints: [...(leg.waypoints ?? []), { name: "", enter: false }] })}
-                    >
-                      <Plus className="mr-1.5 h-3.5 w-3.5" /> {wpL(lang).add}
-                    </Button>
+                      ))}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="w-full"
+                        onClick={() => updateLeg(i, { waypoints: [...(leg.waypoints ?? []), { name: "", enter: true }] })}
+                      >
+                        <Plus className="mr-1.5 h-3.5 w-3.5" /> {wpL(lang).addCity}
+                      </Button>
+                    </div>
+                    {/* Motorways / trunk roads the route must run along. */}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">
+                        {wpL(lang).highways} <span className="opacity-60">{t("optional")}</span>
+                      </Label>
+                      <HighwayMultiSelect
+                        box={corridorBox}
+                        lang={lang}
+                        selected={leg.highways ?? []}
+                        onChange={(list) => updateLeg(i, { highways: list })}
+                      />
+                    </div>
                   </div>
                 )}
               </div>
@@ -2365,6 +2373,114 @@ function WaypointCombobox({
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Motorway / trunk-road search along the corridor ──────────────────────────
+type CorridorHighway = { ref: string; lat: number; lng: number };
+const _highwayCache = new Map<string, CorridorHighway[]>();
+async function fetchCorridorHighways(box: CorridorBox): Promise<CorridorHighway[]> {
+  const key = `${box.minLat.toFixed(1)},${box.minLng.toFixed(1)},${box.maxLat.toFixed(1)},${box.maxLng.toFixed(1)}`;
+  if (_highwayCache.has(key)) return _highwayCache.get(key)!;
+  const q = `[out:json][timeout:40];way["highway"~"^(motorway|trunk)$"]["ref"](${box.minLat},${box.minLng},${box.maxLat},${box.maxLng});out tags geom 2500;`;
+  try {
+    const data = (await overpassFetch(q, 30000)) as { elements: Array<{ tags?: Record<string, string>; geometry?: Array<{ lat: number; lon: number }> }> };
+    const cx = (box.minLat + box.maxLat) / 2, cy = (box.minLng + box.maxLng) / 2;
+    // Keep, per road ref, the segment whose midpoint is closest to the corridor
+    // centre — a good representative point to pull the route onto that road.
+    const best = new Map<string, { lat: number; lng: number; d: number }>();
+    for (const el of data.elements) {
+      const refTag = el.tags?.ref;
+      const geom = el.geometry;
+      if (!refTag || !geom || geom.length === 0) continue;
+      const mid = geom[Math.floor(geom.length / 2)];
+      const d = (mid.lat - cx) ** 2 + (mid.lon - cy) ** 2;
+      for (const ref of refTag.split(";").map((s) => s.trim()).filter(Boolean)) {
+        const prev = best.get(ref);
+        if (!prev || d < prev.d) best.set(ref, { lat: mid.lat, lng: mid.lon, d });
+      }
+    }
+    const out = [...best.entries()]
+      .map(([ref, v]) => ({ ref, lat: v.lat, lng: v.lng }))
+      .sort((a, b) => a.ref.localeCompare(b.ref, undefined, { numeric: true }));
+    _highwayCache.set(key, out);
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+function HighwayMultiSelect({
+  box, selected, onChange, lang,
+}: {
+  box: CorridorBox | null;
+  selected: Highway[];
+  onChange: (list: Highway[]) => void;
+  lang: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [options, setOptions] = useState<CorridorHighway[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [q, setQ] = useState("");
+  useEffect(() => {
+    if (!box) { setOptions([]); return; }
+    let alive = true;
+    setLoading(true);
+    fetchCorridorHighways(box).then((h) => { if (alive) { setOptions(h); setLoading(false); } });
+    return () => { alive = false; };
+  }, [box]);
+  const L = wpL(lang);
+  const selRefs = new Set(selected.map((s) => s.ref));
+  const filtered = options.filter((o) => o.ref.toLowerCase().includes(q.trim().toLowerCase()));
+  const toggle = (h: CorridorHighway) => {
+    if (selRefs.has(h.ref)) onChange(selected.filter((s) => s.ref !== h.ref));
+    else onChange([...selected, { ref: h.ref, lat: h.lat, lng: h.lng }]);
+  };
+  return (
+    <div className="space-y-1.5">
+      {selected.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {selected.map((s) => (
+            <span key={s.ref} className="inline-flex items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 text-xs font-medium text-primary">
+              {s.ref}
+              <button type="button" onClick={() => onChange(selected.filter((x) => x.ref !== s.ref))}>
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="flex w-full items-center justify-between rounded-md border border-border bg-card px-3 py-2 text-left text-sm text-muted-foreground"
+        >
+          <span>{L.hwPick}</span>
+          <ChevronsUpDown className="h-4 w-4 opacity-60" />
+        </button>
+        {open && (
+          <div className="absolute left-0 right-0 top-full z-50 mt-1 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={L.hwSearch} className="mb-1" />
+            <div className="max-h-56 overflow-auto">
+              {loading && <div className="px-2 py-1.5 text-xs text-muted-foreground">…</div>}
+              {!loading && filtered.length === 0 && <div className="px-2 py-1.5 text-xs text-muted-foreground">{L.hwNone}</div>}
+              {filtered.map((h) => (
+                <button
+                  type="button"
+                  key={h.ref}
+                  onClick={() => toggle(h)}
+                  className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                >
+                  <Check className={cn("h-4 w-4 shrink-0", selRefs.has(h.ref) ? "opacity-100" : "opacity-0")} />
+                  <span className="min-w-0 flex-1 truncate">{h.ref}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
