@@ -67,19 +67,34 @@ const CONTINENT_EMOJI: Record<string, string> = {
 // both in-memory for the session and persisted to localStorage so a return
 // visit is instant) and track the N/S/E/W extremes among them. ────────────
 const CITY_GEOCACHE_KEY = "voyager_citygeocache_v2";
+const CITY_GEOCACHE_KEY_LEGACY = "voyager_citygeocache_v1";
 // Persisted cache holds ONLY successful geocodes. A failure is never written,
 // so a city that failed once (transient rate-limit / timeout) is retried on
 // the next visit instead of being permanently missing — which is exactly the
 // bug that made a far-east city (e.g. Inje, KR) drop out and a closer one
 // (e.g. Novalja, HR) be wrongly shown as the easternmost.
 let _cityGeoPersisted: Record<string, { lat: number; lng: number }> = {};
-try {
-  const raw = typeof localStorage !== "undefined" ? localStorage.getItem(CITY_GEOCACHE_KEY) : null;
-  if (raw) {
+// Load valid coordinates, keeping the already-resolved cities so the compass
+// shows immediately. The legacy (v1) cache is migrated too — dropping only its
+// poisoned null entries — so existing users don't have to re-geocode from
+// scratch (which is why the panel appeared empty after the cache-key bump).
+function _mergeValidGeo(raw: string | null) {
+  if (!raw) return;
+  try {
     const parsed = JSON.parse(raw) as Record<string, { lat: number; lng: number } | null>;
     for (const [k, v] of Object.entries(parsed)) {
-      if (v && typeof v.lat === "number" && typeof v.lng === "number") _cityGeoPersisted[k] = v;
+      if (v && typeof v.lat === "number" && typeof v.lng === "number" && !_cityGeoPersisted[k]) {
+        _cityGeoPersisted[k] = v;
+      }
     }
+  } catch {
+    /* ignore */
+  }
+}
+try {
+  if (typeof localStorage !== "undefined") {
+    _mergeValidGeo(localStorage.getItem(CITY_GEOCACHE_KEY));
+    _mergeValidGeo(localStorage.getItem(CITY_GEOCACHE_KEY_LEGACY));
   }
 } catch {
   /* ignore */
