@@ -52,7 +52,7 @@ function buildMapRoutes(
         mode?: string; from?: string; to?: string; number?: string;
         waypoints?: Array<{ name: string; enter?: boolean; lat?: number | null; lng?: number | null; country?: string | null }>;
       }>;
-      mixed_legs?: Array<{ mode?: string; vehicle?: string; from_stop?: string; to_stop?: string }>;
+      mixed_legs?: Array<{ mode?: string; vehicle?: string; from_stop?: string; to_stop?: string; intercity?: boolean }>;
       from_stop?: string;
       to_stop?: string;
     };
@@ -81,7 +81,17 @@ function buildMapRoutes(
     if (Array.isArray(meta.mixed_legs) && meta.mixed_legs.length > 0) {
       for (const l of meta.mixed_legs) {
         if (l.from_stop && l.to_stop) {
-          out.push({ from: l.from_stop, to: l.to_stop, mode: l.mode ?? it.kind, country: singleCountry, line: l.vehicle, city });
+          out.push({
+            from: l.from_stop,
+            to: l.to_stop,
+            mode: l.mode ?? it.kind,
+            country: singleCountry,
+            line: l.vehicle,
+            city,
+            // Bus only: found via the wide intercity/airport search rather than
+            // the city's strict boundary — the map draws it in a different colour.
+            ...(l.intercity ? { intercity: true } : {}),
+          });
         }
       }
       continue;

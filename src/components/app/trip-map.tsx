@@ -7,7 +7,13 @@ import { withRomanization, registerEnName } from "@/lib/romanize";
 
 export type MapCity = { name: string; country: string; lat?: number; lng?: number };
 export type MapWaypoint = { name: string; enter?: boolean; lat?: number | null; lng?: number | null; country?: string | null };
-export type MapRoute = { from: string; to: string; mode: string; country?: string; line?: string; city?: string; waypoints?: MapWaypoint[] };
+export type MapRoute = {
+  from: string; to: string; mode: string; country?: string; line?: string; city?: string; waypoints?: MapWaypoint[];
+  // Bus only: found via the wide intercity/airport search rather than the
+  // city's strict boundary (see fetchTransitLines in the timeline editor) —
+  // drawn in a different colour so it stands out from local/urban bus lines.
+  intercity?: boolean;
+};
 
 // Approximate country centroids (lat, lng) keyed by ISO-2.
 // Used as a fallback when no city coordinates are available.
@@ -102,6 +108,11 @@ const MODE_STYLE: Record<string, { color: string; dash?: string }> = {
   transfer: { color: "#64748b" },              // slate-500
 };
 const modeStyle = (mode: string) => MODE_STYLE[mode] ?? { color: PRIMARY };
+// Intercity/airport bus lines (found via the wide radius search rather than
+// the city's strict boundary — see fetchTransitLines in the timeline editor)
+// draw in this colour instead of the standard urban bus blue, so e.g. an
+// airport express line stands apart from the city's local bus network.
+const INTERCITY_BUS_COLOR = "#f97316"; // orange-500
 
 // Ground modes whose path we snap to real roads via OSRM; plane/ferry stay
 // straight (dotted/dashed) since there are no roads to follow.
@@ -209,7 +220,7 @@ const OSM_ROUTE_MODES: Record<string, string[]> = {
 const isTransitWithLine = (r: MapRoute) => TRANSIT_MODES.has(r.mode) && !!r.line;
 // Radius (m) of the Overpass `around:` search per mode — a metro/tram network
 // spans a metro area, regional trains reach much further.
-const TRANSIT_RADIUS: Record<string, number> = { metro: 45000, tram: 30000, bus: 40000, train: 130000 };
+const TRANSIT_RADIUS: Record<string, number> = { metro: 45000, tram: 30000, bus: 45000, train: 130000 };
 
 // Normalise a line ref/name for tolerant comparison.
 const _normRef = (s?: string | null) => (s ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -1036,7 +1047,7 @@ export function TripMap({
       a: LL | null; b: LL | null; mode: string; from: string; to: string;
       line?: string; city?: string; country?: string; key: string;
       center: LL | null; radiusM: number; cacheKey: string;
-      vias: Via[]; viasReady: boolean; pathKey: string;
+      vias: Via[]; viasReady: boolean; pathKey: string; intercity?: boolean;
     };
     if (!showRoutes || !routes) return [] as Line[];
     return routes.map((r, i) => {
@@ -1091,6 +1102,7 @@ export function TripMap({
         vias,
         viasReady,
         pathKey: `${key}|${a ? `${a[0].toFixed(3)},${a[1].toFixed(3)}` : "?"}|${b ? `${b[0].toFixed(3)},${b[1].toFixed(3)}` : "?"}|${vias.map((v) => `${v.label}@${v.ll[0].toFixed(3)},${v.ll[1].toFixed(3)}`).join(">")}`,
+        intercity: r.intercity,
       };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1320,7 +1332,9 @@ export function TripMap({
     const out: Drawn[] = [];
     routeLines.forEach((l) => {
       const key = l.key;
-      const { color, dash } = modeStyle(l.mode);
+      const { color: baseColor, dash } = modeStyle(l.mode);
+      // Intercity/airport buses draw in a distinct colour from local urban ones.
+      const color = l.mode === "bus" && l.intercity ? INTERCITY_BUS_COLOR : baseColor;
 
       if (TRANSIT_MODES.has(l.mode)) {
         const res = transitResolved[key];

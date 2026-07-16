@@ -66,16 +66,16 @@ const isStopMode = (m: TransportMode) => m === "train" || m === "plane" || m ===
 
 // Small localized labels for the road-leg editor (kept local so we don't have to
 // touch the global i18n bundle for these few strings).
-const WP_LABELS: Record<string, { cities: string; place: string; addCity: string; via: string; recommended: string }> = {
-  it: { cities: "Tappe di stop (città)", place: "Città o luogo", addCity: "Aggiungi città", via: "via", recommended: "Consigliato" },
-  en: { cities: "Stops (cities)", place: "City or place", addCity: "Add city", via: "via", recommended: "Recommended" },
-  es: { cities: "Paradas (ciudades)", place: "Ciudad o lugar", addCity: "Añadir ciudad", via: "vía", recommended: "Recomendado" },
-  fr: { cities: "Étapes (villes)", place: "Ville ou lieu", addCity: "Ajouter une ville", via: "via", recommended: "Recommandé" },
-  de: { cities: "Stopps (Städte)", place: "Stadt oder Ort", addCity: "Stadt hinzufügen", via: "über", recommended: "Empfohlen" },
-  pt: { cities: "Paradas (cidades)", place: "Cidade ou lugar", addCity: "Adicionar cidade", via: "via", recommended: "Recomendado" },
-  ja: { cities: "立ち寄り（都市）", place: "都市または場所", addCity: "都市を追加", via: "経由", recommended: "おすすめ" },
-  ko: { cities: "경유(도시)", place: "도시 또는 장소", addCity: "도시 추가", via: "경유", recommended: "추천" },
-  zh: { cities: "停靠（城市）", place: "城市或地点", addCity: "添加城市", via: "途经", recommended: "推荐" },
+const WP_LABELS: Record<string, { cities: string; place: string; addCity: string; via: string; recommended: string; intercity: string }> = {
+  it: { cities: "Tappe di stop (città)", place: "Città o luogo", addCity: "Aggiungi città", via: "via", recommended: "Consigliato", intercity: "Extraurbano" },
+  en: { cities: "Stops (cities)", place: "City or place", addCity: "Add city", via: "via", recommended: "Recommended", intercity: "Intercity" },
+  es: { cities: "Paradas (ciudades)", place: "Ciudad o lugar", addCity: "Añadir ciudad", via: "vía", recommended: "Recomendado", intercity: "Interurbano" },
+  fr: { cities: "Étapes (villes)", place: "Ville ou lieu", addCity: "Ajouter une ville", via: "via", recommended: "Recommandé", intercity: "Interurbain" },
+  de: { cities: "Stopps (Städte)", place: "Stadt oder Ort", addCity: "Stadt hinzufügen", via: "über", recommended: "Empfohlen", intercity: "Überland" },
+  pt: { cities: "Paradas (cidades)", place: "Cidade ou lugar", addCity: "Adicionar cidade", via: "via", recommended: "Recomendado", intercity: "Interurbano" },
+  ja: { cities: "立ち寄り（都市）", place: "都市または場所", addCity: "都市を追加", via: "経由", recommended: "おすすめ", intercity: "郊外路線" },
+  ko: { cities: "경유(도시)", place: "도시 또는 장소", addCity: "도시 추가", via: "경유", recommended: "추천", intercity: "시외" },
+  zh: { cities: "停靠（城市）", place: "城市或地点", addCity: "添加城市", via: "途经", recommended: "推荐", intercity: "城际" },
 };
 const wpL = (lang: string | undefined) => WP_LABELS[(lang || "it").slice(0, 2)] ?? WP_LABELS.it;
 type MixedLeg = {
@@ -85,6 +85,10 @@ type MixedLeg = {
   to_stop: string;
   depart_at: string;
   arrive_at: string;
+  // Bus only: true when this line was found via the wide intercity/airport
+  // search rather than the strict city-boundary one (see fetchTransitLines) —
+  // carried through to the map so it can draw in a different colour.
+  intercity?: boolean;
 };
 const emptyMixedLeg = (): MixedLeg => ({
   mode: "bus", vehicle: "", from_stop: "", to_stop: "", depart_at: "", arrive_at: "",
@@ -186,7 +190,12 @@ async function getAreaQuery(city: string): Promise<string> {
   _areaCache.set(city, fallback); return fallback;
 }
 
-async function fetchTransitLines(city: string, osmMode: string): Promise<Array<{ ref: string; name: string }>> {
+// Radius (m) for the intercity/airport bus search around a city's centre —
+// wide enough to catch an airport limousine bus (e.g. Seoul ↔ Incheon) while
+// still being "buses that pass through this city", not a whole country.
+const INTERCITY_BUS_RADIUS_M = 45000;
+
+async function fetchTransitLines(city: string, osmMode: string): Promise<Array<{ ref: string; name: string; intercity?: boolean }>> {
   const key = `${city}|${osmMode}`;
   if (_lineCache.has(key)) return _lineCache.get(key)!;
   const areaQ = await getAreaQuery(city);
@@ -200,13 +209,36 @@ async function fetchTransitLines(city: string, osmMode: string): Promise<Array<{
   const q = `[out:json][timeout:40];${areaQ};(${clauses};);out tags;`;
   const data = await overpassFetch(q) as { elements: Array<{ tags: Record<string, string> }> };
   const seen = new Set<string>();
-  const lines: Array<{ ref: string; name: string }> = [];
+  const lines: Array<{ ref: string; name: string; intercity?: boolean }> = [];
   for (const el of data.elements) {
     const ref = el.tags?.ref ?? "";
     if (!ref || seen.has(ref)) continue;
     seen.add(ref);
     lines.push({ ref, name: el.tags?.name ?? ref });
   }
+
+  // Buses: the strict administrative-boundary query above only finds LOCAL/
+  // urban lines. Intercity and airport express buses (e.g. Seoul's Incheon
+  // Airport limousine bus 6103) mostly run OUTSIDE that boundary and are
+  // missed entirely — search a wide radius around the city's geocoded centre
+  // as well, and flag anything found only this way as `intercity`.
+  if (osmMode === "bus") {
+    try {
+      const center = await geocodePlaceName(city);
+      if (center) {
+        const around = `(around:${INTERCITY_BUS_RADIUS_M},${center.lat},${center.lng})`;
+        const q2 = `[out:json][timeout:40];(relation["type"="route_master"]["route_master"="bus"]${around};relation["type"="route"]["route"="bus"]${around};);out tags;`;
+        const data2 = await overpassFetch(q2) as { elements: Array<{ tags: Record<string, string> }> };
+        for (const el of data2.elements) {
+          const ref = el.tags?.ref ?? "";
+          if (!ref || seen.has(ref)) continue;
+          seen.add(ref);
+          lines.push({ ref, name: el.tags?.name ?? ref, intercity: true });
+        }
+      }
+    } catch { /* the local-boundary results above still stand */ }
+  }
+
   lines.sort((a, b) => {
     const na = parseFloat(a.ref), nb = parseFloat(b.ref);
     if (!isNaN(na) && !isNaN(nb)) return na - nb;
@@ -216,30 +248,16 @@ async function fetchTransitLines(city: string, osmMode: string): Promise<Array<{
   return lines;
 }
 
-async function fetchLineStops(city: string, osmMode: string, lineRef: string): Promise<string[]> {
-  const key = `${city}|${osmMode}|${lineRef}`;
-  if (_stopCache.has(key)) return _stopCache.get(key)!;
-  const areaQ = await getAreaQuery(city);
-  // Same dual-mode handling as fetchTransitLines for consistency
-  const modes = osmMode === "subway" ? ["subway", "metro"] : [osmMode];
-  const routeClauses = modes.map(m =>
-    `relation["type"="route"]["route"="${m}"]["ref"="${lineRef}"](area.c)`
-  ).join(";");
-  // Fetch the matching route relation(s) with their ORDERED members, plus the
-  // tags of every member node/way so we can resolve stop names. The member
-  // lookups (node(r.r)/way(r.r)) are NOT limited to the search area, so a route
-  // that leaves the city (e.g. a bus crossing into other towns) keeps every
-  // stop from the first to the last. Bus routes expose stops as "platform"
-  // members — often ways — not just "stop" nodes, so we read both.
-  const q = `[out:json][timeout:60];${areaQ};(${routeClauses};)->.r;.r out body;node(r.r);out tags;way(r.r);out tags;`;
-  const data = await overpassFetch(q) as {
-    elements: Array<{
-      type: string;
-      id: number;
-      tags?: Record<string, string>;
-      members?: Array<{ type: string; ref: number; role: string }>;
-    }>;
-  };
+// Parses the "route relation(s) + member node/way tags" Overpass response
+// shared by fetchLineStops' queries into the richest ordered stop-name list.
+function parseLineStopsResponse(data: {
+  elements: Array<{
+    type: string;
+    id: number;
+    tags?: Record<string, string>;
+    members?: Array<{ type: string; ref: number; role: string }>;
+  }>;
+}): string[] {
   // Resolve member id → official stop name (keyed by type-initial + id)
   const nameById = new Map<string, string>();
   const relations: Array<Array<{ type: string; ref: number; role: string }>> = [];
@@ -268,6 +286,47 @@ async function fetchLineStops(city: string, osmMode: string, lineRef: string): P
       seen.add(k); names.push(nm);
     }
     if (names.length > best.length) best = names;
+  }
+  return best;
+}
+
+async function fetchLineStops(city: string, osmMode: string, lineRef: string): Promise<string[]> {
+  const key = `${city}|${osmMode}|${lineRef}`;
+  if (_stopCache.has(key)) return _stopCache.get(key)!;
+  const areaQ = await getAreaQuery(city);
+  // Same dual-mode handling as fetchTransitLines for consistency
+  const modes = osmMode === "subway" ? ["subway", "metro"] : [osmMode];
+  const runQuery = (locator: string, prelude: string) => {
+    const routeClauses = modes.map(m => `relation["type"="route"]["route"="${m}"]["ref"="${lineRef}"]${locator}`).join(";");
+    // Fetch the matching route relation(s) with their ORDERED members, plus the
+    // tags of every member node/way so we can resolve stop names. The member
+    // lookups (node(r.r)/way(r.r)) are NOT limited to the search area, so a route
+    // that leaves the city (e.g. a bus crossing into other towns) keeps every
+    // stop from the first to the last. Bus routes expose stops as "platform"
+    // members — often ways — not just "stop" nodes, so we read both.
+    const q = `[out:json][timeout:60];${prelude}(${routeClauses};)->.r;.r out body;node(r.r);out tags;way(r.r);out tags;`;
+    return overpassFetch(q) as Promise<{
+      elements: Array<{
+        type: string;
+        id: number;
+        tags?: Record<string, string>;
+        members?: Array<{ type: string; ref: number; role: string }>;
+      }>;
+    }>;
+  };
+
+  let best = parseLineStopsResponse(await runQuery("(area.c)", `${areaQ};`));
+  // Buses: a line not found within the strict city boundary is likely an
+  // intercity/airport line (see fetchTransitLines) — retry with the same wide
+  // radius around the city's centre so its stops resolve too.
+  if (best.length === 0 && osmMode === "bus") {
+    try {
+      const center = await geocodePlaceName(city);
+      if (center) {
+        const around = `(around:${INTERCITY_BUS_RADIUS_M},${center.lat},${center.lng})`;
+        best = parseLineStopsResponse(await runQuery(around, ""));
+      }
+    } catch { /* keep the empty result — nothing more to try */ }
   }
   _stopCache.set(key, best);
   return best;
@@ -1822,6 +1881,7 @@ function AddItemDialog({
                       city={form.location}
                       value={leg.vehicle}
                       onChange={(ref) => updateMixedLeg(i, { vehicle: ref })}
+                      onPick={(line) => updateMixedLeg(i, { vehicle: line.ref, intercity: line.intercity })}
                     />
                   ) : (
                     <Input
@@ -2183,17 +2243,21 @@ function StopCombobox({
 // Campo linea di trasporto pubblico (bus/metro/tram): input di testo libero —
 // quello che scrivi È il valore salvato — con suggerimenti da Overpass (OSM) sotto.
 function LineCombobox({
-  mode, city, value, onChange,
+  mode, city, value, onChange, onPick,
 }: {
   mode: string;
   city: string;
   value: string;
   onChange: (ref: string) => void;
+  // Fired (in addition to onChange) when a suggestion is actually picked, with
+  // the full line info — lets the caller also record whether it's an
+  // intercity/airport bus (see fetchTransitLines) for the map's colour.
+  onPick?: (line: { ref: string; name: string; intercity?: boolean }) => void;
 }) {
   const { t, i18n } = useTranslation();
   const lang = i18n.language || "it";
   const [open, setOpen] = useState(false);
-  const [lines, setLines] = useState<Array<{ ref: string; name: string }>>([]);
+  const [lines, setLines] = useState<Array<{ ref: string; name: string; intercity?: boolean }>>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -2237,12 +2301,17 @@ function LineCombobox({
               <button
                 type="button"
                 key={line.ref}
-                onMouseDown={(e) => { e.preventDefault(); onChange(line.ref); setOpen(false); }}
+                onMouseDown={(e) => { e.preventDefault(); onChange(line.ref); onPick?.(line); setOpen(false); }}
                 className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
               >
-                <span className="shrink-0 font-semibold">{line.ref}</span>
+                <span className={cn("shrink-0 font-semibold", line.intercity && "text-amber-600 dark:text-amber-400")}>{line.ref}</span>
                 {desc && (
                   <span className="min-w-0 flex-1 truncate text-xs opacity-55">{withRomanization(desc, lang)}</span>
+                )}
+                {line.intercity && (
+                  <span className="shrink-0 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+                    {wpL(lang).intercity}
+                  </span>
                 )}
               </button>
             );
