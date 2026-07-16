@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { citiesOfCountry, flagOf, cityNameLocalized } from "@/lib/country-data";
+import { citiesOfCountry, flagOf, cityNameLocalized, countryNameLocalized } from "@/lib/country-data";
 import { cn } from "@/lib/utils";
 import { withRomanization, registerEnName } from "@/lib/romanize";
 import { useCityPhoto } from "@/hooks/use-city-photo";
@@ -2385,14 +2385,79 @@ function WaypointCombobox({
   );
 }
 
-// ── Motorway / trunk-road search along the corridor ──────────────────────────
+// ── Motorway search along the corridor ───────────────────────────────────────
 type CorridorHighway = { ref: string; lat: number; lng: number; country?: string; from?: string; to?: string };
 const _highwayCache = new Map<string, CorridorHighway[]>();
 
-// Sample points every ~70 km along the straight line from A to B.
+// Rough bounding boxes [minLat, minLng, maxLat, maxLng] for European countries, to
+// resolve the country of a motorway point offline (for the flag + grouping) when
+// the OSM `network` tag has no country prefix. Smallest matching box wins.
+const EU_BBOX: Record<string, [number, number, number, number]> = {
+  IT: [36.6, 6.6, 47.1, 18.5], CH: [45.8, 5.9, 47.8, 10.5], AT: [46.3, 9.5, 49.0, 17.2],
+  DE: [47.2, 5.8, 55.1, 15.0], FR: [41.3, -5.2, 51.1, 9.6], BE: [49.5, 2.5, 51.5, 6.4],
+  LU: [49.4, 5.7, 50.2, 6.6], NL: [50.7, 3.3, 53.6, 7.2], SI: [45.4, 13.3, 46.9, 16.6],
+  ES: [36.0, -9.4, 43.8, 3.4], PT: [36.9, -9.6, 42.2, -6.1], GB: [49.9, -8.7, 58.7, 1.9],
+  IE: [51.4, -10.6, 55.5, -5.9], CZ: [48.5, 12.0, 51.1, 18.9], SK: [47.7, 16.8, 49.7, 22.6],
+  PL: [49.0, 14.1, 54.9, 24.2], HU: [45.7, 16.1, 48.6, 22.9], HR: [42.3, 13.4, 46.6, 19.5],
+  DK: [54.5, 8.0, 57.8, 15.2], SE: [55.3, 11.0, 69.1, 24.2], NO: [57.9, 4.5, 71.2, 31.2],
+  GR: [34.8, 19.3, 41.8, 28.3], RO: [43.6, 20.2, 48.3, 29.7], RS: [42.2, 18.8, 46.2, 23.1],
+  BA: [42.5, 15.7, 45.3, 19.7], BG: [41.2, 22.3, 44.2, 28.6], EE: [57.5, 21.7, 59.7, 28.2],
+  LV: [55.6, 20.9, 58.1, 28.3], LT: [53.8, 20.9, 56.5, 26.9], MK: [40.8, 20.4, 42.4, 23.0],
+  AL: [39.6, 19.2, 42.7, 21.1], ME: [41.8, 18.4, 43.6, 20.4],
+};
+function countryAtPoint(lat: number, lng: number): string | undefined {
+  let best: string | undefined, bestArea = Infinity;
+  for (const iso in EU_BBOX) {
+    const [a1, o1, a2, o2] = EU_BBOX[iso];
+    if (lat >= a1 && lat <= a2 && lng >= o1 && lng <= o2) {
+      const area = (a2 - a1) * (o2 - o1);
+      if (area < bestArea) { bestArea = area; best = iso; }
+    }
+  }
+  return best;
+}
+
+function haversineKm(p: [number, number], q: [number, number]): number {
+  const R = 6371, toRad = Math.PI / 180;
+  const dLat = (q[0] - p[0]) * toRad, dLng = (q[1] - p[1]) * toRad;
+  const s = Math.sin(dLat / 2) ** 2 + Math.cos(p[0] * toRad) * Math.cos(q[0] * toRad) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
+}
+
+// The real driving route A→B (OSRM), so the corridor follows the roads actually
+// taken (e.g. over the Brennero), not the straight line across the Alps.
+async function fetchDrivingRoute(a: [number, number], b: [number, number]): Promise<Array<[number, number]> | null> {
+  try {
+    const url = `https://router.project-osrm.org/route/v1/driving/${a[1]},${a[0]};${b[1]},${b[0]}?overview=full&geometries=geojson`;
+    const r = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!r.ok) return null;
+    const d = (await r.json()) as { routes?: Array<{ geometry?: { coordinates?: [number, number][] } }> };
+    const c = d.routes?.[0]?.geometry?.coordinates;
+    if (Array.isArray(c) && c.length > 1) return c.map(([lng, lat]) => [lat, lng] as [number, number]);
+  } catch { /* ignore */ }
+  return null;
+}
+
+// Points spaced ~stepKm apart along a polyline (capped to `max` points).
+function sampleAlong(route: Array<[number, number]>, max = 24): Array<[number, number]> {
+  if (route.length === 0) return [];
+  let total = 0;
+  for (let i = 1; i < route.length; i++) total += haversineKm(route[i - 1], route[i]);
+  const stepKm = Math.max(45, total / max);
+  const pts: Array<[number, number]> = [route[0]];
+  let acc = 0;
+  for (let i = 1; i < route.length; i++) {
+    acc += haversineKm(route[i - 1], route[i]);
+    if (acc >= stepKm) { pts.push(route[i]); acc = 0; }
+  }
+  pts.push(route[route.length - 1]);
+  return pts;
+}
+
+// Straight-line fallback when OSRM is unavailable.
 function corridorSamples(a: [number, number], b: [number, number]): Array<[number, number]> {
   const km = Math.hypot((b[0] - a[0]) * 111, (b[1] - a[1]) * 111 * Math.cos(((a[0] + b[0]) / 2) * Math.PI / 180));
-  const n = Math.max(2, Math.min(22, Math.round(km / 70)));
+  const n = Math.max(2, Math.min(14, Math.round(km / 90)));
   const pts: Array<[number, number]> = [];
   for (let i = 0; i <= n; i++) {
     const t = i / n;
@@ -2404,31 +2469,31 @@ function corridorSamples(a: [number, number], b: [number, number]): Array<[numbe
 async function fetchCorridorHighways(a: [number, number], b: [number, number]): Promise<CorridorHighway[]> {
   const key = `${a[0].toFixed(2)},${a[1].toFixed(2)}|${b[0].toFixed(2)},${b[1].toFixed(2)}`;
   if (_highwayCache.has(key)) return _highwayCache.get(key)!;
-  const samples = corridorSamples(a, b);
-  // MOTORWAYS ONLY (no trunk/superstrade). Query `highway=motorway` ways NEAR each
-  // sample point along the route (`around` is index-backed and light — motorways
-  // are sparse). Those give the ref + a point ON the motorway inside the corridor.
-  // Road route relations (also `around`, `out center`) add the endpoints (from/to)
-  // and country. We keep only refs that appear as motorway ways, so trunk roads
-  // are excluded.
-  const wClauses = samples.map((p) => `way["highway"="motorway"]["ref"](around:45000,${p[0]},${p[1]});`).join("");
-  const rClauses = samples.map((p) => `relation["type"="route"]["route"="road"]["ref"](around:45000,${p[0]},${p[1]});`).join("");
-  const q = `[out:json][timeout:45];(${wClauses})->.w;.w out tags center;(${rClauses})->.r;.r out center;`;
-  const cx = (a[0] + b[0]) / 2, cy = (a[1] + b[1]) / 2;
+  // Sample along the ACTUAL driving route (so the corridor follows the roads taken,
+  // in the right direction), falling back to the straight line if OSRM is down.
+  const route = await fetchDrivingRoute(a, b);
+  const samples = route ? sampleAlong(route) : corridorSamples(a, b);
+  const mid = samples[Math.floor(samples.length / 2)] ?? a;
+  // MOTORWAYS ONLY. `highway=motorway` ways near each route point give the ref + a
+  // point on the road; road route relations add endpoints (from/to). `around` is
+  // index-backed and light, and following the route keeps wrong-direction roads
+  // (e.g. A14 Bologna→Taranto) out because they aren't near the corridor.
+  const wClauses = samples.map((p) => `way["highway"="motorway"]["ref"](around:25000,${p[0]},${p[1]});`).join("");
+  const rClauses = samples.map((p) => `relation["type"="route"]["route"="road"]["ref"](around:25000,${p[0]},${p[1]});`).join("");
+  const q = `[out:json][timeout:30];(${wClauses})->.w;.w out tags center;(${rClauses})->.r;.r out center;`;
   try {
-    const data = (await overpassFetch(q, 45000)) as {
+    const data = (await overpassFetch(q, 30000)) as {
       elements: Array<{ type: string; tags?: Record<string, string>; center?: { lat: number; lon: number } }>;
     };
-    // Coordinate (on the motorway, nearest the corridor centre) from the ways.
+    // Per motorway ref, keep the way segment nearest the route midpoint.
     const coord = new Map<string, { lat: number; lng: number; d: number; country?: string }>();
-    // Endpoints + country from the route relations.
     const relMeta = new Map<string, { from?: string; to?: string; country?: string; d: number; ft: boolean }>();
     for (const el of data.elements) {
       const refTag = el.tags?.ref;
       const c = el.center;
       if (!refTag || !c) continue;
-      const d = (c.lat - cx) ** 2 + (c.lon - cy) ** 2;
       const iso = /^([A-Za-z]{2}):/.exec(el.tags?.network ?? "")?.[1]?.toUpperCase();
+      const d = (c.lat - mid[0]) ** 2 + (c.lon - mid[1]) ** 2;
       const refs = refTag.split(";").map((s) => s.trim()).filter(Boolean);
       if (el.type === "way") {
         for (const ref of refs) {
@@ -2448,7 +2513,10 @@ async function fetchCorridorHighways(a: [number, number], b: [number, number]): 
     const out: CorridorHighway[] = [...coord.entries()]
       .map(([ref, c]) => {
         const m = relMeta.get(ref);
-        return { ref, lat: c.lat, lng: c.lng, country: m?.country ?? c.country, from: m?.from, to: m?.to };
+        // Country: OSM network prefix → else resolve offline from the point, so
+        // every motorway gets a flag and can be grouped by state.
+        const country = m?.country ?? c.country ?? countryAtPoint(c.lat, c.lng);
+        return { ref, lat: c.lat, lng: c.lng, country, from: m?.from, to: m?.to };
       })
       .sort((a2, b2) => a2.ref.localeCompare(b2.ref, undefined, { numeric: true }));
     _highwayCache.set(key, out);
@@ -2485,6 +2553,19 @@ function HighwayMultiSelect({
   const filtered = options.filter(
     (o) => o.ref.toLowerCase().includes(ql) || (o.from ?? "").toLowerCase().includes(ql) || (o.to ?? "").toLowerCase().includes(ql),
   );
+  // Group the motorways by country (state), each group under a flag + name header.
+  const groups = (() => {
+    const m = new Map<string, CorridorHighway[]>();
+    for (const o of filtered) {
+      const cc = o.country || "??";
+      (m.get(cc) ?? m.set(cc, []).get(cc)!).push(o);
+    }
+    return [...m.entries()].sort((x, y) => {
+      if (x[0] === "??") return 1;
+      if (y[0] === "??") return -1;
+      return countryNameLocalized(x[0], lang).localeCompare(countryNameLocalized(y[0], lang), lang);
+    });
+  })();
   const toggle = (h: CorridorHighway) => {
     if (selRefs.has(h.ref)) onChange(selected.filter((s) => s.ref !== h.ref));
     else onChange([...selected, { ref: h.ref, lat: h.lat, lng: h.lng, country: h.country, from: h.from, to: h.to }]);
@@ -2519,18 +2600,25 @@ function HighwayMultiSelect({
             <div className="max-h-56 overflow-auto">
               {loading && <div className="px-2 py-1.5 text-xs text-muted-foreground">…</div>}
               {!loading && filtered.length === 0 && <div className="px-2 py-1.5 text-xs text-muted-foreground">{L.hwNone}</div>}
-              {filtered.map((h) => (
-                <button
-                  type="button"
-                  key={h.ref}
-                  onClick={() => toggle(h)}
-                  className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
-                >
-                  <Check className={cn("h-4 w-4 shrink-0", selRefs.has(h.ref) ? "opacity-100" : "opacity-0")} />
-                  {h.country && <span className="shrink-0">{flagOf(h.country)}</span>}
-                  <span className="shrink-0 font-medium">{h.ref}</span>
-                  {routeOf(h) && <span className="min-w-0 flex-1 truncate text-muted-foreground">{routeOf(h)}</span>}
-                </button>
+              {groups.map(([cc, list]) => (
+                <div key={cc}>
+                  <div className="flex items-center gap-1.5 px-2 pb-0.5 pt-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    {cc !== "??" && <span>{flagOf(cc)}</span>}
+                    <span>{cc === "??" ? "—" : countryNameLocalized(cc, lang)}</span>
+                  </div>
+                  {list.map((h) => (
+                    <button
+                      type="button"
+                      key={h.ref}
+                      onClick={() => toggle(h)}
+                      className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                    >
+                      <Check className={cn("h-4 w-4 shrink-0", selRefs.has(h.ref) ? "opacity-100" : "opacity-0")} />
+                      <span className="shrink-0 font-medium">{h.ref}</span>
+                      {routeOf(h) && <span className="min-w-0 flex-1 truncate text-muted-foreground">{routeOf(h)}</span>}
+                    </button>
+                  ))}
+                </div>
               ))}
             </div>
           </div>
