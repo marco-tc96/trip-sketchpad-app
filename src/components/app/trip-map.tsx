@@ -582,6 +582,43 @@ const pinIcon = L.divIcon({
   iconAnchor: [9, 9],
 });
 
+// ── Per-mode endpoint pins (icon inside, + line ref for bus/tram/metro) ──────
+// Small, hand-drawn 24×24 pictograms (stroke-only, matching the app's icon
+// style) so a leg's departure/arrival pin is identifiable at a glance without
+// depending on a component icon library inside a Leaflet divIcon string.
+const MODE_GLYPH: Record<string, string> = {
+  car: `<rect x="3" y="11" width="18" height="6" rx="2"/><path d="M5 11l2-5h10l2 5"/><circle cx="7.5" cy="19" r="1.4"/><circle cx="16.5" cy="19" r="1.4"/>`,
+  moto: `<circle cx="6" cy="17" r="2.6"/><circle cx="18" cy="17" r="2.6"/><path d="M6 17h5l3-7h4"/><path d="M11 17l3-7"/>`,
+  taxi: `<rect x="3" y="11" width="18" height="6" rx="2"/><path d="M5 11l2-5h10l2 5"/><circle cx="7.5" cy="19" r="1.4"/><circle cx="16.5" cy="19" r="1.4"/>`,
+  train: `<rect x="6" y="4" width="12" height="11" rx="2"/><path d="M6 10h12M9 4v6M15 4v6"/><circle cx="9" cy="17.5" r="1.3"/><circle cx="15" cy="17.5" r="1.3"/>`,
+  plane: `<path d="M21 3 3 10.5l6.8 2.7L12.5 21 21 3z"/>`,
+  ferry: `<path d="M4 10h16l-2 6H6l-2-6z"/><path d="M8 10V5h4v5"/><path d="M3 19c1.5 1 3 1 4.5 0s3-1 4.5 0 3 1 4.5 0 3-1 4.5 0"/>`,
+  bus: `<rect x="4" y="5" width="16" height="10" rx="2"/><path d="M4 10h16M8 5v5M16 5v5"/><circle cx="8" cy="17.5" r="1.3"/><circle cx="16" cy="17.5" r="1.3"/>`,
+  metro: `<rect x="5" y="4" width="14" height="12" rx="4"/><path d="M5 10h14"/><circle cx="9" cy="18" r="1.3"/><circle cx="15" cy="18" r="1.3"/>`,
+  tram: `<rect x="5" y="6" width="14" height="10" rx="2"/><path d="M12 6V3M9 3h6M5 11h14"/><circle cx="9" cy="18" r="1.3"/><circle cx="15" cy="18" r="1.3"/>`,
+};
+// Line ref is shown only for these — matches "la linea solo per bus, tram e metro".
+const LINE_LABEL_MODES = new Set(["bus", "tram", "metro"]);
+
+function escapeHtml(s: string): string {
+  return (s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
+}
+
+// Bigger endpoint pin for a leg's departure/arrival: mode-coloured badge with
+// the vehicle icon inside, plus the line ref alongside it for bus/tram/metro
+// (so e.g. two metro lines crossing at the same station stay distinguishable).
+// Uses a zero-size icon + CSS centering so the badge can be a plain circle OR
+// a wider capsule (icon + text) without any anchor-offset math either way.
+function endpointIcon(mode: string, color: string, line?: string | null): L.DivIcon {
+  const glyph = MODE_GLYPH[mode] ?? `<circle cx="12" cy="12" r="5"/>`;
+  const svg = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0">${glyph}</svg>`;
+  const showLine = LINE_LABEL_MODES.has(mode) && !!(line ?? "").trim();
+  const html = showLine
+    ? `<span style="position:relative;transform:translate(-50%,-50%);display:inline-flex;align-items:center;gap:4px;height:26px;padding:0 8px 0 6px;border-radius:9999px;background:${color};border:2.5px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.35);white-space:nowrap">${svg}<span style="color:white;font:700 11px/1 -apple-system,BlinkMacSystemFont,sans-serif;letter-spacing:.2px">${escapeHtml((line ?? "").trim())}</span></span>`
+    : `<span style="position:relative;transform:translate(-50%,-50%);display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:9999px;background:${color};border:2.5px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.35)">${svg}</span>`;
+  return L.divIcon({ className: "voyager-pin", html, iconSize: [0, 0], iconAnchor: [0, 0] });
+}
+
 // Strip IATA airport codes so a leg endpoint like "FCO - Roma" or
 // "Bologna Guglielmo Marconi Airport (BLQ)" geocodes on its real place name.
 function cleanPlace(s: string): string {
@@ -1267,7 +1304,7 @@ export function TripMap({
   // everything else is a straight line between geocoded endpoints.
   const drawn = useMemo(() => {
     type Pin = { ll: LL; name: string; big: boolean; hollow?: boolean };
-    type Drawn = { key: string; color: string; dash?: string; positions: LL[]; pins: Pin[] };
+    type Drawn = { key: string; color: string; dash?: string; positions: LL[]; pins: Pin[]; mode: string; line?: string };
     if (!showRoutes || !routes) return [] as Drawn[];
     const out: Drawn[] = [];
     routeLines.forEach((l) => {
@@ -1281,11 +1318,13 @@ export function TripMap({
         // A leg WITHOUT a line ref (res undefined) falls through to a plain line.
         if (res) {
           if (res.state === "ok" && res.positions && res.pins) {
-            // Metro lines draw in their real network colour when OSM tags it
-            // (e.g. Milano M1 red, Roma B blue); other transit modes keep their
-            // fixed mode colour, and metro itself falls back to it when unknown.
-            const lineColor = l.mode === "metro" && res.color ? res.color : color;
-            out.push({ key, color: lineColor, dash, positions: res.positions, pins: res.pins });
+            // Metro AND tram lines draw in their real network colour when OSM
+            // tags it (e.g. Milano M1 red, Roma B blue); other transit modes
+            // keep their fixed mode colour, and metro/tram fall back to it
+            // when the line's real colour is unknown.
+            const usesRealColor = l.mode === "metro" || l.mode === "tram";
+            const lineColor = usesRealColor && res.color ? res.color : color;
+            out.push({ key, color: lineColor, dash, positions: res.positions, pins: res.pins, mode: l.mode, line: l.line });
           }
           return;
         }
@@ -1314,7 +1353,7 @@ export function TripMap({
       if (!isCity(a)) pins.push({ ll: startPt, name: cleanPlace(l.from), big: true });
       for (const v of l.vias) if (v.pin) pins.push({ ll: projectOnPath(positions, v.ll), name: v.label, big: true, hollow: true });
       if (!isCity(b)) pins.push({ ll: endPt, name: cleanPlace(l.to), big: true });
-      out.push({ key, color, dash, positions, pins });
+      out.push({ key, color, dash, positions, pins, mode: l.mode, line: l.line });
     });
     return out;
   }, [routeLines, routes, showRoutes, transitResolved, pathCache, railCache, cityKeySet]);
@@ -1450,28 +1489,44 @@ export function TripMap({
           />
         ))}
 
-      {/* Stop / waypoint pins — mode colour. Filled pins mark real trip cities and
-          the departure/arrival of each leg; HOLLOW pins mark road waypoints. */}
+      {/* Stop / waypoint pins — mode colour. A leg's own departure/arrival (big,
+          not hollow) gets a bigger badge with the vehicle icon inside (+ line
+          ref for bus/tram/metro) so it reads at a glance and stays visually
+          distinct from a trip-city pin. HOLLOW pins (road waypoints) and small
+          mid-route stops keep the plain coloured dot. */}
       {showRoutes &&
         drawn.flatMap((d) =>
-          d.pins.map((p, idx) => (
-            <CircleMarker
-              key={`${d.key}-p${idx}`}
-              center={p.ll}
-              radius={p.big ? 6.5 : 3.5}
-              pathOptions={
-                p.hollow
-                  ? { color: d.color, weight: 2.5, fillColor: "#ffffff", fillOpacity: 1 }
-                  : { color: "#ffffff", weight: p.big ? 2 : 1.5, fillColor: d.color, fillOpacity: 1 }
-              }
-            >
-              {p.name && (
-                <Tooltip direction="top" offset={[0, -6]}>
-                  {withRomanization(p.name, lang)}
-                </Tooltip>
-              )}
-            </CircleMarker>
-          )),
+          d.pins.map((p, idx) =>
+            p.big && !p.hollow ? (
+              <Marker key={`${d.key}-p${idx}`} position={p.ll} icon={endpointIcon(d.mode, d.color, d.line)}>
+                {p.name && (
+                  <>
+                    <Popup><strong>{withRomanization(p.name, lang)}</strong></Popup>
+                    <Tooltip direction="top" offset={[0, -14]}>
+                      {withRomanization(p.name, lang)}
+                    </Tooltip>
+                  </>
+                )}
+              </Marker>
+            ) : (
+              <CircleMarker
+                key={`${d.key}-p${idx}`}
+                center={p.ll}
+                radius={p.big ? 6.5 : 3.5}
+                pathOptions={
+                  p.hollow
+                    ? { color: d.color, weight: 2.5, fillColor: "#ffffff", fillOpacity: 1 }
+                    : { color: "#ffffff", weight: p.big ? 2 : 1.5, fillColor: d.color, fillOpacity: 1 }
+                }
+              >
+                {p.name && (
+                  <Tooltip direction="top" offset={[0, -6]}>
+                    {withRomanization(p.name, lang)}
+                  </Tooltip>
+                )}
+              </CircleMarker>
+            ),
+          ),
         )}
 
       {enrichedCities
