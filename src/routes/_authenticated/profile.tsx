@@ -103,16 +103,30 @@ async function coordsFor(name: string, country: string): Promise<{ lat: number; 
 type ExtremePoint = { name: string; country: string; lat: number; lng: number };
 
 // Progressive: returns whatever is already resolved (instant on repeat
-// visits thanks to the persisted cache) and re-renders as more cities
-// resolve in the background, geocoding one at a time to stay polite to
-// the (rate-limited) geocoding service.
+// visits thanks to the persisted cache) and properly recomputes — via real
+// state, not a memo keyed only on the (unchanging) city list — every time a
+// new city resolves in the background, geocoding one at a time to stay
+// polite to the (rate-limited) geocoding service. Every visited city is
+// eventually included; nothing is capped or sampled.
+function resolvedPointsFor(cities: City[]): ExtremePoint[] {
+  const out: ExtremePoint[] = [];
+  for (const c of cities) {
+    const coords = _cityGeoCache.get(`${c.country}|${c.name}`);
+    if (coords) out.push({ name: c.name, country: c.country, lat: coords.lat, lng: coords.lng });
+  }
+  return out;
+}
+
 function useExtremePoints(cities: City[]): ExtremePoint[] {
   const key = cities.map((c) => `${c.country}|${c.name}`).join(",");
-  const [, forceTick] = useState(0);
+  const [points, setPoints] = useState<ExtremePoint[]>(() => resolvedPointsFor(cities));
 
   useEffect(() => {
-    if (cities.length === 0) return;
     let alive = true;
+    // Re-sync immediately for the new city list (covers cities already
+    // cached, e.g. from a previous visit) before kicking off any new fetches.
+    setPoints(resolvedPointsFor(cities));
+    if (cities.length === 0) return;
     const pending = cities.filter((c) => !_cityGeoCache.has(`${c.country}|${c.name}`));
     if (pending.length === 0) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -122,7 +136,7 @@ function useExtremePoints(cities: City[]): ExtremePoint[] {
         const c = pending[i];
         await coordsFor(c.name, c.country);
         if (!alive) break;
-        forceTick((n) => n + 1);
+        setPoints(resolvedPointsFor(cities));
         if (i < pending.length - 1) {
           await new Promise<void>((r) => { timer = setTimeout(r, 350); });
         }
@@ -132,15 +146,7 @@ function useExtremePoints(cities: City[]): ExtremePoint[] {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
-  return useMemo(() => {
-    const out: ExtremePoint[] = [];
-    for (const c of cities) {
-      const coords = _cityGeoCache.get(`${c.country}|${c.name}`);
-      if (coords) out.push({ name: c.name, country: c.country, lat: coords.lat, lng: coords.lng });
-    }
-    return out;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  return points;
 }
 
 function getCities(tr: Trip): City[] {
