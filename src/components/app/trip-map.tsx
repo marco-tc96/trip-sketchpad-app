@@ -814,6 +814,16 @@ export function TripMap({
     return m;
   }, [enrichedCities]);
 
+  // Rounded coordinate keys of the trip's own city markers, so a leg endpoint that
+  // lands on a trip city is NOT drawn as a second pin (the city marker stands in).
+  const cityKeySet = useMemo(() => {
+    const s = new Set<string>();
+    for (const c of enrichedCities) {
+      if (typeof c.lat === "number" && typeof c.lng === "number") s.add(`${c.lat.toFixed(3)},${c.lng.toFixed(3)}`);
+    }
+    return s;
+  }, [enrichedCities]);
+
   // Resolve a route endpoint to coordinates (trip city → geocode → centroid).
   const resolve = useMemo(() => {
     return (raw: string, country?: string): [number, number] | null => {
@@ -1096,13 +1106,18 @@ export function TripMap({
       // Endpoints (departure/arrival) are FILLED pins. City stops are HOLLOW pins
       // (filled ones stay reserved for the trip's own cities + start/end). Highway
       // shaping points carry no pin.
-      const pins: Pin[] = [{ ll: positions[0], name: cleanPlace(l.from), big: true }];
+      // Endpoint pins sit on the resolved coordinate (a/b) — NOT the road-snapped
+      // path ends — and are omitted entirely when they coincide with a trip city,
+      // so the trip's own city pin is the single marker for that place.
+      const isCity = (ll: LL) => cityKeySet.has(`${ll[0].toFixed(3)},${ll[1].toFixed(3)}`);
+      const pins: Pin[] = [];
+      if (!isCity(a)) pins.push({ ll: a, name: cleanPlace(l.from), big: true });
       for (const v of l.vias) if (v.pin) pins.push({ ll: projectOnPath(positions, v.ll), name: v.label, big: true, hollow: true });
-      pins.push({ ll: positions[positions.length - 1], name: cleanPlace(l.to), big: true });
+      if (!isCity(b)) pins.push({ ll: b, name: cleanPlace(l.to), big: true });
       out.push({ key, color, dash, positions, pins });
     });
     return out;
-  }, [routeLines, routes, showRoutes, transitResolved, pathCache, railCache]);
+  }, [routeLines, routes, showRoutes, transitResolved, pathCache, railCache, cityKeySet]);
 
   // Count transit legs whose line couldn't be resolved from OSM data, to warn.
   const missingTransit = useMemo(() => {
