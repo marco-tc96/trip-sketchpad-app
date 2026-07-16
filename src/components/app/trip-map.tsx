@@ -1134,10 +1134,15 @@ export function TripMap({
       // path ends — and are omitted entirely when they coincide with a trip city,
       // so the trip's own city pin is the single marker for that place.
       const isCity = (ll: LL) => cityKeySet.has(`${ll[0].toFixed(3)},${ll[1].toFixed(3)}`);
+      // Draw the endpoint pins on the ACTUAL start/end of the drawn line (road- or
+      // rail-snapped) rather than the raw resolved coordinate, so a pin never sits
+      // off the line when the route geometry diverges slightly from the geocode.
+      const startPt = positions[0] ?? a;
+      const endPt = positions[positions.length - 1] ?? b;
       const pins: Pin[] = [];
-      if (!isCity(a)) pins.push({ ll: a, name: cleanPlace(l.from), big: true });
+      if (!isCity(a)) pins.push({ ll: startPt, name: cleanPlace(l.from), big: true });
       for (const v of l.vias) if (v.pin) pins.push({ ll: projectOnPath(positions, v.ll), name: v.label, big: true, hollow: true });
-      if (!isCity(b)) pins.push({ ll: b, name: cleanPlace(l.to), big: true });
+      if (!isCity(b)) pins.push({ ll: endPt, name: cleanPlace(l.to), big: true });
       out.push({ key, color, dash, positions, pins });
     });
     return out;
