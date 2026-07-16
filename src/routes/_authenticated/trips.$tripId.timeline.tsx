@@ -2384,51 +2384,38 @@ async function fetchCorridorHighways(box: CorridorBox): Promise<CorridorHighway[
   const key = `${box.minLat.toFixed(1)},${box.minLng.toFixed(1)},${box.maxLat.toFixed(1)},${box.maxLng.toFixed(1)}`;
   if (_highwayCache.has(key)) return _highwayCache.get(key)!;
   const bbox = `${box.minLat},${box.minLng},${box.maxLat},${box.maxLng}`;
-  // Road ROUTE RELATIONS give ref + from/to + network (→ country); motorway/trunk
-  // WAYS give a representative point on the road for routing. Two separate `out`
-  // statements (a single "out tags geom" is invalid Overpass syntax).
-  const q =
-    `[out:json][timeout:60];` +
-    `relation["type"="route"]["route"="road"]["ref"](${bbox});out tags;` +
-    `way["highway"~"^(motorway|trunk)$"]["ref"](${bbox});out geom 3000;`;
+  // Road ROUTE RELATIONS carry ref + from/to + network (→ country). `out center`
+  // returns just their bounding-box centre (one point each, NO member geometry),
+  // so this stays light even over a long cross-country corridor. That centre is a
+  // good enough point to pull the route onto the road.
+  const q = `[out:json][timeout:50];relation["type"="route"]["route"="road"]["ref"](${bbox});out tags center;`;
   try {
     const data = (await overpassFetch(q, 45000)) as {
-      elements: Array<{ type: string; tags?: Record<string, string>; geometry?: Array<{ lat: number; lon: number }> }>;
+      elements: Array<{ type: string; tags?: Record<string, string>; center?: { lat: number; lon: number } }>;
     };
     const cx = (box.minLat + box.maxLat) / 2, cy = (box.minLng + box.maxLng) / 2;
-    const meta = new Map<string, { country?: string; from?: string; to?: string }>();
-    const coord = new Map<string, { lat: number; lng: number; d: number }>();
+    type Acc = { lat: number; lng: number; d: number; country?: string; from?: string; to?: string; ft: boolean };
+    const best = new Map<string, Acc>();
     for (const el of data.elements) {
       const refTag = el.tags?.ref;
-      if (!refTag) continue;
-      const refs = refTag.split(";").map((s) => s.trim()).filter(Boolean);
-      if (el.type === "relation") {
-        const iso = /^([A-Za-z]{2}):/.exec(el.tags?.network ?? "")?.[1]?.toUpperCase();
-        const from = el.tags?.from?.trim();
-        const to = el.tags?.to?.trim();
-        for (const ref of refs) {
-          const prev = meta.get(ref);
-          meta.set(ref, {
-            country: prev?.country ?? iso,
-            from: prev?.from ?? from,
-            to: prev?.to ?? to,
-          });
-        }
-      } else if (el.type === "way" && el.geometry && el.geometry.length > 0) {
-        const mid = el.geometry[Math.floor(el.geometry.length / 2)];
-        const d = (mid.lat - cx) ** 2 + (mid.lon - cy) ** 2;
-        for (const ref of refs) {
-          const prev = coord.get(ref);
-          if (!prev || d < prev.d) coord.set(ref, { lat: mid.lat, lng: mid.lon, d });
+      const c = el.center;
+      if (!refTag || !c) continue;
+      const iso = /^([A-Za-z]{2}):/.exec(el.tags?.network ?? "")?.[1]?.toUpperCase();
+      const from = el.tags?.from?.trim();
+      const to = el.tags?.to?.trim();
+      const ft = !!(from || to);
+      const d = (c.lat - cx) ** 2 + (c.lon - cy) ** 2;
+      for (const ref of refTag.split(";").map((s) => s.trim()).filter(Boolean)) {
+        const prev = best.get(ref);
+        // Prefer the relation that carries from/to, then the one nearest the centre.
+        if (!prev || (ft && !prev.ft) || (ft === prev.ft && d < prev.d)) {
+          best.set(ref, { lat: c.lat, lng: c.lon, d, country: iso, from, to, ft });
         }
       }
     }
-    const out: CorridorHighway[] = [];
-    for (const [ref, c] of coord) {
-      const m = meta.get(ref);
-      out.push({ ref, lat: c.lat, lng: c.lng, country: m?.country, from: m?.from, to: m?.to });
-    }
-    out.sort((a, b) => a.ref.localeCompare(b.ref, undefined, { numeric: true }));
+    const out: CorridorHighway[] = [...best.entries()]
+      .map(([ref, v]) => ({ ref, lat: v.lat, lng: v.lng, country: v.country, from: v.from, to: v.to }))
+      .sort((a, b) => a.ref.localeCompare(b.ref, undefined, { numeric: true }));
     _highwayCache.set(key, out);
     return out;
   } catch {
