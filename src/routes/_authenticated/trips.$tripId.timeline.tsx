@@ -78,8 +78,11 @@ const WP_LABELS: Record<string, { cities: string; place: string; addCity: string
 };
 const wpL = (lang: string | undefined) => WP_LABELS[(lang || "it").slice(0, 2)] ?? WP_LABELS.it;
 type MixedLeg = {
-  mode: "train" | "bus" | "metro" | "tram";
+  mode: "train" | "bus" | "metro" | "tram" | "car" | "moto" | "taxi";
   vehicle: string;
+  // Road modes (car/moto/taxi) reuse these two fields as the leg's departure/
+  // arrival point (picked via HubCombobox, with city POI/address suggestions)
+  // rather than a public-transport stop.
   from_stop: string;
   to_stop: string;
   depart_at: string;
@@ -123,6 +126,10 @@ const TRANSPORT_KINDS = new Set([
   "outbound", "return", "flight", "train", "bus", "car", "taxi", "moto", "ferry", "transfer", "metro", "tram",
 ]);
 const STOP_KINDS = new Set(["train", "bus", "metro", "tram"]);
+// Road modes, added as a daily-activity item: edited through the same
+// multi-leg UI as public transport, but with from/to point-of-interest fields
+// (HubCombobox) instead of a vehicle/line + stop pair.
+const ROAD_KINDS = new Set(["car", "moto", "taxi"]);
 const PT_TRANSIT_KINDS = new Set(["bus", "metro", "tram"]);
 const OSM_ROUTE_MODE: Record<string, string> = { bus: "bus", metro: "subway", tram: "tram" };
 
@@ -450,18 +457,27 @@ const TRANSIT_COLOR_ACTIVE: Record<string, string> = {
   bus:   "border-sky-500 bg-sky-500 text-white",
   metro: "border-violet-500 bg-violet-500 text-white",
   tram:  "border-emerald-500 bg-emerald-500 text-white",
+  car:   "border-green-500 bg-green-500 text-white",
+  moto:  "border-green-500 bg-green-500 text-white",
+  taxi:  "border-yellow-500 bg-yellow-500 text-white",
 };
 const TRANSIT_COLOR_INACTIVE: Record<string, string> = {
   train: "border-amber-400/40 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/20",
   bus:   "border-sky-400/40 text-sky-600 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/20",
   metro: "border-violet-400/40 text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/20",
   tram:  "border-emerald-400/40 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/20",
+  car:   "border-green-400/40 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-950/20",
+  moto:  "border-green-400/40 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-950/20",
+  taxi:  "border-yellow-400/40 text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/20",
 };
 const TRANSIT_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   train: TrainFront,
   bus:   Bus,
   metro: TramFront,
   tram:  Train,
+  car:   Car,
+  moto:  Bike,
+  taxi:  CarTaxiFront,
 };
 // Colour per transit mode — mirrors the edit screen's mode picker
 // (amber/sky/violet/emerald) so the timeline legs match those colours.
@@ -1821,13 +1837,21 @@ function AddItemDialog({
       to_stop: "",
       selectedTransit: (isMulti
         ? [...new Set(exLegs.map((l) => l.mode))]
-        : STOP_KINDS.has(exKind) ? [exKind] : []) as string[],
-      // Any transit item is edited through the multi-leg UI. A legacy single
-      // stop-based item is converted into one leg so it can be extended.
+        : (STOP_KINDS.has(exKind) || ROAD_KINDS.has(exKind)) ? [exKind] : []) as string[],
+      // Any transit/road item is edited through the multi-leg UI. A legacy
+      // single stop-based item is converted into one leg so it can be
+      // extended. A legacy road-mode item (pre-dating the from/to fields
+      // below) stored its single point in `location` — reuse that as the
+      // starting "from" point so it isn't lost when the item is edited.
       mixedLegs: isMulti
         ? [...exLegs]
-        : STOP_KINDS.has(exKind)
-          ? [{ ...emptyMixedLeg(), mode: exKind as MixedLeg["mode"], from_stop: exMeta?.from_stop ?? "", to_stop: exMeta?.to_stop ?? "" }]
+        : (STOP_KINDS.has(exKind) || ROAD_KINDS.has(exKind))
+          ? [{
+              ...emptyMixedLeg(),
+              mode: exKind as MixedLeg["mode"],
+              from_stop: exMeta?.from_stop ?? (ROAD_KINDS.has(exKind) ? (existing?.location ?? "") : ""),
+              to_stop: exMeta?.to_stop ?? "",
+            }]
           : ([] as MixedLeg[]),
     };
   };
@@ -1875,6 +1899,18 @@ function AddItemDialog({
   const q = locQuery.trim().toLowerCase();
   const matchTrip = (q ? tripCities.filter((c) => c.name.toLowerCase().includes(q)) : tripCities);
   const matchExtras = (q ? extras.filter((c) => c.name.toLowerCase().includes(q)) : extras).slice(0, 200);
+
+  // City to anchor a road-mode leg's point-of-interest/address search at —
+  // this activity's own "location" field (the city it's set in), when it
+  // matches a known city; falls back to no hint (still usable, just without
+  // the POI list) if the activity's location hasn't been set yet.
+  const roadLocQ = form.location.trim().toLowerCase();
+  const roadCityHint = roadLocQ
+    ? (() => {
+        const hit = countryCities.find((c) => c.name.toLowerCase() === roadLocQ);
+        return hit ? { name: hit.name, country: hit.country } : null;
+      })()
+    : null;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -1963,7 +1999,7 @@ function AddItemDialog({
                 </p>
                 <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-5">
                   {cats.map(({ kind, icon: Icon, label }) => {
-                    const isTransit = STOP_KINDS.has(kind);
+                    const isTransit = STOP_KINDS.has(kind) || ROAD_KINDS.has(kind);
                     const active = isTransit
                       ? form.selectedTransit.includes(kind)
                       : (form.kind === kind && form.selectedTransit.length === 0);
@@ -2104,7 +2140,7 @@ function AddItemDialog({
                     <div className="flex items-center justify-between">
                       <div className="flex gap-1.5">
                         {form.selectedTransit.length > 1 &&
-                          (form.selectedTransit as ("train" | "bus" | "metro" | "tram")[]).map((m) => {
+                          (form.selectedTransit as MixedLeg["mode"][]).map((m) => {
                             const LIcon = TRANSIT_ICON[m];
                             const isActive = leg.mode === m;
                             return (
@@ -2133,33 +2169,59 @@ function AddItemDialog({
                       )}
                     </div>
                   )}
-                  {/* Line / vehicle picker */}
-                  {PT_TRANSIT_KINDS.has(leg.mode) && form.location ? (
-                    <LineCombobox
-                      mode={leg.mode}
-                      city={form.location}
-                      value={leg.vehicle}
-                      onChange={(ref) => updateMixedLeg(i, { vehicle: ref })}
-                      onPick={(line) => updateMixedLeg(i, { vehicle: line.ref, intercity: line.intercity })}
-                    />
+                  {ROAD_KINDS.has(leg.mode) ? (
+                    /* Car/moto/taxi — from/to points, with up to 50 city POIs,
+                       live address search and free-text entry (same picker as
+                       the outbound/return journey road legs). */
+                    <div className="space-y-2">
+                      <HubCombobox
+                        mode={leg.mode as TransportMode}
+                        countries={tripCountries}
+                        value={leg.from_stop}
+                        onChange={(v) => updateMixedLeg(i, { from_stop: v })}
+                        placeholder={t("from_point")}
+                        cityHint={roadCityHint}
+                      />
+                      <HubCombobox
+                        mode={leg.mode as TransportMode}
+                        countries={tripCountries}
+                        value={leg.to_stop}
+                        onChange={(v) => updateMixedLeg(i, { to_stop: v })}
+                        placeholder={t("to_point")}
+                        cityHint={roadCityHint}
+                      />
+                    </div>
                   ) : (
-                    <Input
-                      value={leg.vehicle}
-                      onChange={(e) => updateMixedLeg(i, { vehicle: e.target.value })}
-                      placeholder={t("vehicle_name").split("(")[0].trim()}
-                    />
+                    <>
+                      {/* Line / vehicle picker */}
+                      {PT_TRANSIT_KINDS.has(leg.mode) && form.location ? (
+                        <LineCombobox
+                          mode={leg.mode}
+                          city={form.location}
+                          value={leg.vehicle}
+                          onChange={(ref) => updateMixedLeg(i, { vehicle: ref })}
+                          onPick={(line) => updateMixedLeg(i, { vehicle: line.ref, intercity: line.intercity })}
+                        />
+                      ) : (
+                        <Input
+                          value={leg.vehicle}
+                          onChange={(e) => updateMixedLeg(i, { vehicle: e.target.value })}
+                          placeholder={t("vehicle_name").split("(")[0].trim()}
+                        />
+                      )}
+                      {/* Stops — suggestions limited to the selected line's stops */}
+                      <MixedLegStops
+                        mode={leg.mode}
+                        city={form.location}
+                        vehicle={leg.vehicle}
+                        countries={tripCountries}
+                        fromStop={leg.from_stop}
+                        toStop={leg.to_stop}
+                        onFrom={(v) => updateMixedLeg(i, { from_stop: v })}
+                        onTo={(v) => updateMixedLeg(i, { to_stop: v })}
+                      />
+                    </>
                   )}
-                  {/* Stops — suggestions limited to the selected line's stops */}
-                  <MixedLegStops
-                    mode={leg.mode}
-                    city={form.location}
-                    vehicle={leg.vehicle}
-                    countries={tripCountries}
-                    fromStop={leg.from_stop}
-                    toStop={leg.to_stop}
-                    onFrom={(v) => updateMixedLeg(i, { from_stop: v })}
-                    onTo={(v) => updateMixedLeg(i, { to_stop: v })}
-                  />
                   {/* Times — 2 columns are fine since time inputs are compact */}
                   <div className="grid grid-cols-2 gap-2">
                     <div className="space-y-1">
