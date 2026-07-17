@@ -22,7 +22,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "@tanstack/react-router";
-import { countryNameLocalized, citiesOfCountry, flagOf, localizedCountries, cityNameLocalized, primaryTimezoneOfCountry, currencyForCountryAt } from "@/lib/country-data";
+import { countryNameLocalized, citiesOfCountry, flagOf, localizedCountries, cityNameLocalized, primaryTimezoneOfCountry, currencyForCountryAt, geocodeCity } from "@/lib/country-data";
 import { flagGradient } from "@/lib/flag-gradient";
 
 export const Route = createFileRoute("/_authenticated/trips/$tripId")({
@@ -324,6 +324,30 @@ function TripLayout() {
   const citiesLabel = cities.length > 0
     ? cities.map((c) => cityNameLocalized(c.name, lang)).join(" · ")
     : tripRow.destination;
+  // Cities grouped by their own country (flag + that country's cities, then
+  // the country name as a small pill) instead of one long "all cities, then
+  // all countries" line — much easier to tell which city belongs to which
+  // country on a multi-country trip. Falls back to the plain citiesLabel/
+  // countriesLabel line when there's no structured city data to group (older
+  // trips that only ever stored a free-text destination/country).
+  const cityGroups: Array<{ iso: string; flag: string; countryName: string; cityNames: string[] }> = [];
+  {
+    const order: string[] = [];
+    const byIso = new Map<string, string[]>();
+    for (const c of cities) {
+      const iso = c.country || "";
+      if (!byIso.has(iso)) { byIso.set(iso, []); order.push(iso); }
+      byIso.get(iso)!.push(cityNameLocalized(c.name, lang));
+    }
+    for (const iso of order) {
+      cityGroups.push({
+        iso,
+        flag: iso ? flagOf(iso) : "🌍",
+        countryName: iso ? countryNameLocalized(iso, lang) : (tripRow.country ?? ""),
+        cityNames: byIso.get(iso)!,
+      });
+    }
+  }
   const autoGradient = flagGradient(countries);
 
   async function setCoverType(next: "auto" | "map" | "photo" | "color") {
@@ -714,9 +738,27 @@ function TripLayout() {
             <h1 className="font-serif text-lg font-bold tracking-tight sm:text-3xl">
               {trip.data.title}
             </h1>
-            <p className="text-xs text-muted-foreground sm:text-sm">
-              {[citiesLabel, countriesLabel].filter(Boolean).join(", ")}
-            </p>
+            {cityGroups.length > 0 ? (
+              <div className="flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 text-xs text-muted-foreground sm:justify-start sm:text-sm">
+                {cityGroups.map((g) => (
+                  <span key={g.iso || "unknown"} className="inline-flex items-center gap-1.5">
+                    <span>
+                      <span className="mr-1">{g.flag}</span>
+                      {g.cityNames.join(" · ")}
+                    </span>
+                    {g.countryName && (
+                      <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted-foreground/90">
+                        {g.countryName}
+                      </span>
+                    )}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground sm:text-sm">
+                {[citiesLabel, countriesLabel].filter(Boolean).join(", ")}
+              </p>
+            )}
             {!isWishlist && (
               <p className="text-[11px] text-muted-foreground/80">
                 {fmtRange(trip.data.start_date, trip.data.end_date, lang)}
@@ -901,13 +943,28 @@ function EditTripDialog({
     q.length >= 2 && !filtered.some((c) => c.name.toLowerCase() === q);
 
   function toggle(c: { name: string; country: string; lat?: number; lng?: number }) {
+    const key = `${c.country}|${c.name}`;
     setCities((prev) => {
-      const key = `${c.country}|${c.name}`;
       const exists = prev.some((x) => `${x.country}|${x.name}` === key);
       return exists
         ? prev.filter((x) => `${x.country}|${x.name}` !== key)
         : [...prev, c];
     });
+    // A curated pick can still be missing coordinates (the underlying city
+    // list doesn't carry lat/lng for every entry) and a custom free-text city
+    // (see addCustom, below) never has any at all. Without them the city's
+    // COUNTRY still lights up on the world map (the "Mappa" tab only needs
+    // the ISO code for that) but the city itself gets no pin — WorldMap's
+    // pin list drops anything lacking numeric lat/lng — which read as "the
+    // country is marked but its cities aren't shown". Geocode it in the
+    // background and merge the coordinates in once found, same fallback the
+    // new-trip form already uses for the same reason.
+    if (typeof c.lat !== "number" || typeof c.lng !== "number") {
+      geocodeCity(c.name, c.country).then((coords) => {
+        if (!coords) return;
+        setCities((cs) => cs.map((x) => (`${x.country}|${x.name}` === key ? { ...x, ...coords } : x)));
+      }).catch(() => { /* coordinates are optional */ });
+    }
   }
 
   function addCustom() {

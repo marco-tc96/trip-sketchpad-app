@@ -1570,6 +1570,39 @@ export function TripMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeLines, showRoutes, transitPathCache]);
 
+  // A transit leg whose typed line couldn't be verified ("failed" above) is
+  // still drawn (see `drawn` below), but as a real road hop rather than a
+  // straight line — it's just as unconfirmed as a straight line would be
+  // (hence still dotted, see UNVERIFIED_DASH), but at least it doesn't cut
+  // across buildings/water like a straight chord would. Reuses the same OSRM
+  // driving-route fetch and `pathCache` as ground legs (keyed by `l.pathKey`).
+  useEffect(() => {
+    const pending = routeLines.filter(
+      (l) =>
+        TRANSIT_MODES.has(l.mode) &&
+        !!l.line &&
+        transitResolved[l.key]?.state === "failed" &&
+        l.a && l.b &&
+        !(l.pathKey in pathCache),
+    );
+    if (pending.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const updates: Record<string, [number, number][]> = {};
+      for (const l of pending) {
+        const path = await fetchRoadPathVia([l.a!, l.b!]);
+        if (path) updates[l.pathKey] = path;
+      }
+      if (!cancelled && Object.keys(updates).length > 0) {
+        for (const [k, v] of Object.entries(updates)) memRoad.set(k, v);
+        capMap(memRoad, 120);
+        setPathCache((prev) => ({ ...prev, ...updates }));
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeLines, transitResolved, retryTick]);
+
   // Assemble the drawn geometry + coloured pins for every leg. Transit legs come
   // from transitResolved (relation stops); ground legs use the OSRM road path;
   // everything else is a straight line between geocoded endpoints.
@@ -1589,9 +1622,11 @@ export function TripMap({
       // now, to avoid flashing a wrong fallback before the real geometry is in.
       // One OSM couldn't verify at all ("failed" — an unknown ref, or a
       // boarding/alighting name that doesn't match any real stop on it) is NOT
-      // silently dropped: it falls through to the plain straight-line drawing
-      // below, just forced dotted, so a manually-typed, unverifiable line still
-      // shows an honest best-guess hop instead of vanishing from the map.
+      // silently dropped: it falls through to the road-snapped drawing below
+      // (same OSRM path ground legs use, see the fetch effect above it), just
+      // forced dotted — a manually-typed, unverifiable line still shows a real
+      // road it could plausibly follow, rather than either vanishing from the
+      // map or cutting a straight chord across buildings/water.
       let unverified = false;
       if (TRANSIT_MODES.has(l.mode)) {
         const res = transitResolved[key];
@@ -1617,7 +1652,10 @@ export function TripMap({
       const a = l.a, b = l.b;
       if (!a || !b) return;
       let positions: LL[] = [a, b];
-      if (GROUND_MODES.has(l.mode) && pathCache[l.pathKey]) positions = pathCache[l.pathKey];
+      // Unverified transit legs get the same OSRM road-snapped path as ground
+      // legs (see the fetch effect above) — falls back to the straight [a, b]
+      // above until that finishes, then upgrades to the real road, still dotted.
+      if ((GROUND_MODES.has(l.mode) || unverified) && pathCache[l.pathKey]) positions = pathCache[l.pathKey];
       else if (l.mode === "train" && railCache[key]) positions = railCache[key];
       // Endpoints (departure/arrival) are FILLED pins. City stops are HOLLOW pins
       // (filled ones stay reserved for the trip's own cities + start/end). Highway
