@@ -683,7 +683,7 @@ async function geocodePlace(query: string, country?: string, airportHint = false
     if (byIataOffline) return byIataOffline;
   }
   if (isAirport && !iata) {
-    const byNameOffline = await airportCoordsByPlaceName(q);
+    const byNameOffline = await airportCoordsByPlaceName(q, country);
     if (byNameOffline) return byNameOffline;
   }
   // Airports: the IATA code gives an exact, unambiguous location — try it first.
@@ -929,7 +929,16 @@ const memRail = new Map<string, LL[]>();
 // the wrong feature. El Prat may still have a stale wrong point cached from
 // before this change (and before v5) — bumping discards it so every airport
 // pin is resolved fresh from the reliable offline source.
-const GEO_LS_KEY = "voyager_geocache_v6";
+// v7: bumped from v6 because the no-IATA fallback (`airportCoordsByPlaceName`)
+// matched a plain city name globally with no country scoping — a city name
+// isn't always unique worldwide (e.g. "Barcelona" also names a city with its
+// own airport in Venezuela), so a leg whose saved label really is just the
+// bare city name (no "IATA - " prefix, e.g. an older leg, or one where the
+// picker only ended up storing the city part) could hit that ambiguity and
+// fall through to the fuzzier live search after all. Now scoped by the leg's
+// own country first. Bumping discards any pin resolved under the old,
+// unscoped version of that fallback.
+const GEO_LS_KEY = "voyager_geocache_v7";
 const GEO_CAP = 800; // max total geocoding entries kept (keeps storage tiny)
 (function loadGeoCache() {
   try {
@@ -1762,11 +1771,12 @@ export function TripMap({
         const res = transitResolved[key];
         if (res) {
           if (res.state === "ok" && res.positions && res.pins) {
-            // Metro AND tram lines draw in their real network colour when OSM
-            // tags it (e.g. Milano M1 red, Roma B blue); other transit modes
-            // keep their fixed mode colour, and metro/tram fall back to it
+            // Metro, tram AND train lines draw in their real network colour
+            // when OSM tags it (e.g. Milano M1 red, Roma B blue, Barcelona's
+            // Rodalies R2 Nord's own line colour); other transit modes keep
+            // their fixed mode colour, and metro/tram/train fall back to it
             // when the line's real colour is unknown.
-            const usesRealColor = l.mode === "metro" || l.mode === "tram";
+            const usesRealColor = l.mode === "metro" || l.mode === "tram" || l.mode === "train";
             const lineColor = usesRealColor && res.color ? res.color : color;
             // No real track geometry from OSM (see `noGeometry`) → use the
             // OSRM-snapped road path fetched above instead of the raw

@@ -226,16 +226,29 @@ export async function airportCoordsByIata(code: string): Promise<{ lat: number; 
 // own municipality/name fields instead. Only returns a result when exactly
 // ONE usable airport matches, so an ambiguous multi-airport city (e.g.
 // "Milano") is deliberately left unresolved here rather than guessing.
-export async function airportCoordsByPlaceName(query: string): Promise<{ lat: number; lng: number } | null> {
+//
+// A plain city name is NOT always unique worldwide even when it looks like
+// it should be — e.g. "Barcelona" also names a city with its own commercial
+// airport (BLA) in Venezuela. Without a country to disambiguate, that turns
+// what should be a single obvious match into two, and this function bails
+// out (matches.length !== 1) rather than guess between them. `countryIso`
+// (the leg's own ISO country, already known by every caller) fixes this: it
+// narrows to that country FIRST, and only widens to a global search if the
+// country-scoped narrowing finds nothing (e.g. the country hint was itself
+// missing/wrong).
+export async function airportCoordsByPlaceName(query: string, countryIso?: string | null): Promise<{ lat: number; lng: number } | null> {
   const q = (query ?? "").trim().toLowerCase();
   if (q.length < 2) return null;
   const all = await loadAirports();
-  const matches = all.filter((a) => {
+  const candidates = (pool: Airport[]) => pool.filter((a) => {
     if (!isUsable(a)) return false;
     if (typeof a.latitude_deg !== "number" || typeof a.longitude_deg !== "number") return false;
     const hay = `${a.name} ${a.municipality ?? ""}`.toLowerCase();
     return hay.includes(q) || q.includes((a.municipality ?? "").toLowerCase().trim() || "\0");
   });
+  const iso = (countryIso ?? "").trim().toUpperCase();
+  let matches = iso ? candidates(all.filter((a) => (a.iso_country ?? "").toUpperCase() === iso)) : [];
+  if (matches.length !== 1) matches = candidates(all);
   if (matches.length !== 1) return null;
   return { lat: matches[0].latitude_deg as number, lng: matches[0].longitude_deg as number };
 }

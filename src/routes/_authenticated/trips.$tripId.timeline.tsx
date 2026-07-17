@@ -2126,11 +2126,34 @@ function AddItemDialog({
                 ? (distinctModes.length > 1 ? "transfer" : (distinctModes[0] ?? form.selectedTransit[0]))
                 : form.kind) as (typeof ITEM_KINDS)[number];
               const meta = usingLegs ? { mixed_legs: legs } : undefined;
-              // Se manca start_at ma c'è il depart_at della prima tratta, usalo
+              // Se manca l'orario di "Orario inizio"/"Orario fine" ma è stato
+              // inserito l'orario di partenza/arrivo di una tratta, usa
+              // quello. `form.start_at`/`form.end_at` are never actually an
+              // empty string once a day is picked — seedForm() above fills
+              // them with that day's date + "T00:00" as a placeholder, so a
+              // simple `form.start_at || ...` fallback never fires: the
+              // seeded midnight value is always truthy. Instead, treat the
+              // TIME portion specifically as "not chosen yet" whenever it's
+              // still exactly "00:00" (the untouched seed), and in that case
+              // swap in the leg's own time while keeping the activity's own
+              // chosen DATE — a leg's depart_at/arrive_at is only a bare
+              // "HH:mm" (a <input type="time">, no date of its own), so it
+              // can't be used as a full start_at/end_at on its own.
               const firstLegDepart = usingLegs ? (legs[0]?.depart_at ?? "") : "";
               const lastLegArrive = usingLegs ? (legs[legs.length - 1]?.arrive_at ?? "") : "";
-              const resolvedStartAt = form.start_at || firstLegDepart || null;
-              const resolvedEndAt = form.end_at || lastLegArrive || null;
+              // `fallbackDate` anchors end_at to the activity's own start_at day
+              // when end_at itself has no date at all yet (a same-day activity
+              // is the sane default absent any other signal).
+              const withLegTimeFallback = (activityDateTime: string, legTime: string, fallbackDate: string): string | null => {
+                if (!legTime) return activityDateTime || null;
+                const datePart = (activityDateTime || fallbackDate || "").slice(0, 10);
+                if (!datePart) return activityDateTime || null;
+                const timePart = activityDateTime.slice(11, 16);
+                if (!timePart || timePart === "00:00") return `${datePart}T${legTime}`;
+                return activityDateTime;
+              };
+              const resolvedStartAt = withLegTimeFallback(form.start_at, firstLegDepart, form.start_at) || null;
+              const resolvedEndAt = withLegTimeFallback(form.end_at, lastLegArrive, form.start_at) || null;
               if (existing) {
                 await updateFn({
                   data: {
@@ -2259,7 +2282,16 @@ function AddItemDialog({
               <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
                 <Command shouldFilter={false}>
                   <CommandInput placeholder={t("search_type")} value={locQuery} onValueChange={setLocQuery} />
-                  <CommandList className="max-h-72">
+                  {/* Radix already repositions the popover (flips above the field,
+                      shrinks the room it has) when the on-screen keyboard eats the
+                      bottom of the screen — but a FIXED "max-h-72" on the list inside
+                      ignored how much room Radix actually found, so the list could
+                      still be taller than the space left and get cut off/require an
+                      awkward scroll under the keyboard. `--radix-popover-content-
+                      available-height` is the exact space Radix computed; capping at
+                      the smaller of that and the old 18rem keeps the same look when
+                      there's plenty of room, and actually fits when there isn't. */}
+                  <CommandList className="max-h-[min(18rem,var(--radix-popover-content-available-height,18rem))]">
                     {matchTrip.length === 0 && matchExtras.length === 0 && !locQuery && (
                       <CommandEmpty>{t("no_cities")}</CommandEmpty>
                     )}
@@ -2432,16 +2464,11 @@ function AddItemDialog({
                           (not a free-text/global search), since a local rail network
                           only makes sense for a city already on the itinerary. */}
                       {leg.mode === "train" && leg.trainScope === "local" && (
-                        <select
+                        <LegCityCombobox
+                          cities={tripCities}
                           value={leg.city ?? ""}
-                          onChange={(e) => updateMixedLeg(i, { city: e.target.value, vehicle: "", from_stop: "", to_stop: "" })}
-                          className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                        >
-                          <option value="">{t("select_city_placeholder")}</option>
-                          {tripCities.map((c) => (
-                            <option key={`${c.country}|${c.name}`} value={c.name}>{c.name}</option>
-                          ))}
-                        </select>
+                          onChange={(city) => updateMixedLeg(i, { city, vehicle: "", from_stop: "", to_stop: "" })}
+                        />
                       )}
                       {/* Line / vehicle picker — city comes from the trip's generic
                           `location` field for bus/metro/tram (unaffected), or from the
@@ -2657,6 +2684,68 @@ function fmtDT(s: string, lang?: string) {
   return showTime ? `${dateStr} ${timePart}` : dateStr;
 }
 
+// City picker for a local-train leg — restricted to the trip's OWN configured
+// cities (not a free-text/global search, since a local rail network only
+// makes sense for a city already on the itinerary). Built as the same
+// Popover+Command combobox (with flags) used everywhere else in this dialog
+// — e.g. the activity's own "location" field just above — instead of a plain
+// native <select>, which (a) looks inconsistent (no flags, different visual
+// style) and (b) opens as the OS's own full-screen picker on mobile, which
+// doesn't match the in-page dropdown pattern the rest of the form uses.
+function LegCityCombobox({
+  cities, value, onChange,
+}: {
+  cities: Array<{ name: string; country: string }>;
+  value: string;
+  onChange: (city: string) => void;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const selected = cities.find((c) => c.name === value);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className="h-9 w-full justify-between font-normal"
+        >
+          <span className="flex min-w-0 items-center gap-1.5 truncate">
+            {selected && <span className="shrink-0">{flagOf(selected.country)}</span>}
+            <span className={cn("truncate", !selected && "text-muted-foreground")}>
+              {selected ? selected.name : t("select_city_placeholder")}
+            </span>
+          </span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+        <Command>
+          <CommandInput placeholder={t("search_type")} />
+          <CommandList className="max-h-[min(18rem,var(--radix-popover-content-available-height,18rem))]">
+            {cities.length === 0 && <CommandEmpty>{t("no_cities")}</CommandEmpty>}
+            <CommandGroup>
+              {cities.map((c) => (
+                <CommandItem
+                  key={`${c.country}|${c.name}`}
+                  value={c.name}
+                  onSelect={() => { onChange(c.name); setOpen(false); }}
+                >
+                  <Check className={cn("mr-2 h-4 w-4", value === c.name ? "opacity-100" : "opacity-0")} />
+                  <span className="mr-2">{flagOf(c.country)}</span>
+                  <span>{c.name}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 // Autocomplete for transit stops filtered by city + mode
 // Boarding/alighting stops for one multi-modal leg. Fetches the selected
 // line's stops so the suggestions are limited to that line (not other lines).
@@ -2848,7 +2937,7 @@ function StopCombobox({
         autoComplete="off"
       />
       {open && (suggestions.length > 0 || (!hasLineStops && remote.isFetching)) && (
-        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-52 overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] overflow-auto overscroll-contain rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
           {suggestions.map((h, idx) => (
             <button
               type="button"
@@ -2924,7 +3013,7 @@ function LineCombobox({
         disabled={!city}
       />
       {open && (suggestions.length > 0 || loading) && (
-        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-60 overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] overflow-auto overscroll-contain rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
           {suggestions.map(line => {
             const desc = stripLineRef(line.name, line.ref);
             return (
@@ -3313,7 +3402,7 @@ function WaypointCombobox({
         onChange={(e) => { onType(e.target.value); setOpen(true); }}
       />
       {open && (items.length > 0 || loading) && (
-        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-64 overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] overflow-auto overscroll-contain rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
           {loading && items.length === 0 && (
             <div className="px-2 py-1.5 text-xs text-muted-foreground">…</div>
           )}
@@ -3586,7 +3675,7 @@ function HubCombobox({
             autoComplete="off"
           />
           {cityOpen && filteredCities.length > 0 && (
-            <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-56 overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+            <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] overflow-auto overscroll-contain rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
               {filteredCities.map((c, i) => {
                 const sel = cityQuery === c.name;
                 return (
@@ -3626,7 +3715,7 @@ function HubCombobox({
               autoComplete="off"
             />
             {open && (poiToShow.length > 0 || liveToShow.length > 0 || liveLoading || usedToShow.length > 0 || value.trim() !== cityLabel) && (
-              <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-72 overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+              <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] overflow-auto overscroll-contain rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
                 {value.trim() !== cityLabel && (
                   <button
                     type="button"
@@ -3739,7 +3828,7 @@ function HubCombobox({
           autoComplete="off"
         />
         {open && q.length >= 3 && (tollHubs.length > 0 || tollRemote.isFetching) && (
-          <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-72 overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+          <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] overflow-auto overscroll-contain rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
             {tollHubs.length > 0 && (
               <div className="py-1">
                 {tollHubs.map((h, i) => {
@@ -3816,7 +3905,7 @@ function HubCombobox({
             <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
           </button>
           {trainCountryOpen && trainCountryOptions.length > 0 && (
-            <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-56 overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+            <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] overflow-auto overscroll-contain rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
               {trainCountryOptions.map((iso) => {
                 const sel = iso === activeCountry;
                 return (
@@ -3853,7 +3942,7 @@ function HubCombobox({
             autoComplete="off"
           />
           {open && (filtered.length > 0 || hiddenCount > 0 || (q && (remoteHubs.length > 0 || trainRemote.isFetching))) && (
-            <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-72 overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+            <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] overflow-auto overscroll-contain rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
               {filtered.length === 0 && !q && (
                 <div className="px-2 py-1.5 text-xs text-muted-foreground">{t("no_option")}</div>
               )}
@@ -3967,7 +4056,7 @@ function HubCombobox({
           autoComplete="off"
         />
         {open && (filtered.length > 0 || hiddenCount > 0) && (
-          <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-72 overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+          <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] overflow-auto overscroll-contain rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
             {filtered.length === 0 && !q && (
               <div className="px-2 py-1.5 text-xs text-muted-foreground">{t("no_option")}</div>
             )}
@@ -4048,7 +4137,7 @@ function HubCombobox({
         autoComplete="off"
       />
       {open && (filtered.length > 0 || hiddenCount > 0 || (q && (remoteHubs.length > 0 || remote.isFetching))) && (
-        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-72 overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] overflow-auto overscroll-contain rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
           {filtered.length === 0 && !q && (
             <div className="px-2 py-1.5 text-xs text-muted-foreground">{t("no_option")}</div>
           )}
