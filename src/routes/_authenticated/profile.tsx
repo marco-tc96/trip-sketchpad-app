@@ -90,6 +90,21 @@ const MODE_LABEL_KEY: Record<string, string> = {
   tram: "tram",
 };
 
+// Same per-mode colours used for journey lines/markers on the trip map page
+// (see MODE_STYLE in trip-map.tsx) — kept in sync so a mode reads as the
+// same colour everywhere in the app.
+const MODE_COLOR: Record<string, string> = {
+  car: "#22c55e",   // green-500
+  moto: "#22c55e",  // green-500
+  plane: "#38bdf8", // sky-400
+  train: "#6b7280", // gray-500
+  taxi: "#eab308",  // yellow-500
+  bus: "#2563eb",   // blue-600
+  metro: "#8b5cf6", // violet-500
+  tram: "#10b981",  // emerald-500
+  ferry: "#0d9488", // teal-600
+};
+
 // ── Farthest-points compass: geocode every visited city (once, then cached —
 // both in-memory for the session and persisted to localStorage so a return
 // visit is instant) and track the N/S/E/W extremes among them. ────────────
@@ -568,10 +583,11 @@ function ProfilePage() {
             <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
               {transportAgg.vehicleCounts.map((v) => {
                 const Icon = MODE_ICON[v.mode] ?? RouteIcon;
+                const color = MODE_COLOR[v.mode];
                 const km = kmByMode[v.mode];
                 return (
                   <div key={v.mode} className="flex flex-col items-center rounded-2xl border border-border bg-secondary/30 p-4 text-center">
-                    <Icon className="h-4 w-4 text-primary" />
+                    <Icon className="h-4 w-4" style={color ? { color } : undefined} />
                     <p className="mt-2 text-[10px] uppercase tracking-wider text-muted-foreground">{t(MODE_LABEL_KEY[v.mode] ?? v.mode)}</p>
                     <p className="mt-0.5 font-serif text-xl font-semibold tabular-nums">{v.count}</p>
                     <p className="text-[11px] text-muted-foreground tabular-nums">
@@ -588,11 +604,13 @@ function ProfilePage() {
                 <ul className="mt-2 space-y-1.5 text-sm">
                   {transportAgg.topLines.map((r) => {
                     const Icon = MODE_ICON[r.mode] ?? RouteIcon;
+                    const color = MODE_COLOR[r.mode];
                     return (
                       <li key={r.mode} className="flex items-center justify-between gap-2">
                         <span className="flex min-w-0 items-center gap-1.5 truncate">
-                          <Icon className="h-3.5 w-3.5 shrink-0 text-primary" />
-                          <span className="truncate">{r.name}</span>
+                          <Icon className="h-3.5 w-3.5 shrink-0" style={color ? { color } : undefined} />
+                          <span className="shrink-0 text-[10px] uppercase tracking-wider text-muted-foreground">{t(MODE_LABEL_KEY[r.mode] ?? r.mode)}</span>
+                          <span className="truncate font-medium">{r.name}</span>
                         </span>
                         <span className="shrink-0 tabular-nums font-medium">{r.count}×</span>
                       </li>
@@ -608,11 +626,13 @@ function ProfilePage() {
                 <ul className="mt-2 space-y-1.5 text-sm">
                   {transportAgg.topRoutes.map((r) => {
                     const Icon = MODE_ICON[r.mode] ?? RouteIcon;
+                    const color = MODE_COLOR[r.mode];
                     return (
                       <li key={r.mode} className="flex items-center justify-between gap-2">
                         <span className="flex min-w-0 items-center gap-1.5 truncate">
-                          <Icon className="h-3.5 w-3.5 shrink-0 text-primary" />
-                          <span className="truncate">{r.a} ↔ {r.b}</span>
+                          <Icon className="h-3.5 w-3.5 shrink-0" style={color ? { color } : undefined} />
+                          <span className="shrink-0 text-[10px] uppercase tracking-wider text-muted-foreground">{t(MODE_LABEL_KEY[r.mode] ?? r.mode)}</span>
+                          <span className="truncate font-medium">{r.a} ↔ {r.b}</span>
                         </span>
                         <span className="shrink-0 tabular-nums font-medium">{r.count}×</span>
                       </li>
@@ -628,11 +648,13 @@ function ProfilePage() {
                 <ul className="mt-2 space-y-1.5 text-sm">
                   {transportAgg.topStations.map((r) => {
                     const Icon = MODE_ICON[r.mode] ?? RouteIcon;
+                    const color = MODE_COLOR[r.mode];
                     return (
                       <li key={r.mode} className="flex items-center justify-between gap-2">
                         <span className="flex min-w-0 items-center gap-1.5 truncate">
-                          <Icon className="h-3.5 w-3.5 shrink-0 text-primary" />
-                          <span className="truncate">{r.name}</span>
+                          <Icon className="h-3.5 w-3.5 shrink-0" style={color ? { color } : undefined} />
+                          <span className="shrink-0 text-[10px] uppercase tracking-wider text-muted-foreground">{t(MODE_LABEL_KEY[r.mode] ?? r.mode)}</span>
+                          <span className="truncate font-medium">{r.name}</span>
                         </span>
                         <span className="shrink-0 tabular-nums font-medium">{r.count}×</span>
                       </li>

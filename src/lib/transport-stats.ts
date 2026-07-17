@@ -131,12 +131,37 @@ export function aggregateTransport(rows: { kind: string; meta: unknown }[]): Tra
 
 // ── Distance estimation ─────────────────────────────────────────────────────
 // Every leg only stores place NAMES (station/airport/city labels), never
-// coordinates, so km travelled has to be estimated by geocoding each unique
-// endpoint name and summing haversine distances. Resolution is progressive
-// (like the Profile page's own city-extremes compass) and successful
-// look-ups are cached in localStorage so repeat visits are instant; failed
-// look-ups are only cached in memory for this session, so a transient miss
-// (rate limit / timeout) is retried on the next visit.
+// coordinates, so km travelled has to be estimated in two steps: (1) geocode
+// each unique endpoint name, then (2) get the distance BETWEEN the two
+// endpoints the same way the trip map draws it — following real roads
+// (OSRM) for road-bound modes, following real rail tracks (BRouter) for
+// trains, and only falling back to a straight great-circle line for modes
+// that genuinely fly/sail point-to-point (plane, ferry). A straight line
+// hugely overstates a taxi/car/bus/tram/metro trip in a dense city (short
+// real streets vs. a "as the crow flies" chord that can cut across water or
+// blocks), which is exactly what produced unrealistic multi-thousand-km taxi
+// totals before this fix. If the routing service can't find a route for a
+// road/rail leg, that leg is EXCLUDED from the total rather than silently
+// falling back to the (potentially wildly wrong) straight-line distance —
+// a failure there is usually a sign the two endpoints were geocoded to the
+// wrong place entirely (e.g. same-named station in another country), so a
+// straight-line guess would just compound the error.
+// Resolution is progressive (like the Profile page's own city-extremes
+// compass) and successful look-ups are cached in localStorage so repeat
+// visits are instant; failed look-ups are only cached in memory for this
+// session, so a transient miss (rate limit / timeout) is retried on the
+// next visit.
+
+// Road-bound modes: their distance is the real driving/street route (OSRM).
+// Metro has no widely-available underground-routing API, so it's treated as
+// a road-following approximation too — still far closer to reality than a
+// straight chord through several city blocks.
+const ROAD_ROUTE_MODES = new Set(["car", "moto", "taxi", "bus", "tram", "metro"]);
+// Trains follow the real railway network (BRouter's rail profile).
+const RAIL_ROUTE_MODES = new Set(["train"]);
+// Planes and ferries genuinely travel point-to-point — great-circle is the
+// realistic distance for these, same as how flight distances are normally
+// quoted.
 
 function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
   const R = 6371;
@@ -218,9 +243,103 @@ async function geocodePlaceCached(rawName: string): Promise<{ lat: number; lng: 
   return coords;
 }
 
-/** Progressively resolves every place name used by `legsByMode` and returns
- *  the running total of km travelled per mode. `resolving` is true while
- *  background look-ups are still in flight. */
+// Real driving-route distance between two points, via the same OSRM
+// instance the trip map uses to snap car/moto/bus legs to actual roads.
+// Returns km, or null if OSRM can't find a route at all (see note above on
+// why that's treated as "exclude", not "fall back to a straight line").
+async function osrmDrivingDistanceKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }): Promise<number | null> {
+  try {
+    const url = `https://router.project-osrm.org/route/v1/driving/${a.lng},${a.lat};${b.lng},${b.lat}?overview=false`;
+    const r = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!r.ok) return null;
+    const data = (await r.json()) as { routes?: Array<{ distance?: number }> };
+    const meters = data.routes?.[0]?.distance;
+    return typeof meters === "number" ? meters / 1000 : null;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+// Real railway-track distance between two points, via BRouter's rail
+// profile (same service the trip map uses to trace train legs on the
+// actual tracks). BRouter returns a polyline rather than a bare distance
+// figure, so the km total is the sum of its segment lengths.
+async function brouterRailDistanceKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }): Promise<number | null> {
+  try {
+    const url =
+      `https://brouter.de/brouter?lonlats=${a.lng},${a.lat}|${b.lng},${b.lat}` +
+      `&profile=rail&alternativeidx=0&format=geojson`;
+    const r = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!r.ok) return null;
+    const data = (await r.json()) as { features?: Array<{ geometry?: { coordinates?: number[][] } }> };
+    const coords = data.features?.[0]?.geometry?.coordinates;
+    if (!Array.isArray(coords) || coords.length < 2) return null;
+    let total = 0;
+    for (let i = 1; i < coords.length; i++) {
+      total += haversineKm(
+        { lat: coords[i - 1][1], lng: coords[i - 1][0] },
+        { lat: coords[i][1], lng: coords[i][0] },
+      );
+    }
+    return total;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+type RouteCategory = "road" | "rail" | "gc";
+function routeCategoryFor(mode: string): RouteCategory {
+  if (RAIL_ROUTE_MODES.has(mode)) return "rail";
+  if (ROAD_ROUTE_MODES.has(mode)) return "road";
+  return "gc";
+}
+
+const ROUTE_DIST_CACHE_KEY = "voyager.transportRouteDistCache.v1";
+let _routeDistPersisted: Record<string, number> = {};
+try {
+  if (typeof localStorage !== "undefined") {
+    const raw = localStorage.getItem(ROUTE_DIST_CACHE_KEY);
+    if (raw) _routeDistPersisted = JSON.parse(raw) as Record<string, number>;
+  }
+} catch {
+  /* ignore */
+}
+// In-memory cache also holds `null` for this-session failures (excluded
+// legs) so they aren't refetched over and over while the page is open, but
+// (unlike successes) that null is never written to localStorage — a
+// transient routing hiccup should still get a fresh chance next visit.
+const _memRouteDist = new Map<string, number | null>(Object.entries(_routeDistPersisted));
+
+let _routeDistSaveTimer: ReturnType<typeof setTimeout> | undefined;
+function persistRouteDist() {
+  if (_routeDistSaveTimer) clearTimeout(_routeDistSaveTimer);
+  _routeDistSaveTimer = setTimeout(() => {
+    try {
+      localStorage.setItem(ROUTE_DIST_CACHE_KEY, JSON.stringify(_routeDistPersisted));
+    } catch {
+      /* ignore */
+    }
+  }, 500);
+}
+
+function routeDistKey(category: RouteCategory, a: { lat: number; lng: number }, b: { lat: number; lng: number }): string {
+  const round = (n: number) => n.toFixed(4);
+  return `${category}|${round(a.lat)},${round(a.lng)}|${round(b.lat)},${round(b.lng)}`;
+}
+
+async function resolveRouteDistKm(category: RouteCategory, a: { lat: number; lng: number }, b: { lat: number; lng: number }): Promise<number | null> {
+  if (category === "gc") return haversineKm(a, b);
+  const km = category === "rail" ? await brouterRailDistanceKm(a, b) : await osrmDrivingDistanceKm(a, b);
+  return km; // null on failure — caller excludes the leg, see note above.
+}
+
+/** Progressively resolves every place name used by `legsByMode`, then the
+ *  real road/rail/great-circle distance between each unique pair of
+ *  resolved endpoints, and returns the running total of km travelled per
+ *  mode. `resolving` is true while background look-ups are still in
+ *  flight. */
 export function useTransportKm(legsByMode: Record<string, ParsedLeg[]>): {
   kmByMode: Record<string, number>;
   resolving: boolean;
@@ -236,18 +355,19 @@ export function useTransportKm(legsByMode: Record<string, ParsedLeg[]>): {
   }, [allLegs]);
 
   const [geo, setGeo] = useState<Map<string, { lat: number; lng: number } | null>>(() => new Map(_memGeo));
-  const [resolving, setResolving] = useState(false);
+  const [resolvingPlaces, setResolvingPlaces] = useState(false);
 
+  // Step 1: geocode every unique place name.
   useEffect(() => {
     let alive = true;
     const names = namesKey ? namesKey.split("|").filter(Boolean) : [];
     setGeo(new Map(_memGeo));
     const pending = names.filter((n) => !_memGeo.has(n));
     if (pending.length === 0) {
-      setResolving(false);
+      setResolvingPlaces(false);
       return;
     }
-    setResolving(true);
+    setResolvingPlaces(true);
     let timer: ReturnType<typeof setTimeout> | undefined;
     (async () => {
       for (let i = 0; i < pending.length; i++) {
@@ -266,7 +386,7 @@ export function useTransportKm(legsByMode: Record<string, ParsedLeg[]>): {
         /* ignore */
       })
       .finally(() => {
-        if (alive) setResolving(false);
+        if (alive) setResolvingPlaces(false);
       });
     return () => {
       alive = false;
@@ -275,19 +395,88 @@ export function useTransportKm(legsByMode: Record<string, ParsedLeg[]>): {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [namesKey]);
 
+  // Step 2: once both endpoints of a leg are geocoded, resolve the real
+  // road/rail/great-circle distance for that (unique) endpoint pair.
+  const pendingRoutePairs = useMemo(() => {
+    const seen = new Set<string>();
+    const list: { key: string; category: RouteCategory; a: { lat: number; lng: number }; b: { lat: number; lng: number } }[] = [];
+    for (const l of allLegs) {
+      const a = geo.get(l.from.trim().toLowerCase());
+      const b = geo.get(l.to.trim().toLowerCase());
+      if (!a || !b) continue;
+      const category = routeCategoryFor(l.mode);
+      const key = routeDistKey(category, a, b);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      list.push({ key, category, a, b });
+    }
+    return list;
+  }, [allLegs, geo]);
+  const routeKeysJoined = useMemo(() => pendingRoutePairs.map((p) => p.key).join(","), [pendingRoutePairs]);
+
+  const [routeDist, setRouteDist] = useState<Map<string, number | null>>(() => new Map(_memRouteDist));
+  const [resolvingRoutes, setResolvingRoutes] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    setRouteDist(new Map(_memRouteDist));
+    const pending = pendingRoutePairs.filter((p) => !_memRouteDist.has(p.key));
+    if (pending.length === 0) {
+      setResolvingRoutes(false);
+      return;
+    }
+    setResolvingRoutes(true);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    (async () => {
+      for (let i = 0; i < pending.length; i++) {
+        if (!alive) break;
+        const p = pending[i];
+        const km = await resolveRouteDistKm(p.category, p.a, p.b);
+        _memRouteDist.set(p.key, km);
+        if (km !== null) {
+          _routeDistPersisted[p.key] = km;
+          persistRouteDist();
+        }
+        if (!alive) break;
+        setRouteDist(new Map(_memRouteDist));
+        if (i < pending.length - 1) {
+          await new Promise<void>((r) => {
+            timer = setTimeout(r, 400);
+          });
+        }
+      }
+    })()
+      .catch(() => {
+        /* ignore */
+      })
+      .finally(() => {
+        if (alive) setResolvingRoutes(false);
+      });
+    return () => {
+      alive = false;
+      if (timer) clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeKeysJoined]);
+
   const kmByMode = useMemo(() => {
     const out: Record<string, number> = {};
     for (const [mode, legs] of Object.entries(legsByMode)) {
       let total = 0;
+      const category = routeCategoryFor(mode);
       for (const l of legs) {
         const a = geo.get(l.from.trim().toLowerCase());
         const b = geo.get(l.to.trim().toLowerCase());
-        if (a && b) total += haversineKm(a, b);
+        if (!a || !b) continue;
+        const km = routeDist.get(routeDistKey(category, a, b));
+        if (typeof km === "number") total += km;
+        // km === null (routing failed) or undefined (not resolved yet) →
+        // this leg is excluded from the total rather than guessed at.
       }
       out[mode] = Math.round(total);
     }
     return out;
-  }, [legsByMode, geo]);
+  }, [legsByMode, geo, routeDist]);
 
-  return { kmByMode, resolving };
+  return { kmByMode, resolving: resolvingPlaces || resolvingRoutes };
 }
