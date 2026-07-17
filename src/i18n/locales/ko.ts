@@ -264,6 +264,7 @@ const translations: Record<string, string> = {
   multi_modal: "복합 교통",
   line: "노선",
   select_line: "노선 선택…",
+  toll_booth_placeholder: "톨게이트 검색…",
   // ── Trip page ──────────────────────────────────────────────────────────
   add_to_favorites: "Add to favorites",
   remove_from_favorites: "Remove from favorites",

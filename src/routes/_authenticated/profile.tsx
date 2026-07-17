@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
   BarChart3, Globe2, MapPin, CalendarDays, Briefcase, Palmtree, Footprints, Settings as SettingsIcon,
-  Compass, Route as RouteIcon, Plane, TrainFront, Train, Car, Bus, Ship, Bike, CarTaxiFront, TramFront,
+  Compass, Route as RouteIcon, Plane, TrainFront, Car, Bus, Ship, Bike, CarTaxiFront, TramFront,
 } from "lucide-react";
 import { getProfile, updateProfile } from "@/lib/profile.functions";
 import { listTrips } from "@/lib/trips.functions";
@@ -65,6 +65,25 @@ const CONTINENT_EMOJI: Record<string, string> = {
   "South America": "🌎",
 };
 
+// A plain side-view train/metro car — two windows, two wheels — used ONLY
+// for "metro" below. Lucide's own train/tram icons (TrainFront, TramFront)
+// are both FRONT-view glyphs that read as near-identical at this icon size,
+// which is exactly why metro used to look like tram here; this custom glyph
+// is deliberately a different silhouette (a horizontal wagon) so the two
+// are unmistakable at a glance.
+function MetroWagonIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <rect x="3" y="6" width="18" height="11" rx="2" />
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <rect x="6.3" y="8.3" width="3.6" height="2.4" rx="0.4" />
+      <rect x="14.1" y="8.3" width="3.6" height="2.4" rx="0.4" />
+      <circle cx="7.5" cy="19" r="1.4" />
+      <circle cx="16.5" cy="19" r="1.4" />
+    </svg>
+  );
+}
+
 // ── Transport stats: icon + i18n-label lookup per leg mode ─────────────────
 const MODE_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   plane: Plane,
@@ -74,7 +93,7 @@ const MODE_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   moto: Bike,
   ferry: Ship,
   bus: Bus,
-  metro: Train,
+  metro: MetroWagonIcon,
   tram: TramFront,
 };
 
@@ -94,7 +113,7 @@ const MODE_LABEL_KEY: Record<string, string> = {
 // (see MODE_STYLE in trip-map.tsx) — kept in sync so a mode reads as the
 // same colour everywhere in the app.
 const MODE_COLOR: Record<string, string> = {
-  car: "#22c55e",   // green-500
+  car: "#ef4444",   // red-500
   moto: "#22c55e",  // green-500
   plane: "#38bdf8", // sky-400
   train: "#6b7280", // gray-500
@@ -610,9 +629,12 @@ function ProfilePage() {
                         <span className="flex min-w-0 items-center gap-1.5 truncate">
                           <Icon className="h-3.5 w-3.5 shrink-0" style={color ? { color } : undefined} />
                           <span className="shrink-0 text-[10px] uppercase tracking-wider text-muted-foreground">{t(MODE_LABEL_KEY[r.mode] ?? r.mode)}</span>
-                          <span className="truncate font-medium">{r.name}</span>
+                          <span className="truncate font-medium">
+                            {r.name}
+                            {r.city && <span className="ml-1 text-muted-foreground">({r.city})</span>}
+                          </span>
                         </span>
-                        <span className="shrink-0 tabular-nums font-medium">{r.count}×</span>
+                        <span className="shrink-0 tabular-nums font-medium">{r.count}</span>
                       </li>
                     );
                   })}
@@ -634,7 +656,7 @@ function ProfilePage() {
                           <span className="shrink-0 text-[10px] uppercase tracking-wider text-muted-foreground">{t(MODE_LABEL_KEY[r.mode] ?? r.mode)}</span>
                           <span className="truncate font-medium">{r.a} ↔ {r.b}</span>
                         </span>
-                        <span className="shrink-0 tabular-nums font-medium">{r.count}×</span>
+                        <span className="shrink-0 tabular-nums font-medium">{r.count}</span>
                       </li>
                     );
                   })}
@@ -653,10 +675,15 @@ function ProfilePage() {
                       <li key={r.mode} className="flex items-center justify-between gap-2">
                         <span className="flex min-w-0 items-center gap-1.5 truncate">
                           <Icon className="h-3.5 w-3.5 shrink-0" style={color ? { color } : undefined} />
-                          <span className="shrink-0 text-[10px] uppercase tracking-wider text-muted-foreground">{t(MODE_LABEL_KEY[r.mode] ?? r.mode)}</span>
-                          <span className="truncate font-medium">{r.name}</span>
+                          <span className="shrink-0 text-[10px] uppercase tracking-wider text-muted-foreground">
+                            {r.mode === "plane" ? t("mode_plane") : t(MODE_LABEL_KEY[r.mode] ?? r.mode)}
+                          </span>
+                          <span className="truncate font-medium">
+                            {r.name}
+                            {r.city && <span className="ml-1 text-muted-foreground">({r.city})</span>}
+                          </span>
                         </span>
-                        <span className="shrink-0 tabular-nums font-medium">{r.count}×</span>
+                        <span className="shrink-0 tabular-nums font-medium">{r.count}</span>
                       </li>
                     );
                   })}

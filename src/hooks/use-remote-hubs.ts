@@ -2,11 +2,15 @@ import { useQuery } from "@tanstack/react-query";
 import type { Hub, HubKind } from "@/lib/transport-hubs";
 
 // Map our hub kinds to Nominatim feature filters. Nominatim "amenity" /
-// "aeroway" tags cover airports and stations worldwide.
+// "aeroway" tags cover airports and stations worldwide. "toll" targets
+// motorway toll booths/gates (barrier=toll_booth in OSM) — used by the
+// car/moto outbound/return journey picker so a road-trip leg's from/to can
+// be anchored to a real highway toll booth instead of a whole city.
 const KIND_QUERY: Record<HubKind, string> = {
   train: "railway station",
   bus: "bus station",
   ferry: "ferry terminal port",
+  toll: "toll booth motorway",
 };
 
 type NominatimItem = {

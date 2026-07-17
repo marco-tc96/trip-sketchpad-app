@@ -8,9 +8,9 @@
 // Both shapes are normalized into a single ParsedLeg[] here.
 import { useEffect, useMemo, useState } from "react";
 
-export type ParsedLeg = { mode: string; from: string; to: string; line?: string };
+export type ParsedLeg = { mode: string; from: string; to: string; line?: string; city?: string };
 
-export type TransportItemRow = { trip_id: string; kind: string; meta: unknown };
+export type TransportItemRow = { trip_id: string; kind: string; meta: unknown; location?: string | null };
 
 const LEG_MODES = new Set(["car", "moto", "train", "plane", "ferry", "bus", "metro", "tram", "taxi"]);
 
@@ -21,11 +21,16 @@ function kindMode(kind: string): string | null {
   return null;
 }
 
-export function extractLegs(row: { kind: string; meta: unknown }): ParsedLeg[] {
+export function extractLegs(row: { kind: string; meta: unknown; location?: string | null }): ParsedLeg[] {
   const meta = (row.meta ?? {}) as Record<string, unknown>;
   const out: ParsedLeg[] = [];
   const fallbackMode = kindMode(row.kind);
   const metaMode = typeof meta.mode === "string" ? meta.mode : undefined;
+  // The itinerary item's own `location` (e.g. "Budapest") is the best
+  // available signal for which city a leg belongs to — station/stop names
+  // themselves are too inconsistent (sometimes "City - Stop", sometimes just
+  // the stop, sometimes a station code) to reliably parse a city back out.
+  const city = typeof row.location === "string" ? row.location.trim() : "";
 
   const legs = Array.isArray(meta.legs) ? (meta.legs as Record<string, unknown>[]) : [];
   for (const l of legs) {
@@ -34,7 +39,7 @@ export function extractLegs(row: { kind: string; meta: unknown }): ParsedLeg[] {
     const from = typeof l.from === "string" ? l.from.trim() : "";
     const to = typeof l.to === "string" ? l.to.trim() : "";
     if (!from || !to) continue;
-    out.push({ mode, from, to });
+    out.push({ mode, from, to, city: city || undefined });
   }
 
   const mixed = Array.isArray(meta.mixed_legs) ? (meta.mixed_legs as Record<string, unknown>[]) : [];
@@ -45,7 +50,7 @@ export function extractLegs(row: { kind: string; meta: unknown }): ParsedLeg[] {
     const to = typeof l.to_stop === "string" ? l.to_stop.trim() : "";
     if (!from || !to) continue;
     const line = typeof l.vehicle === "string" ? l.vehicle.trim() : "";
-    out.push({ mode, from, to, line: line || undefined });
+    out.push({ mode, from, to, line: line || undefined, city: city || undefined });
   }
 
   return out;
@@ -53,36 +58,56 @@ export function extractLegs(row: { kind: string; meta: unknown }): ParsedLeg[] {
 
 export type TransportAggregates = {
   vehicleCounts: { mode: string; count: number }[];
-  topLines: { mode: string; name: string; count: number }[];
+  topLines: { mode: string; name: string; city?: string; count: number }[];
   topRoutes: { mode: string; a: string; b: string; count: number }[];
-  topStations: { mode: string; name: string; count: number }[];
+  topStations: { mode: string; name: string; city?: string; count: number }[];
   legsByMode: Record<string, ParsedLeg[]>;
 };
 
 // "quale è stata la linea più usata" → bus/metro/tram, keyed by the line ref.
 const LINE_MODES = new Set(["bus", "metro", "tram"]);
-// "la tratta più usata" → flights/trains, keyed by the (unordered) endpoint pair.
-const ROUTE_MODES = new Set(["plane", "train"]);
+// "la tratta più usata" → flights/trains AND road/rail-based local transit
+// (car's "autostradale" route, metro, bus, tram), keyed by the (unordered)
+// endpoint pair.
+const ROUTE_MODES = new Set(["plane", "train", "car", "metro", "bus", "tram"]);
 // "la stazione più usata" → bus/metro/tram/airport/train, keyed by endpoint name.
 const STATION_MODES = new Set(["bus", "metro", "tram", "train", "plane"]);
+// A city label is only meaningful next to a LOCAL stop name (bus/metro/tram)
+// — train/plane endpoint names already carry enough place context on their
+// own (full station/airport names), so no separate city tag is added there.
+const CITY_TAGGED_STATION_MODES = new Set(["bus", "metro", "tram"]);
+// A "top" pick this rare isn't meaningfully "the most used" anything — drop
+// it instead of reporting a single one-off occurrence as a ranking.
+const MIN_TOP_COUNT = 2;
 
-export function aggregateTransport(rows: { kind: string; meta: unknown }[]): TransportAggregates {
+// Picks the most frequent city among a key's occurrences (e.g. every city
+// tag seen alongside a given bus line ref), used to label a "top X" result
+// with its city — falls back to no city if none of its occurrences carried one.
+function dominantCity(cityCounts: Map<string, number>): string | undefined {
+  const top = [...cityCounts.entries()].sort((a, b) => b[1] - a[1])[0];
+  return top?.[0];
+}
+
+export function aggregateTransport(rows: { kind: string; meta: unknown; location?: string | null }[]): TransportAggregates {
   const allLegs: ParsedLeg[] = [];
   for (const r of rows) allLegs.push(...extractLegs(r));
 
   const vehicleMap = new Map<string, number>();
   const legsByMode: Record<string, ParsedLeg[]> = {};
-  const lineMap = new Map<string, Map<string, number>>();
+  const lineMap = new Map<string, Map<string, { count: number; cities: Map<string, number> }>>();
   const routeMap = new Map<string, Map<string, { a: string; b: string; count: number }>>();
-  const stationMap = new Map<string, Map<string, number>>();
+  const stationMap = new Map<string, Map<string, { count: number; cities: Map<string, number> }>>();
 
   for (const leg of allLegs) {
     vehicleMap.set(leg.mode, (vehicleMap.get(leg.mode) ?? 0) + 1);
     (legsByMode[leg.mode] ??= []).push(leg);
 
     if (LINE_MODES.has(leg.mode) && leg.line) {
-      const m = lineMap.get(leg.mode) ?? new Map<string, number>();
-      m.set(leg.line, (m.get(leg.line) ?? 0) + 1);
+      const m = lineMap.get(leg.mode) ?? new Map<string, { count: number; cities: Map<string, number> }>();
+      const entry = m.get(leg.line) ?? { count: 0, cities: new Map<string, number>() };
+      entry.count += 1;
+      if (leg.city) entry.cities.set(leg.city, (entry.cities.get(leg.city) ?? 0) + 1);
+      m.set(leg.line, entry);
       lineMap.set(leg.mode, m);
     }
 
@@ -97,9 +122,13 @@ export function aggregateTransport(rows: { kind: string; meta: unknown }[]): Tra
     }
 
     if (STATION_MODES.has(leg.mode)) {
-      const m = stationMap.get(leg.mode) ?? new Map<string, number>();
-      m.set(leg.from, (m.get(leg.from) ?? 0) + 1);
-      m.set(leg.to, (m.get(leg.to) ?? 0) + 1);
+      const m = stationMap.get(leg.mode) ?? new Map<string, { count: number; cities: Map<string, number> }>();
+      for (const name of [leg.from, leg.to]) {
+        const entry = m.get(name) ?? { count: 0, cities: new Map<string, number>() };
+        entry.count += 1;
+        if (leg.city) entry.cities.set(leg.city, (entry.cities.get(leg.city) ?? 0) + 1);
+        m.set(name, entry);
+      }
       stationMap.set(leg.mode, m);
     }
   }
@@ -110,20 +139,29 @@ export function aggregateTransport(rows: { kind: string; meta: unknown }[]): Tra
 
   const topLines: TransportAggregates["topLines"] = [];
   for (const [mode, m] of lineMap) {
-    const top = [...m.entries()].sort((a, b) => b[1] - a[1])[0];
-    if (top) topLines.push({ mode, name: top[0], count: top[1] });
+    const top = [...m.entries()].sort((a, b) => b[1].count - a[1].count)[0];
+    if (top && top[1].count >= MIN_TOP_COUNT) {
+      topLines.push({ mode, name: top[0], city: dominantCity(top[1].cities), count: top[1].count });
+    }
   }
 
   const topRoutes: TransportAggregates["topRoutes"] = [];
   for (const [mode, m] of routeMap) {
     const top = [...m.values()].sort((a, b) => b.count - a.count)[0];
-    if (top) topRoutes.push({ mode, a: top.a, b: top.b, count: top.count });
+    if (top && top.count >= MIN_TOP_COUNT) topRoutes.push({ mode, a: top.a, b: top.b, count: top.count });
   }
 
   const topStations: TransportAggregates["topStations"] = [];
   for (const [mode, m] of stationMap) {
-    const top = [...m.entries()].sort((a, b) => b[1] - a[1])[0];
-    if (top) topStations.push({ mode, name: top[0], count: top[1] });
+    const top = [...m.entries()].sort((a, b) => b[1].count - a[1].count)[0];
+    if (top && top[1].count >= MIN_TOP_COUNT) {
+      topStations.push({
+        mode,
+        name: top[0],
+        city: CITY_TAGGED_STATION_MODES.has(mode) ? dominantCity(top[1].cities) : undefined,
+        count: top[1].count,
+      });
+    }
   }
 
   return { vehicleCounts, topLines, topRoutes, topStations, legsByMode };

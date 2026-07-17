@@ -264,6 +264,7 @@ const translations: Record<string, string> = {
   multi_modal: "複合交通",
   line: "路線",
   select_line: "路線を選択…",
+  toll_booth_placeholder: "料金所を検索…",
   // ── Trip page ──────────────────────────────────────────────────────────
   add_to_favorites: "Add to favorites",
   remove_from_favorites: "Remove from favorites",

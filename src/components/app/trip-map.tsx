@@ -96,7 +96,7 @@ const PRIMARY = "oklch(0.66 0.14 38)";
 // when the line's real OSM colour couldn't be resolved (see `drawn`, which
 // prefers the fetched line colour when available).
 const MODE_STYLE: Record<string, { color: string; dash?: string }> = {
-  car:      { color: "#22c55e" },              // green-500 — macchina
+  car:      { color: "#ef4444" },              // red-500 — macchina
   moto:     { color: "#22c55e" },              // green-500 — moto
   plane:    { color: "#38bdf8", dash: "2 8" }, // sky-400 (azzurro), dotted
   train:    { color: "#6b7280" },              // gray-500 — treno
@@ -713,7 +713,10 @@ const MODE_GLYPH: Record<string, string> = {
   moto: `<circle cx="6" cy="17" r="2.6"/><circle cx="18" cy="17" r="2.6"/><path d="M6 17h5l3-7h4"/><path d="M11 17l3-7"/>`,
   taxi: `<rect x="3" y="11" width="18" height="6" rx="2"/><path d="M5 11l2-5h10l2 5"/><circle cx="7.5" cy="19" r="1.4"/><circle cx="16.5" cy="19" r="1.4"/>`,
   train: `<rect x="6" y="4" width="12" height="11" rx="2"/><path d="M6 10h12M9 4v6M15 4v6"/><circle cx="9" cy="17.5" r="1.3"/><circle cx="15" cy="17.5" r="1.3"/>`,
-  plane: `<path d="M21 3 3 10.5l6.8 2.7L12.5 21 21 3z"/>`,
+  // Same silhouette as lucide's "Plane" icon (used everywhere else in the
+  // app for flights) instead of the previous hand-drawn stylized triangle,
+  // so a flight's endpoint pin actually reads as a plane at a glance.
+  plane: `<path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8l-8.2-1.8c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2Z"/>`,
   ferry: `<path d="M4 10h16l-2 6H6l-2-6z"/><path d="M8 10V5h4v5"/><path d="M3 19c1.5 1 3 1 4.5 0s3-1 4.5 0 3 1 4.5 0 3-1 4.5 0"/>`,
   bus: `<rect x="4" y="5" width="16" height="10" rx="2"/><path d="M4 10h16M8 5v5M16 5v5"/><circle cx="8" cy="17.5" r="1.3"/><circle cx="16" cy="17.5" r="1.3"/>`,
   metro: `<rect x="5" y="4" width="14" height="12" rx="4"/><path d="M5 10h14"/><circle cx="9" cy="18" r="1.3"/><circle cx="15" cy="18" r="1.3"/>`,

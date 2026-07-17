@@ -117,22 +117,26 @@ export const deleteItem = createServerFn({ method: "POST" })
   });
 
 /**
- * Returns every transport-carrying itinerary item (kind + meta + trip_id)
- * for the current user, across ALL of their trips. Used by the Profile
- * page to build cross-trip transport statistics (vehicle usage counts,
- * top line/route/station, distance travelled per mode). Callers filter
- * by trip_id client-side (e.g. to keep only past/ongoing trips, mirroring
- * the rest of the Profile stats) since this function intentionally stays
- * trip-agnostic to avoid an extra join here.
+ * Returns every transport-carrying itinerary item (kind + meta + trip_id +
+ * location) for the current user, across ALL of their trips. Used by the
+ * Profile page to build cross-trip transport statistics (vehicle usage
+ * counts, top line/route/station, distance travelled per mode). `location`
+ * is included because it's the most reliable signal for which CITY a leg
+ * belongs to (used to label a top bus/metro/tram line or stop with its
+ * city — station/stop names themselves are too inconsistently formatted to
+ * parse a city back out of). Callers filter by trip_id client-side (e.g. to
+ * keep only past/ongoing trips, mirroring the rest of the Profile stats)
+ * since this function intentionally stays trip-agnostic to avoid an extra
+ * join here.
  */
 export const listTransportItems = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { data, error } = await context.supabase
       .from("itinerary_items")
-      .select("trip_id, kind, meta")
+      .select("trip_id, kind, meta, location")
       .eq("user_id", context.userId)
       .in("kind", TRANSPORT_KINDS as unknown as string[]);
     if (error) throw new Error(error.message);
-    return (data ?? []) as { trip_id: string; kind: string; meta: unknown }[];
+    return (data ?? []) as { trip_id: string; kind: string; meta: unknown; location: string | null }[];
   });

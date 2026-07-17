@@ -566,7 +566,7 @@ const TRANSIT_COLOR_ACTIVE: Record<string, string> = {
   bus:   "border-sky-500 bg-sky-500 text-white",
   metro: "border-violet-500 bg-violet-500 text-white",
   tram:  "border-emerald-500 bg-emerald-500 text-white",
-  car:   "border-green-500 bg-green-500 text-white",
+  car:   "border-red-500 bg-red-500 text-white",
   moto:  "border-green-500 bg-green-500 text-white",
   taxi:  "border-yellow-500 bg-yellow-500 text-white",
 };
@@ -575,7 +575,7 @@ const TRANSIT_COLOR_INACTIVE: Record<string, string> = {
   bus:   "border-sky-400/40 text-sky-600 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/20",
   metro: "border-violet-400/40 text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/20",
   tram:  "border-emerald-400/40 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/20",
-  car:   "border-green-400/40 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-950/20",
+  car:   "border-red-400/40 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20",
   moto:  "border-green-400/40 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-950/20",
   taxi:  "border-yellow-400/40 text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/20",
 };
@@ -589,12 +589,18 @@ const TRANSIT_ICON: Record<string, React.ComponentType<{ className?: string }>> 
   taxi:  CarTaxiFront,
 };
 // Colour per transit mode — mirrors the edit screen's mode picker
-// (amber/sky/violet/emerald) so the timeline legs match those colours.
+// (amber/sky/violet/emerald/red/green/yellow) so the timeline legs match
+// those colours. car/moto/taxi used to be missing here entirely, which made
+// their leg-row icon silently fall back to a flat gray instead of picking up
+// a colour like every other mode.
 const TRANSIT_TEXT: Record<string, string> = {
   train: "text-amber-500",
   bus:   "text-sky-500",
   metro: "text-violet-500",
   tram:  "text-emerald-500",
+  car:   "text-red-500",
+  moto:  "text-green-500",
+  taxi:  "text-yellow-500",
 };
 
 function kindClasses(kind: string) {
@@ -1741,6 +1747,7 @@ function TransportDialog({
                       suggested={legs[i - 1]?.to?.trim() || undefined}
                       cityHint={cityHintFor(legs[i - 1]?.to?.trim() || undefined)}
                       usedPlaces={usedPlaces}
+                      journeyMode
                     />
                   </div>
                   <div className="space-y-1">
@@ -1754,6 +1761,7 @@ function TransportDialog({
                       suggested={legs[i + 1]?.from?.trim() || undefined}
                       cityHint={cityHintFor(legs[i + 1]?.from?.trim() || undefined)}
                       usedPlaces={usedPlaces}
+                      journeyMode
                     />
                   </div>
                   <div className="space-y-1">
@@ -3217,7 +3225,7 @@ function WaypointCombobox({
 
 
 function HubCombobox({
-  mode, countries, value, onChange, placeholder, suggested, cityHint, usedPlaces,
+  mode, countries, value, onChange, placeholder, suggested, cityHint, usedPlaces, journeyMode,
 }: {
   mode: TransportMode;
   countries: string[];
@@ -3237,6 +3245,13 @@ function HubCombobox({
   // station suggestions matching one are flagged with a small "already used"
   // badge so re-picking the same spot is easy to spot in a long list.
   usedPlaces?: string[];
+  // True ONLY for the outbound/return journey's own from/to fields (the top-
+  // level "how do I get to this trip" legs) — NOT for a car/moto leg used as
+  // a short in-city transfer inside `mixed_legs`. A car/moto journey leg is a
+  // road trip between cities, so its natural reference points are highway
+  // toll booths rather than a whole city (see isTollMode below); a mixed-leg
+  // car/moto transfer stays city+address-based since it's a short local hop.
+  journeyMode?: boolean;
 }) {
   const { t, i18n } = useTranslation();
   const lang = i18n.language || "it";
@@ -3249,9 +3264,18 @@ function HubCombobox({
   // original "search across all trip countries" behaviour.
   const isHub = mode === "bus" || mode === "ferry" || mode === "metro" || mode === "tram";
   const isTrainMode = mode === "train";
-  const isCityMode = mode === "car" || mode === "moto" || mode === "taxi";
+  // Car/moto on the outbound/return journey itself → toll booths, not cities.
+  const isTollMode = !!journeyMode && (mode === "car" || mode === "moto");
+  const isCityMode = !isTollMode && (mode === "car" || mode === "moto" || mode === "taxi");
   const airportsData = useAirports(true);
   const remote = useRemoteHubs(isHub ? modeToKind(mode) : null, isHub ? value : "");
+  // Toll booths aren't scoped to one city — search across every country the
+  // trip touches at once (Nominatim's countrycodes accepts a comma list).
+  const tollRemote = useRemoteHubs(
+    isTollMode ? "toll" : null,
+    isTollMode ? value : "",
+    isTollMode ? countries.join(",") : undefined,
+  );
 
   // ── Train-mode: pick the country first, then see (and search) exactly that
   // country's stations — trains connect cities on a national network, not a
@@ -3583,6 +3607,52 @@ function HubCombobox({
                   </div>
                 ))}
               </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (isTollMode) {
+    const q = value.trim().toLowerCase();
+    const tollHubs: Hub[] = tollRemote.data ?? [];
+    return (
+      <div className="relative">
+        <Input
+          value={value}
+          placeholder={placeholder || t("toll_booth_placeholder")}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+          autoComplete="off"
+        />
+        {open && q.length >= 3 && (tollHubs.length > 0 || tollRemote.isFetching) && (
+          <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-72 overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+            {tollHubs.length > 0 && (
+              <div className="py-1">
+                {tollHubs.map((h, i) => {
+                  const label = formatHub(h);
+                  const sel = value === label;
+                  return (
+                    <button
+                      type="button"
+                      key={`toll-${h.name}-${i}`}
+                      onMouseDown={(e) => { e.preventDefault(); onChange(label); setOpen(false); }}
+                      className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                    >
+                      <Check className={cn("h-4 w-4 shrink-0", sel ? "opacity-100" : "opacity-0")} />
+                      <span className="min-w-0 flex-1 truncate">
+                        <span className="font-medium">{h.name}</span>
+                        {h.city && <span className="ml-1.5 text-xs opacity-70">- {h.city}</span>}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {tollRemote.isFetching && tollHubs.length === 0 && (
+              <div className="px-2 py-1.5 text-xs text-muted-foreground">{t("global_search")}</div>
             )}
           </div>
         )}

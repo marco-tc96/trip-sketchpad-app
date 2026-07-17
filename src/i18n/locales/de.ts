@@ -264,6 +264,7 @@ const translations: Record<string, string> = {
   multi_modal: "multimodal",
   line: "Linie",
   select_line: "Linie wählen…",
+  toll_booth_placeholder: "Mautstelle suchen…",
   // ── Trip page ──────────────────────────────────────────────────────────
   add_to_favorites: "Add to favorites",
   remove_from_favorites: "Remove from favorites",

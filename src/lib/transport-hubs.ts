@@ -9,7 +9,7 @@
 // "Mostra altri" action. Falls back to free-text input / remote search
 // (use-remote-hubs.ts) when no curated data exists for a country.
 
-export type HubKind = "train" | "bus" | "ferry";
+export type HubKind = "train" | "bus" | "ferry" | "toll";
 
 export type Hub = {
   code?: string;   // station code, when one commonly exists (rare outside airports)
@@ -246,7 +246,7 @@ function modeToHubKind(mode: string): HubKind | null {
 
 // Full label used as the stored value (what gets saved to the database).
 // Airports use their own formatter in use-airports.ts (IATA - City / Name);
-// everything else here (train/bus/ferry) has no universal code, so the
+// everything else here (train/bus/ferry/toll) has no universal code, so the
 // label is simply "City - Name", e.g. "Roma - Termini".
 export function formatHub(h: Hub): string {
   if (h.code) return `${h.name} (${h.code})`;

@@ -264,6 +264,7 @@ const translations: Record<string, string> = {
   multi_modal: "多式联运",
   line: "线路",
   select_line: "选择线路…",
+  toll_booth_placeholder: "搜索收费站…",
   // ── Trip page ──────────────────────────────────────────────────────────
   add_to_favorites: "Add to favorites",
   remove_from_favorites: "Remove from favorites",
