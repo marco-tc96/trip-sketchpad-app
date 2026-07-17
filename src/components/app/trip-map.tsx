@@ -1653,16 +1653,21 @@ export function TripMap({
     return n;
   }, [showRoutes, routes, transitResolved]);
 
-  // Persist to localStorage ONLY once this map is fully drawn — every leg
-  // resolved and no "tratta mancante" notice showing. An incomplete/partial
-  // result isn't worth caching (and would otherwise persist a broken-looking
-  // map); this fires again on every render while fully resolved, but
-  // `rememberRoute` just (re)schedules a single debounced write.
+  // Persist to localStorage as soon as there's anything new to save — NOT
+  // gated on every single leg being fully resolved first. The previous
+  // behaviour only flushed once every leg had settled and no "tratta
+  // mancante" notice was showing; if the user navigated away (or closed the
+  // tab) before EVERY leg finished — easy on a trip with several transit
+  // legs, each needing its own slow, sequential Overpass fetch — nothing was
+  // ever written, so the next visit re-fetched the whole trip from scratch
+  // again ("the cache seems to have disappeared"). Flushing on every
+  // incremental cache update instead means whatever HAS resolved by the time
+  // the user leaves gets saved; `rememberRoute` only (re)schedules a single
+  // debounced write, so a burst of updates still coalesces into one.
   useEffect(() => {
     if (!showRoutes || !routes || routes.length === 0) return;
-    if (hasUnresolved || missingTransit > 0) return;
     rememberRoute();
-  }, [showRoutes, routes, hasUnresolved, missingTransit]);
+  }, [showRoutes, routes, pathCache, railCache, transitPathCache]);
 
   // Country centroid fallback when ALL cities have no coordinates.
   const fallbackPoints = useMemo<[number, number][]>(() => {
@@ -1726,12 +1731,19 @@ export function TripMap({
     return out;
   }, [routes, resolve]);
 
-  // Fit the view to the trip's own cities when the "Città" switch is selected
-  // (matching what's shown there); include every leg endpoint + the drawn route
-  // geometry only in the "Tratte" (routes) view.
+  // Fit the view to EVERY pin — trip cities plus every leg endpoint (including
+  // ones in the user's home/departure country) plus the drawn route geometry —
+  // regardless of which switch ("Città" vs "Tratte") is currently active. This
+  // used to only include leg endpoints/routes in the "Tratte" view, so the
+  // initial camera (and any re-fit before the user's first manual pan) framed
+  // just the trip's own cities even though transport pins reaching into the
+  // home country were one pan away — every reload effectively re-centred on
+  // the cities only. What's actually DRAWN on screen still depends on the
+  // switch (unchanged, see the JSX below); only the camera framing is now
+  // consistent between the two views.
   const boundsPoints = useMemo<[number, number][]>(
-    () => [...cityPoints, ...(showRoutes ? [...legEndpoints.map((e) => e.ll), ...drawn.flatMap((d) => d.positions)] : [])],
-    [cityPoints, legEndpoints, drawn, showRoutes],
+    () => [...cityPoints, ...legEndpoints.map((e) => e.ll), ...drawn.flatMap((d) => d.positions)],
+    [cityPoints, legEndpoints, drawn],
   );
 
   // Trip-wide area of interest — a real-world "leash" so the map can't

@@ -2121,6 +2121,13 @@ function AddItemDialog({
             <Label>{t("title")}</Label>
             <Input required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
           </div>
+          {/* Hidden for train legs: the country+station picker below already
+              captures precise departure/arrival stations per leg, making this
+              generic single-city field redundant (and potentially confusing,
+              since it plays no part in how train legs are resolved). Still
+              shown for every other kind, including road modes (car/moto/taxi),
+              which use it to anchor their point-of-interest search. */}
+          {!form.selectedTransit.includes("train") && (
           <div className="space-y-1.5">
             <Label>{t("location")}</Label>
             <Popover open={locOpen} onOpenChange={setLocOpen}>
@@ -2199,6 +2206,7 @@ function AddItemDialog({
               </PopoverContent>
             </Popover>
           </div>
+          )}
           {hasTransit && (
             <div className="space-y-2">
               <Label>{t("legs_label")}</Label>
@@ -3050,10 +3058,23 @@ function HubCombobox({
   // list than searching across every country the trip touches at once.
   const [trainCountry, setTrainCountry] = useState("");
   const [trainCountryOpen, setTrainCountryOpen] = useState(false);
+  // Seed the country step once, on first mount — but from the ALREADY-SAVED
+  // station's real country when editing an existing leg, not always the
+  // trip's first/departure country. Without this, reopening a train leg to
+  // tweak the station kept snapping the country picker back to the departure
+  // country regardless of which country the saved station actually belongs
+  // to, forcing the user to re-pick it every time. After this initial seed,
+  // the country only ever changes via the user's own explicit pick below.
   useEffect(() => {
-    if (isTrainMode && !trainCountry && countries[0]) setTrainCountry(countries[0]);
+    if (!isTrainMode || trainCountry) return;
+    const q = value.trim().toLowerCase();
+    if (q) {
+      const hit = countries.find((iso) => hubsForMode("train", [iso], true).some((h) => formatHub(h).toLowerCase() === q));
+      if (hit) { setTrainCountry(hit); return; }
+    }
+    if (countries[0]) setTrainCountry(countries[0]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isTrainMode, countries[0]]);
+  }, [isTrainMode, value, countries[0]]);
   const trainRemote = useRemoteHubs(
     isTrainMode ? "train" : null,
     isTrainMode ? value : "",
@@ -3100,8 +3121,13 @@ function HubCombobox({
 
   const [liveItems, setLiveItems] = useState<WpSuggestion[]>([]);
   const [liveLoading, setLiveLoading] = useState(false);
+  // Network search kicks in from 3 characters — short enough to feel
+  // immediate, but long enough that Photon's results are actually relevant
+  // (1-2 letters mostly return noise). The LOCAL lists (POI cache, used
+  // places) above are filtered instantly from the first character, so the
+  // dropdown never looks empty while this is still debouncing/in flight.
   useEffect(() => {
-    if (!hasActiveCity || value.trim().length < 2) { setLiveItems([]); return; }
+    if (!hasActiveCity || value.trim().length < 3) { setLiveItems([]); return; }
     let alive = true;
     setLiveLoading(true);
     const timer = setTimeout(async () => {
@@ -3121,22 +3147,24 @@ function HubCombobox({
     const showSuggested = !!suggested && !value.trim();
     const cityLabel = cityQuery.trim();
     const useCityLabel = wpL(lang).useCity.replace("{{city}}", cityLabel);
-    // Below 2 chars typed in the point field: the browse view — up to 50 POIs
-    // of the chosen city, plus every place already used elsewhere in the
-    // trip. From 2 chars: a live Photon search (POIs + addresses), biased to
-    // that exact city and typo-tolerant — a near-miss on a landmark name
-    // still surfaces the real place.
-    const browsing = value.trim().length < 2;
-    // Places already used elsewhere in the trip get their own dedicated,
-    // always-first section (right after "use city centre") rather than being
-    // buried inside a POI category — this also covers used places that
-    // Overpass never tagged as a POI at all (a hotel address, "Hungaroring",
-    // …), which a simple in-list highlight could never surface.
-    const usedToShow = browsing ? (usedPlaces ?? []).filter((p) => p.trim()) : [];
+    const q = value.trim().toLowerCase();
+    // Local, INSTANT filtering of the already-fetched POI list and the
+    // "already used in this trip" list by whatever's typed so far — shown
+    // from the very first character, unlike the network search below which
+    // needs a round trip. This used to collapse to an empty list the moment
+    // 2 characters were typed (kept ONLY while the field was near-empty),
+    // leaving the dropdown blank until the debounced live search resolved —
+    // which, for a short/partial query, often came back empty too, reading
+    // as "no suggestions until the word is fully typed". Filtering the local
+    // lists live instead means something relevant is on screen immediately,
+    // and the network results below still arrive to extend it.
+    const usedToShow = (usedPlaces ?? []).filter((p) => p.trim() && (!q || p.toLowerCase().includes(q)));
     const usedLower = new Set(usedToShow.map((p) => p.toLowerCase()));
     // Excluded from the POI groups below so an already-used POI isn't shown
     // twice (once in its dedicated section, once in its category).
-    const poiToShow = browsing ? poiItems.filter((s) => !usedLower.has(s.name.toLowerCase())).slice(0, POI_CAP) : [];
+    const poiToShow = poiItems
+      .filter((s) => !usedLower.has(s.name.toLowerCase()) && (!q || s.name.toLowerCase().includes(q)))
+      .slice(0, POI_CAP);
     const liveToShow = liveItems;
     // Group POIs by category (touristic sights, transport hubs, everything
     // else) so the dropdown reads as sections rather than one long list —

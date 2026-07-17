@@ -61,10 +61,15 @@ async function searchNominatim(kind: HubKind, query: string, countryIso?: string
 
 export function useRemoteHubs(kind: HubKind | null, query: string, countryIso?: string) {
   const q = query.trim();
+  // 3 characters, not 2: short enough to feel instant, long enough that
+  // Nominatim's token-based matching returns something relevant instead of
+  // mostly noise (or nothing at all) for a 1-2 letter fragment. The LOCAL
+  // hub list callers show alongside this is unaffected — it already matches
+  // from the first character since it's a plain in-memory filter.
   return useQuery({
     queryKey: ["remote-hubs", kind, q.toLowerCase(), countryIso ?? ""],
     queryFn: () => (kind ? searchNominatim(kind, q, countryIso) : Promise.resolve([])),
-    enabled: !!kind && q.length >= 2,
+    enabled: !!kind && q.length >= 3,
     staleTime: 1000 * 60 * 60,
     gcTime: 1000 * 60 * 60,
   });
