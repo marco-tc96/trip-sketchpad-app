@@ -45,7 +45,7 @@ type ItemRow = {
   meta?: unknown;
 };
 
-type TransportMode = "car" | "moto" | "train" | "plane" | "ferry" | "bus" | "metro" | "tram";
+type TransportMode = "car" | "moto" | "taxi" | "train" | "plane" | "ferry" | "bus" | "metro" | "tram";
 type Waypoint = { name: string; enter?: boolean; lat?: number | null; lng?: number | null; country?: string | null };
 type Leg = {
   mode: TransportMode;
@@ -61,19 +61,20 @@ const emptyLeg = (mode: TransportMode = "car"): Leg => ({
   mode, from: "", to: "", depart_at: "", arrive_at: "", carrier: "", number: "",
 });
 const isStopMode = (m: TransportMode) => m === "train" || m === "plane" || m === "metro" || m === "tram";
+const isRoadMode = (m: TransportMode) => m === "car" || m === "moto" || m === "taxi";
 
 // Small localized labels for the road-leg editor (kept local so we don't have to
 // touch the global i18n bundle for these few strings).
-const WP_LABELS: Record<string, { cities: string; place: string; addCity: string; via: string; recommended: string; intercity: string }> = {
-  it: { cities: "Tappe di stop (città)", place: "Città o luogo", addCity: "Aggiungi città", via: "via", recommended: "Consigliato", intercity: "Extraurbano" },
-  en: { cities: "Stops (cities)", place: "City or place", addCity: "Add city", via: "via", recommended: "Recommended", intercity: "Intercity" },
-  es: { cities: "Paradas (ciudades)", place: "Ciudad o lugar", addCity: "Añadir ciudad", via: "vía", recommended: "Recomendado", intercity: "Interurbano" },
-  fr: { cities: "Étapes (villes)", place: "Ville ou lieu", addCity: "Ajouter une ville", via: "via", recommended: "Recommandé", intercity: "Interurbain" },
-  de: { cities: "Stopps (Städte)", place: "Stadt oder Ort", addCity: "Stadt hinzufügen", via: "über", recommended: "Empfohlen", intercity: "Überland" },
-  pt: { cities: "Paradas (cidades)", place: "Cidade ou lugar", addCity: "Adicionar cidade", via: "via", recommended: "Recomendado", intercity: "Interurbano" },
-  ja: { cities: "立ち寄り（都市）", place: "都市または場所", addCity: "都市を追加", via: "経由", recommended: "おすすめ", intercity: "郊外路線" },
-  ko: { cities: "경유(도시)", place: "도시 또는 장소", addCity: "도시 추가", via: "경유", recommended: "추천", intercity: "시외" },
-  zh: { cities: "停靠（城市）", place: "城市或地点", addCity: "添加城市", via: "途经", recommended: "推荐", intercity: "城际" },
+const WP_LABELS: Record<string, { cities: string; place: string; addCity: string; via: string; recommended: string; intercity: string; poi: string }> = {
+  it: { cities: "Tappe di stop (città)", place: "Città o luogo", addCity: "Aggiungi città", via: "via", recommended: "Consigliato", intercity: "Extraurbano", poi: "Punti di interesse" },
+  en: { cities: "Stops (cities)", place: "City or place", addCity: "Add city", via: "via", recommended: "Recommended", intercity: "Intercity", poi: "Points of interest" },
+  es: { cities: "Paradas (ciudades)", place: "Ciudad o lugar", addCity: "Añadir ciudad", via: "vía", recommended: "Recomendado", intercity: "Interurbano", poi: "Puntos de interés" },
+  fr: { cities: "Étapes (villes)", place: "Ville ou lieu", addCity: "Ajouter une ville", via: "via", recommended: "Recommandé", intercity: "Interurbain", poi: "Points d'intérêt" },
+  de: { cities: "Stopps (Städte)", place: "Stadt oder Ort", addCity: "Stadt hinzufügen", via: "über", recommended: "Empfohlen", intercity: "Überland", poi: "Sehenswürdigkeiten" },
+  pt: { cities: "Paradas (cidades)", place: "Cidade ou lugar", addCity: "Adicionar cidade", via: "via", recommended: "Recomendado", intercity: "Interurbano", poi: "Pontos de interesse" },
+  ja: { cities: "立ち寄り（都市）", place: "都市または場所", addCity: "都市を追加", via: "経由", recommended: "おすすめ", intercity: "郊外路線", poi: "観光スポット" },
+  ko: { cities: "경유(도시)", place: "도시 또는 장소", addCity: "도시 추가", via: "경유", recommended: "추천", intercity: "시외", poi: "관심 지점" },
+  zh: { cities: "停靠（城市）", place: "城市或地点", addCity: "添加城市", via: "途经", recommended: "推荐", intercity: "城际", poi: "兴趣点" },
 };
 const wpL = (lang: string | undefined) => WP_LABELS[(lang || "it").slice(0, 2)] ?? WP_LABELS.it;
 type MixedLeg = {
@@ -92,7 +93,7 @@ const emptyMixedLeg = (): MixedLeg => ({
   mode: "bus", vehicle: "", from_stop: "", to_stop: "", depart_at: "", arrive_at: "",
 });
 const MODE_ICON: Record<TransportMode, React.ComponentType<{ className?: string }>> = {
-  car: Car, moto: Bike, train: TrainFront, plane: Plane, ferry: Ship, bus: Bus, metro: TramFront, tram: Train,
+  car: Car, moto: Bike, taxi: CarTaxiFront, train: TrainFront, plane: Plane, ferry: Ship, bus: Bus, metro: TramFront, tram: Train,
 };
 
 export const Route = createFileRoute("/_authenticated/trips/$tripId/timeline")({
@@ -1463,11 +1464,26 @@ function TransportDialog({
     setLegs((arr) => arr.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
   }
 
-  // Geographic corridor from the FIRST road leg (car/moto) — used to limit the
-  // waypoint city suggestions to the countries that leg actually crosses.
-  const roadLeg = legs.find((l) => l.mode === "car" || l.mode === "moto");
+  // Geographic corridor from the FIRST road leg (car/moto/taxi) — used to limit
+  // the waypoint city suggestions to the countries that leg actually crosses.
+  const roadLeg = legs.find((l) => isRoadMode(l.mode));
   const roadFrom = roadLeg?.from ?? "";
   const roadTo = roadLeg?.to ?? "";
+
+  // City hint for the road-leg from/to point-of-interest search: resolves a
+  // leg's OTHER endpoint (when it's a known city) first, then the adjacent
+  // leg's handoff point, then the trip's first known city — so POI/address
+  // suggestions are always anchored somewhere sensible even before typing.
+  const countryCities = tripCountries.flatMap((iso) => citiesOfCountry(iso));
+  const matchCity = (raw?: string): { name: string; country: string } | null => {
+    const q = (raw ?? "").trim().toLowerCase();
+    if (!q) return null;
+    const hit = countryCities.find((c) => c.name.toLowerCase() === q);
+    return hit ? { name: hit.name, country: hit.country } : null;
+  };
+  const firstTripCity = countryCities[0] ? { name: countryCities[0].name, country: countryCities[0].country } : null;
+  const cityHintFor = (leg: Leg, field: "from" | "to", suggested?: string): { name: string; country: string } | null =>
+    matchCity(field === "from" ? leg.to : leg.from) ?? matchCity(suggested) ?? firstTripCity;
   const [corridorBox, setCorridorBox] = useState<CorridorBox | null>(null);
   useEffect(() => {
     const from = roadFrom.trim(), to = roadTo.trim();
@@ -1583,6 +1599,7 @@ function TransportDialog({
                       onChange={(v) => updateLeg(i, { from: v })}
                       placeholder={fromLabelOf(leg.mode)}
                       suggested={legs[i - 1]?.to?.trim() || undefined}
+                      cityHint={cityHintFor(leg, "from", legs[i - 1]?.to?.trim() || undefined)}
                     />
                   </div>
                   <div className="space-y-1">
@@ -1594,6 +1611,7 @@ function TransportDialog({
                       onChange={(v) => updateLeg(i, { to: v })}
                       placeholder={toLabelOf(leg.mode)}
                       suggested={legs[i + 1]?.from?.trim() || undefined}
+                      cityHint={cityHintFor(leg, "to", legs[i + 1]?.from?.trim() || undefined)}
                     />
                   </div>
                   <div className="space-y-1">
@@ -1667,7 +1685,7 @@ function TransportDialog({
                     </>
                   )}
                 </div>
-                {(leg.mode === "car" || leg.mode === "moto") && (
+                {isRoadMode(leg.mode) && (
                   <div className="mt-3 space-y-3 border-t border-border/60 pt-3">
                     {/* City stops — a pin where you actually stop in the town. */}
                     <div className="space-y-2">
@@ -2631,6 +2649,95 @@ async function searchCorridorCities(q: string, box: CorridorBox | null, lang: st
   }
 }
 
+// ── Road-leg point-of-interest search (car/moto/taxi from/to fields) ─────────
+// Named landmarks (tourism/historic/leisure/amenity/mall) inside a city, so a
+// road leg's start/end can be a specific place ("Colosseo") rather than only
+// the whole city — capped at 50 so the list stays scannable.
+const _poiCache = new Map<string, WpSuggestion[]>();
+const POI_TAGS: Array<[string, string[]]> = [
+  ["tourism", ["attraction", "museum", "gallery", "zoo", "aquarium", "theme_park", "viewpoint", "monument", "artwork"]],
+  ["historic", ["monument", "castle", "memorial", "ruins", "archaeological_site", "fort", "church"]],
+  ["leisure", ["park", "garden", "stadium", "water_park"]],
+  ["amenity", ["theatre", "cinema", "arts_centre", "marketplace", "place_of_worship", "university"]],
+  ["shop", ["mall"]],
+];
+const POI_CAP = 50;
+
+async function fetchCityPOIs(city: string, country: string): Promise<WpSuggestion[]> {
+  const key = `${city}|${country}`;
+  if (_poiCache.has(key)) return _poiCache.get(key)!;
+  try {
+    const areaQ = await getAreaQuery(city);
+    const clauses = POI_TAGS.flatMap(([k, vals]) =>
+      vals.map((v) => `node["${k}"="${v}"]["name"](area.c);way["${k}"="${v}"]["name"](area.c);`),
+    ).join("");
+    const q = `[out:json][timeout:30];${areaQ};(${clauses});out center ${POI_CAP + 30};`;
+    const data = (await overpassFetch(q, 20000)) as unknown as {
+      elements: Array<{ tags?: Record<string, string>; lat?: number; lon?: number; center?: { lat: number; lon: number } }>;
+    };
+    const seen = new Set<string>();
+    const out: WpSuggestion[] = [];
+    for (const el of data.elements ?? []) {
+      const name = el.tags?.name;
+      if (!name || seen.has(name)) continue;
+      const lat = el.lat ?? el.center?.lat;
+      const lon = el.lon ?? el.center?.lon;
+      if (typeof lat !== "number" || typeof lon !== "number") continue;
+      seen.add(name);
+      out.push({ name, label: name, country, lat, lng: lon });
+      if (out.length >= POI_CAP) break;
+    }
+    _poiCache.set(key, out);
+    return out;
+  } catch {
+    _poiCache.set(key, []);
+    return [];
+  }
+}
+
+// Live type-ahead search for POIs, street addresses AND cities as the user
+// types (Photon covers all three) — biased toward the hinted city when known,
+// so a near-miss/typo on a landmark name ("Colosseum" → "Colosseo") still
+// surfaces the real place, and a free-form address resolves to a precise point.
+async function searchRoadPoints(
+  q: string,
+  cityHint: { name: string; country: string } | null,
+  lang: string,
+): Promise<WpSuggestion[]> {
+  const query = q.trim();
+  if (query.length < 2) return [];
+  try {
+    const params = new URLSearchParams({ q: query, limit: "12", lang: (lang || "en").slice(0, 2) });
+    if (cityHint) {
+      const c = await geocodePlaceName(cityHint.name);
+      if (c) { params.set("lat", String(c.lat)); params.set("lon", String(c.lng)); }
+    }
+    const r = await fetch(`https://photon.komoot.io/api/?${params.toString()}`, { headers: { Accept: "application/json" } });
+    const data = (await r.json()) as {
+      features?: Array<{ properties?: Record<string, string>; geometry?: { coordinates?: [number, number] } }>;
+    };
+    const out: WpSuggestion[] = [];
+    const seen = new Set<string>();
+    for (const f of data.features ?? []) {
+      const p = f.properties ?? {};
+      const coords = f.geometry?.coordinates;
+      if (!coords) continue;
+      const nm = p.name || [p.street, p.housenumber].filter(Boolean).join(" ");
+      if (!nm) continue;
+      const country = (p.countrycode || "").toUpperCase();
+      const context = [p.street !== nm ? p.street : null, p.city, p.state].filter(Boolean);
+      const label = context.length ? `${nm}, ${context.join(", ")}` : nm;
+      const key = `${nm}|${coords[1].toFixed(4)}|${coords[0].toFixed(4)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ name: nm, label, country, lat: coords[1], lng: coords[0] });
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
 function WaypointCombobox({
   value, box, lang, placeholder, onPick, onType,
 }: {
@@ -2690,7 +2797,7 @@ function WaypointCombobox({
 
 
 function HubCombobox({
-  mode, countries, value, onChange, placeholder, suggested,
+  mode, countries, value, onChange, placeholder, suggested, cityHint,
 }: {
   mode: TransportMode;
   countries: string[];
@@ -2698,10 +2805,14 @@ function HubCombobox({
   onChange: (v: string) => void;
   placeholder?: string;
   // Endpoint of an adjacent leg (e.g. the train station or airport used just
-  // before/after this car/moto leg), offered as the recommended first option —
-  // so a multi-modal journey's road leg can pick up exactly where the previous
-  // leg left off (or hand off exactly where the next leg starts).
+  // before/after this car/moto/taxi leg), offered as the recommended first
+  // option — so a multi-modal journey's road leg can pick up exactly where the
+  // previous leg left off (or hand off exactly where the next leg starts).
   suggested?: string;
+  // City to anchor the point-of-interest / address search at, for road-mode
+  // legs — resolved by the caller (sibling field's city, else the adjacent
+  // leg's handoff point, else the trip's first city).
+  cityHint?: { name: string; country: string } | null;
 }) {
   const { t, i18n } = useTranslation();
   const lang = i18n.language || "it";
@@ -2709,9 +2820,36 @@ function HubCombobox({
   const [showAll, setShowAll] = useState(false);
   const isPlane = mode === "plane";
   const isHub = mode === "train" || mode === "bus" || mode === "ferry" || mode === "metro" || mode === "tram";
-  const isCityMode = mode === "car" || mode === "moto";
+  const isCityMode = mode === "car" || mode === "moto" || mode === "taxi";
   const airportsData = useAirports(true);
   const remote = useRemoteHubs(isHub ? modeToKind(mode) : null, isHub ? value : "");
+
+  // Points of interest for the hinted city (up to 50), shown when the field is
+  // empty/short — and a live Photon search (POIs + street addresses + cities,
+  // typo-tolerant) once the user has typed something, so a road leg's start/
+  // end can be a specific landmark or address, not only a whole city.
+  const [poiItems, setPoiItems] = useState<WpSuggestion[]>([]);
+  useEffect(() => {
+    if (!isCityMode || !cityHint) { setPoiItems([]); return; }
+    let alive = true;
+    fetchCityPOIs(cityHint.name, cityHint.country).then((res) => { if (alive) setPoiItems(res); });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isCityMode, cityHint?.name, cityHint?.country]);
+
+  const [liveItems, setLiveItems] = useState<WpSuggestion[]>([]);
+  const [liveLoading, setLiveLoading] = useState(false);
+  useEffect(() => {
+    if (!isCityMode || value.trim().length < 2) { setLiveItems([]); return; }
+    let alive = true;
+    setLiveLoading(true);
+    const timer = setTimeout(async () => {
+      const res = await searchRoadPoints(value, cityHint ?? null, lang);
+      if (alive) { setLiveItems(res); setLiveLoading(false); }
+    }, 250);
+    return () => { alive = false; clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isCityMode, value, cityHint?.name, cityHint?.country, lang]);
 
   if (isCityMode) {
     const cityList = countries.flatMap((iso) =>
@@ -2723,6 +2861,11 @@ function HubCombobox({
       : cityList.slice(0, 300)
     ).filter((c) => c.name !== suggested);
     const showSuggested = !!suggested && (!q || suggested.toLowerCase().includes(q));
+    // Below 2 chars: up to 50 POIs of the hinted city. From 2 chars: a live
+    // Photon search across POIs/addresses/cities near that city (typo-tolerant
+    // — a near-miss on a landmark name still surfaces the real place).
+    const poiToShow = q.length < 2 ? poiItems.filter((p) => p.name !== suggested).slice(0, POI_CAP) : [];
+    const liveToShow = liveItems.filter((p) => p.name !== suggested);
     return (
       <div className="relative">
         <Input
@@ -2733,7 +2876,7 @@ function HubCombobox({
           onChange={(e) => { onChange(e.target.value); setOpen(true); }}
           autoComplete="off"
         />
-        {open && (showSuggested || filteredCities.length > 0) && (
+        {open && (showSuggested || poiToShow.length > 0 || liveToShow.length > 0 || liveLoading || filteredCities.length > 0) && (
           <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-72 overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
             {showSuggested && (
               <button
@@ -2748,6 +2891,50 @@ function HubCombobox({
                   {wpL(lang).recommended}
                 </span>
               </button>
+            )}
+            {liveToShow.length > 0 && (
+              <div className="py-0.5">
+                {liveToShow.map((s, i) => {
+                  const sel = value === s.name;
+                  return (
+                    <button
+                      type="button"
+                      key={`live-${s.name}-${i}`}
+                      onMouseDown={(e) => { e.preventDefault(); onChange(s.name); setOpen(false); }}
+                      className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                    >
+                      <Check className={cn("h-4 w-4 shrink-0", sel ? "opacity-100" : "opacity-0")} />
+                      <MapPin className="h-3.5 w-3.5 shrink-0 opacity-60" />
+                      <span className="min-w-0 flex-1 truncate">{s.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {liveLoading && liveToShow.length === 0 && (
+              <div className="px-2 py-1.5 text-xs text-muted-foreground animate-pulse">{t("loading")}</div>
+            )}
+            {poiToShow.length > 0 && (
+              <div className="py-0.5">
+                <p className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                  {wpL(lang).poi}
+                </p>
+                {poiToShow.map((s, i) => {
+                  const sel = value === s.name;
+                  return (
+                    <button
+                      type="button"
+                      key={`poi-${s.name}-${i}`}
+                      onMouseDown={(e) => { e.preventDefault(); onChange(s.name); setOpen(false); }}
+                      className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                    >
+                      <Check className={cn("h-4 w-4 shrink-0", sel ? "opacity-100" : "opacity-0")} />
+                      <MapPin className="h-3.5 w-3.5 shrink-0 opacity-60" />
+                      <span className="min-w-0 flex-1 truncate">{s.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
             )}
             {filteredCities.map((c, i) => {
               const sel = value === c.name;

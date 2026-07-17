@@ -198,6 +198,7 @@ const translations: Record<string, string> = {
   // ── Transport mode labels (buttons) ────────────────────────────────────
   mode_car: "Car",
   mode_moto: "Motorbike",
+  mode_taxi: "Taxi",
   mode_train: "Train",
   mode_plane: "Plane",
   mode_ferry: "Ferry",

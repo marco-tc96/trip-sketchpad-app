@@ -54,7 +54,7 @@ export function BottomDock() {
             )}
           >
             <Icon className="h-5 w-5 sm:h-4 sm:w-4" />
-            <span className="hidden sm:inline">{t(labelKey)}</span>
+            <span className={cn("hidden", active && "sm:inline")}>{t(labelKey)}</span>
           </Link>
         );
       })()}
@@ -70,7 +70,7 @@ export function BottomDock() {
         )}
       >
         <Globe2 className="h-5 w-5 sm:h-4 sm:w-4" />
-        <span className="hidden sm:inline">{t("map")}</span>
+        <span className={cn("hidden", loc.pathname.startsWith("/map") && "sm:inline")}>{t("map")}</span>
       </Link>
 
       {/* Profile nav */}
@@ -89,7 +89,7 @@ export function BottomDock() {
             )}
           >
             <Icon className="h-5 w-5 sm:h-4 sm:w-4" />
-            <span className="hidden sm:inline">{t(labelKey)}</span>
+            <span className={cn("hidden", active && "sm:inline")}>{t(labelKey)}</span>
           </Link>
         );
       })()}
@@ -112,7 +112,7 @@ export function BottomDock() {
             </span>
           )}
         </span>
-        <span className="hidden sm:inline">{t("notifications")}</span>
+        <span className={cn("hidden", loc.pathname.startsWith("/notifications") && "sm:inline")}>{t("notifications")}</span>
       </Link>
     </nav>
   );

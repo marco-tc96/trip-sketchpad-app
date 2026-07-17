@@ -425,6 +425,32 @@ function ProfilePage() {
           </div>
         </div>
 
+        {stats.countriesRanked.length > 0 && (
+          <div className="mt-4 space-y-4">
+            {homeCountryIso && stats.homeCountryCount > 0 && (
+              <RankList title={t("home_country_trips")} rows={[{ key: homeCountryIso, left: <><span>{flagOf(homeCountryIso)}</span><span>{countryNameLocalized(homeCountryIso, lang)}</span></>, count: stats.homeCountryCount }]} />
+            )}
+            <div className="grid gap-4 sm:grid-cols-2">
+              {stats.foreignCountriesRanked.length > 0 && (
+                <RankList
+                  title={homeCountryIso ? t("most_visited_foreign_countries") : t("most_visited_countries")}
+                  rows={stats.foreignCountriesRanked.map((r) => ({ key: r.iso, left: <><span>{flagOf(r.iso)}</span><span>{countryNameLocalized(r.iso, lang)}</span></>, count: r.count }))}
+                />
+              )}
+              <RankList
+                title={t("most_visited_cities")}
+                rows={stats.citiesRanked.map((r) => ({ key: `${r.country}|${r.name}`, left: <><span>{flagOf(r.country)}</span><span>{cityNameLocalized(r.name, lang)}</span></>, count: r.count }))}
+              />
+            </div>
+            {stats.continentsRanked.length > 0 && (
+              <RankList
+                title={t("most_visited_continents")}
+                rows={stats.continentsRanked.map((r) => ({ key: r.name, left: <><span>{CONTINENT_EMOJI[r.name] ?? "🌍"}</span><span>{t(CONTINENT_KEY[r.name] ?? r.name)}</span></>, count: r.count }))}
+              />
+            )}
+          </div>
+        )}
+
         {visitedCities.length > 0 && (
           <div className="mt-4 rounded-3xl border border-border bg-card p-5 shadow-soft">
             <h3 className="text-center font-serif text-base font-semibold">{t("extremes_title")}</h3>
@@ -448,32 +474,6 @@ function ProfilePage() {
               <p className="mt-4 text-center text-sm text-muted-foreground">
                 {extremesResolving ? t("loading") : t("no_trips")}
               </p>
-            )}
-          </div>
-        )}
-
-        {stats.countriesRanked.length > 0 && (
-          <div className="mt-4 space-y-4">
-            {homeCountryIso && stats.homeCountryCount > 0 && (
-              <RankList title={t("home_country_trips")} rows={[{ key: homeCountryIso, left: <><span>{flagOf(homeCountryIso)}</span><span>{countryNameLocalized(homeCountryIso, lang)}</span></>, count: stats.homeCountryCount }]} />
-            )}
-            <div className="grid gap-4 sm:grid-cols-2">
-              {stats.foreignCountriesRanked.length > 0 && (
-                <RankList
-                  title={homeCountryIso ? t("most_visited_foreign_countries") : t("most_visited_countries")}
-                  rows={stats.foreignCountriesRanked.map((r) => ({ key: r.iso, left: <><span>{flagOf(r.iso)}</span><span>{countryNameLocalized(r.iso, lang)}</span></>, count: r.count }))}
-                />
-              )}
-              <RankList
-                title={t("most_visited_cities")}
-                rows={stats.citiesRanked.map((r) => ({ key: `${r.country}|${r.name}`, left: <><span>{flagOf(r.country)}</span><span>{cityNameLocalized(r.name, lang)}</span></>, count: r.count }))}
-              />
-            </div>
-            {stats.continentsRanked.length > 0 && (
-              <RankList
-                title={t("most_visited_continents")}
-                rows={stats.continentsRanked.map((r) => ({ key: r.name, left: <><span>{CONTINENT_EMOJI[r.name] ?? "🌍"}</span><span>{t(CONTINENT_KEY[r.name] ?? r.name)}</span></>, count: r.count }))}
-              />
             )}
           </div>
         )}

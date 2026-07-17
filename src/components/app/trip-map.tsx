@@ -116,7 +116,7 @@ const INTERCITY_BUS_COLOR = "#f97316"; // orange-500
 
 // Ground modes whose path we snap to real roads via OSRM; plane/ferry stay
 // straight (dotted/dashed) since there are no roads to follow.
-const GROUND_MODES = new Set(["car", "moto"]);
+const GROUND_MODES = new Set(["car", "moto", "taxi"]);
 
 // Squared planar distance — fine at road/rail/transit scale, avoids a sqrt.
 function _distSq2(p: [number, number], q: [number, number]): number {
@@ -891,7 +891,7 @@ export function TripMap({
       const raws = [r.from, r.to];
       // Road-leg waypoints (car/moto) need geocoding ONLY when they don't already
       // carry coordinates (picked from suggestions).
-      if (r.mode === "car" || r.mode === "moto")
+      if (r.mode === "car" || r.mode === "moto" || r.mode === "taxi")
         for (const w of (r.waypoints ?? [])) if (w.name && !(typeof w.lat === "number" && typeof w.lng === "number")) raws.push(w.name);
       for (const raw of raws) {
         const name = cleanPlace(raw);
@@ -1089,7 +1089,7 @@ export function TripMap({
       // `viasReady` waits for city coordinates.
       const vias: Via[] = [];
       let viasReady = true;
-      if (r.mode === "car" || r.mode === "moto") {
+      if (r.mode === "car" || r.mode === "moto" || r.mode === "taxi") {
         for (const w of (r.waypoints ?? [])) {
           const nm = cleanPlace(w.name);
           if (!nm) continue;
