@@ -21,13 +21,6 @@ function naiveLocalToUtcMs(naiveDateStr: string, utcPlusMinutes: number): number
   return new Date(naiveDateStr).getTime() - utcPlusMinutes * 60_000;
 }
 
-// Module-level (NOT component state): survives client-side tab navigation
-// within the running app, but resets on a real app/page reload — since a
-// fresh load re-executes this module. Used to tell "cold app start" (always
-// show the top) apart from "came back to the Viaggi tab" (restore the last
-// scroll position), even though both read the same sessionStorage key.
-let hasVisitedTripsThisSession = false;
-
 // Darken an oklch() colour by scaling its lightness — used for the record ring.
 function darkenOklch(c: string, f = 0.62): string {
   const m = /oklch\(\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)/.exec(c);
@@ -222,25 +215,14 @@ function TripsList() {
 
   // ── Scroll restoration on mount ──────────────────────────────────────────
   // Cold app start (first time this route mounts since the app was loaded)
-  // always opens at the top, never on the historic-trips section, even if a
-  // stale scroll position was left over from before. Coming back to the
-  // Viaggi tab later in the same session restores exactly where it was left.
+  // always opens at the top, never on the historic-trips section — every time
+  // this route mounts (cold start OR coming back to the Viaggi tab), regardless
+  // of where the page was scrolled to before navigating away.
   useLayoutEffect(() => {
     const prev = history.scrollRestoration;
     history.scrollRestoration = "manual";
-    if (!hasVisitedTripsThisSession) {
-      hasVisitedTripsThisSession = true;
-      sessionStorage.removeItem("trips-scroll");
-      window.scrollTo(0, 0);
-    } else {
-      const saved = sessionStorage.getItem("trips-scroll");
-      if (saved) {
-        window.scrollTo(0, parseInt(saved, 10));
-        sessionStorage.removeItem("trips-scroll");
-      } else {
-        window.scrollTo(0, 0);
-      }
-    }
+    sessionStorage.removeItem("trips-scroll");
+    window.scrollTo(0, 0);
     return () => { history.scrollRestoration = prev; };
   }, []);
 
@@ -904,7 +886,6 @@ function CompactTripCard({ trip }: { trip: Trip }) {
 
   function handleClick(e: React.MouseEvent) {
     e.preventDefault();
-    sessionStorage.setItem("trips-scroll", String(window.scrollY));
     const doNav = () => { void navigate({ to: "/trips/$tripId", params: { tripId: trip.id } }); };
     if (typeof document.startViewTransition === "function") {
       document.documentElement.dataset.vtDir = "forward";
@@ -994,7 +975,6 @@ function TripCard({
 
   function handleClick(e: React.MouseEvent) {
     e.preventDefault();
-    sessionStorage.setItem("trips-scroll", String(window.scrollY));
     const doNav = () => { void navigate({ to: "/trips/$tripId", params: { tripId: trip.id } }); };
     if (typeof document.startViewTransition === "function") {
       document.documentElement.dataset.vtDir = "forward";
