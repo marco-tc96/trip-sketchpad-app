@@ -146,6 +146,12 @@ type MixedLeg = {
   // own numbered/lettered lines (e.g. "R2 Nord") and stops, exactly like a
   // metro or tram line, rather than a big national station.
   trainScope?: "national" | "local";
+  // Train-local only: which of the trip's own configured cities this leg's
+  // metropolitan/suburban rail search is scoped to — picked explicitly
+  // rather than reusing the activity's generic `location` field, since that
+  // field is hidden entirely for train legs (see the AddItemDialog form) and
+  // a trip can have several cities, so each local-train leg needs its own.
+  city?: string;
 };
 const emptyMixedLeg = (): MixedLeg => ({
   mode: "bus", vehicle: "", from_stop: "", to_stop: "", depart_at: "", arrive_at: "",
@@ -228,6 +234,12 @@ const OSM_ROUTE_MODE: Record<string, string> = { bus: "bus", metro: "subway", tr
 // train only when its own trainScope is explicitly "local").
 const usesLocalLinePicker = (leg: MixedLeg) =>
   PT_TRANSIT_KINDS.has(leg.mode) || (leg.mode === "train" && leg.trainScope === "local");
+// The city that scopes this leg's line/stop search: the leg's OWN city pick
+// for a local train (each local-train leg can be anchored to a different
+// trip city), the activity's generic `location` field for every other
+// transit mode (unchanged from before).
+const legCity = (leg: MixedLeg, activityLocation: string) =>
+  leg.mode === "train" && leg.trainScope === "local" ? (leg.city ?? "") : activityLocation;
 
 // ── Caches (module-level, persist across dialog opens) ───────────────────────
 const _areaCache = new Map<string, string>();   // city → overpass area snippet
@@ -595,10 +607,10 @@ async function fetchLineStops(city: string, osmMode: string, lineRef: string): P
 }
 
 const TRANSIT_COLOR_ACTIVE: Record<string, string> = {
-  // Grey, not amber — kept in sync with the Profile page's treno colour,
-  // which is a theme-adaptive grey (lighter in dark mode, darker in light
-  // mode) rather than a fixed hue.
-  train: "border-gray-500 bg-gray-500 text-white",
+  // Silver, fixed regardless of light/dark theme (matches the Profile page's
+  // treno colour — Tailwind arbitrary-value classes since this is a literal
+  // hex, not one of the built-in palette shades).
+  train: "border-[#c0c0c0] bg-[#c0c0c0] text-white",
   bus:   "border-sky-500 bg-sky-500 text-white",
   metro: "border-violet-500 bg-violet-500 text-white",
   tram:  "border-emerald-500 bg-emerald-500 text-white",
@@ -607,7 +619,7 @@ const TRANSIT_COLOR_ACTIVE: Record<string, string> = {
   taxi:  "border-yellow-500 bg-yellow-500 text-white",
 };
 const TRANSIT_COLOR_INACTIVE: Record<string, string> = {
-  train: "border-gray-400/40 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-950/20",
+  train: "border-[#c0c0c0]/40 text-[#c0c0c0] hover:bg-[#c0c0c0]/10",
   bus:   "border-sky-400/40 text-sky-600 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/20",
   metro: "border-violet-400/40 text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/20",
   tram:  "border-emerald-400/40 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/20",
@@ -630,9 +642,9 @@ const TRANSIT_ICON: Record<string, React.ComponentType<{ className?: string }>> 
 // their leg-row icon silently fall back to a flat gray instead of picking up
 // a colour like every other mode.
 const TRANSIT_TEXT: Record<string, string> = {
-  // Theme-adaptive grey (lighter in dark mode, darker in light mode) —
-  // matches the treno colour used on the Profile page's transport stats.
-  train: "text-gray-600 dark:text-gray-300",
+  // Silver, fixed regardless of light/dark theme — matches the treno colour
+  // used on the Profile page's transport stats.
+  train: "text-[#c0c0c0]",
   bus:   "text-sky-500",
   metro: "text-violet-500",
   tram:  "text-emerald-500",
@@ -2395,13 +2407,16 @@ function AddItemDialog({
                                 type="button"
                                 onClick={() => {
                                   if ((leg.trainScope ?? "national") === scope) return;
-                                  updateMixedLeg(i, { trainScope: scope, vehicle: "", from_stop: "", to_stop: "" });
+                                  updateMixedLeg(i, { trainScope: scope, vehicle: "", from_stop: "", to_stop: "", city: "" });
                                 }}
                                 className={cn(
-                                  "flex-1 rounded-lg border px-2 py-1 text-xs font-medium transition",
+                                  "flex-1 rounded-xl border p-2 text-xs font-medium transition",
+                                  // Same active/inactive styling as the kind picker above this
+                                  // dialog (border-primary/bg-primary), so the toggle reads as
+                                  // part of the same form instead of an unrelated grey control.
                                   isActive
-                                    ? "border-gray-500 bg-gray-500 text-white"
-                                    : "border-gray-400/40 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-950/20",
+                                    ? "border-primary bg-primary text-primary-foreground"
+                                    : "border-border bg-card hover:bg-muted",
                                 )}
                               >
                                 {scope === "national" ? t("train_scope_national") : t("train_scope_local")}
@@ -2410,15 +2425,39 @@ function AddItemDialog({
                           })}
                         </div>
                       )}
-                      {/* Line / vehicle picker */}
-                      {usesLocalLinePicker(leg) && form.location ? (
+                      {/* Local train only: pick which of the trip's own cities this
+                          leg's metropolitan/suburban network search is scoped to —
+                          BEFORE the line picker below, which stays disabled until a
+                          city is chosen. Restricted to the trip's configured cities
+                          (not a free-text/global search), since a local rail network
+                          only makes sense for a city already on the itinerary. */}
+                      {leg.mode === "train" && leg.trainScope === "local" && (
+                        <select
+                          value={leg.city ?? ""}
+                          onChange={(e) => updateMixedLeg(i, { city: e.target.value, vehicle: "", from_stop: "", to_stop: "" })}
+                          className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                        >
+                          <option value="">{t("select_city_placeholder")}</option>
+                          {tripCities.map((c) => (
+                            <option key={`${c.country}|${c.name}`} value={c.name}>{c.name}</option>
+                          ))}
+                        </select>
+                      )}
+                      {/* Line / vehicle picker — city comes from the trip's generic
+                          `location` field for bus/metro/tram (unaffected), or from the
+                          local-train city picker just above for a local train leg. */}
+                      {usesLocalLinePicker(leg) && legCity(leg, form.location) ? (
                         <LineCombobox
                           mode={leg.mode}
-                          city={form.location}
+                          city={legCity(leg, form.location)}
                           value={leg.vehicle}
                           onChange={(ref) => updateMixedLeg(i, { vehicle: ref })}
                           onPick={(line) => updateMixedLeg(i, { vehicle: line.ref, intercity: line.intercity, express: line.express })}
                         />
+                      ) : leg.mode === "train" && leg.trainScope === "local" ? (
+                        // Local train, no city picked yet — same disabled/placeholder
+                        // look as LineCombobox itself uses while waiting for a city.
+                        <Input value="" disabled placeholder={t("select_line")} />
                       ) : (
                         <Input
                           value={leg.vehicle}
@@ -2454,7 +2493,7 @@ function AddItemDialog({
                       ) : (
                         <MixedLegStops
                           mode={leg.mode}
-                          city={form.location}
+                          city={legCity(leg, form.location)}
                           vehicle={leg.vehicle}
                           countries={tripCountries}
                           fromStop={leg.from_stop}

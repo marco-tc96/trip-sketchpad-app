@@ -16,6 +16,14 @@ type Airport = {
   municipality?: string;
   type?: string;
   scheduled_service?: string;
+  // OurAirports' own precise reference-point coordinates for the airport —
+  // present in the raw dataset (it's the standard OurAirports CSV schema)
+  // but not previously declared here since nothing in this module needed
+  // them. Now used by `airportCoordsByIata`/`airportCoordsByCity` (see
+  // below) as an exact, offline, rate-limit-free source of truth for a
+  // leg's airport pin — no live geocoder round-trip needed at all.
+  latitude_deg?: number;
+  longitude_deg?: number;
 };
 
 export type AirportHub = Hub & {
@@ -190,4 +198,44 @@ export function formatAirport(a: AirportHub): string {
   if (!a.city) return `${a.code} - ${a.name}`;
   if (!a.multiAirportCity) return `${a.code} - ${a.city}`;
   return `${a.code} - ${a.city} ${shortAirportName(a)}`.trim();
+}
+
+// ── Exact, offline coordinates (no live geocoder needed) ────────────────────
+// The map page (trip-map.tsx) used to resolve a plane leg's pin purely via a
+// live Overpass lookup by IATA code (or, failing that, a free-text geocode of
+// the leg's label) — reliable most of the time, but a network hiccup/timeout
+// silently fell through to a much fuzzier text search that could land on the
+// wrong feature entirely (e.g. a same-named town instead of the airport). The
+// airports-json dataset already used everywhere else in the app for airport
+// data ALSO carries each airport's own precise reference-point coordinates,
+// so the map can use those directly — no network round-trip, no rate limit,
+// no ambiguity — and only fall back to live geocoding if a code truly isn't
+// in the dataset (extremely rare for any airport with scheduled service).
+export async function airportCoordsByIata(code: string): Promise<{ lat: number; lng: number } | null> {
+  const iata = (code ?? "").trim().toUpperCase();
+  if (!IATA_RE.test(iata)) return null;
+  const all = await loadAirports();
+  const a = all.find((x) => (x.iata_code ?? "").toUpperCase() === iata);
+  if (!a || typeof a.latitude_deg !== "number" || typeof a.longitude_deg !== "number") return null;
+  return { lat: a.latitude_deg, lng: a.longitude_deg };
+}
+
+// Fallback for a plane leg whose saved label has no parseable IATA code at
+// all (e.g. an older leg saved as plain "Barcelona" or "El Prat" before the
+// "IATA - City" format existed) — matches the query text against airports'
+// own municipality/name fields instead. Only returns a result when exactly
+// ONE usable airport matches, so an ambiguous multi-airport city (e.g.
+// "Milano") is deliberately left unresolved here rather than guessing.
+export async function airportCoordsByPlaceName(query: string): Promise<{ lat: number; lng: number } | null> {
+  const q = (query ?? "").trim().toLowerCase();
+  if (q.length < 2) return null;
+  const all = await loadAirports();
+  const matches = all.filter((a) => {
+    if (!isUsable(a)) return false;
+    if (typeof a.latitude_deg !== "number" || typeof a.longitude_deg !== "number") return false;
+    const hay = `${a.name} ${a.municipality ?? ""}`.toLowerCase();
+    return hay.includes(q) || q.includes((a.municipality ?? "").toLowerCase().trim() || "\0");
+  });
+  if (matches.length !== 1) return null;
+  return { lat: matches[0].latitude_deg as number, lng: matches[0].longitude_deg as number };
 }

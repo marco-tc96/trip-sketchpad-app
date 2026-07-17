@@ -173,8 +173,8 @@ const MODE_LABEL_KEY: Record<string, string> = {
 const MODE_COLOR: Record<string, string> = {
   car: "#ef4444",                 // red-500 — auto
   moto: "#f97316",                // orange-500 — moto
-  plane: "var(--foreground)",     // theme-adaptive: white in dark mode, black in light mode — aereo
-  train: "var(--muted-foreground)", // theme-adaptive grey (lighter in dark mode, darker in light mode) — treno
+  plane: "#4b5563",                // dark grey, fixed regardless of theme — white didn't read on the map, so no more day/night switching either — aereo
+  train: "#c0c0c0",                // silver, fixed regardless of theme (no more day/night switching) — treno
   taxi: "#eab308",                // yellow-500 — taxi
   bus: "#0ea5e9",                 // sky-500 — bus (matches the trip page's bus colour)
   metro: "#8b5cf6",               // violet-500 — metro

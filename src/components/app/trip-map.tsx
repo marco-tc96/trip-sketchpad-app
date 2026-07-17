@@ -4,6 +4,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { geocodeCity } from "@/lib/country-data";
 import { withRomanization, registerEnName } from "@/lib/romanize";
+import { airportCoordsByIata, airportCoordsByPlaceName } from "@/hooks/use-airports";
 
 export type MapCity = { name: string; country: string; lat?: number; lng?: number };
 export type MapWaypoint = { name: string; enter?: boolean; lat?: number | null; lng?: number | null; country?: string | null };
@@ -98,8 +99,8 @@ const PRIMARY = "oklch(0.66 0.14 38)";
 const MODE_STYLE: Record<string, { color: string; dash?: string }> = {
   car:      { color: "#ef4444" },                          // red-500 — auto
   moto:     { color: "#f97316" },                          // orange-500 — moto
-  plane:    { color: "var(--foreground)", dash: "2 8" },   // theme-adaptive (white in dark / black in light) — aereo, dotted
-  train:    { color: "var(--muted-foreground)" },          // theme-adaptive grey — treno
+  plane:    { color: "#4b5563", dash: "2 8" },              // dark grey, fixed regardless of theme (white didn't read on the map) — aereo, dotted
+  train:    { color: "#c0c0c0" },                           // silver, fixed regardless of theme — treno
   taxi:     { color: "#eab308" },                          // yellow-500 — taxi
   bus:      { color: "#0ea5e9" },                          // sky-500 — bus (same as the leg editor)
   metro:    { color: "#8b5cf6" },                          // violet-500 fallback (real line colour preferred)
@@ -667,6 +668,24 @@ async function geocodePlace(query: string, country?: string, airportHint = false
   // plane leg (airportHint === true, set from r.mode === "plane") should get
   // the airport-specific IATA/aerodrome resolution below.
   const isAirport = airportHint;
+  // Airports: resolve from the SAME offline airports-json dataset used
+  // everywhere else in the app for airport data (see use-airports.ts) —
+  // exact reference-point coordinates, no network round-trip, no rate limit,
+  // no risk of a live geocoder matching the wrong feature. Tried first
+  // whenever there's an IATA code, and — when there isn't one, e.g. an older
+  // leg saved as plain "Barcelona"/"El Prat" before the "IATA - City" label
+  // format existed — by matching the place name directly against the
+  // dataset (only when exactly one airport matches, to stay unambiguous).
+  // The live Overpass/Nominatim paths below are now only a fallback for the
+  // rare code that's genuinely missing from the dataset.
+  if (isAirport && iata) {
+    const byIataOffline = await airportCoordsByIata(iata);
+    if (byIataOffline) return byIataOffline;
+  }
+  if (isAirport && !iata) {
+    const byNameOffline = await airportCoordsByPlaceName(q);
+    if (byNameOffline) return byNameOffline;
+  }
   // Airports: the IATA code gives an exact, unambiguous location — try it first.
   if (isAirport && iata) {
     const byIata = await fetchAirportByIata(iata);
@@ -903,7 +922,14 @@ const memRail = new Map<string, LL[]>();
 // then cached as a "successful" lookup — which the cache never retries.
 // Bumping the key discards every entry so El Prat (and anything similarly
 // affected) gets re-geocoded fresh under the corrected logic.
-const GEO_LS_KEY = "voyager_geocache_v5";
+// v6: bumped from v5 because airport resolution now reads exact coordinates
+// straight from the offline airports-json dataset (see airportCoordsByIata /
+// airportCoordsByPlaceName in use-airports.ts) instead of depending on a live
+// Overpass/Nominatim lookup that could time out, get rate-limited, or match
+// the wrong feature. El Prat may still have a stale wrong point cached from
+// before this change (and before v5) — bumping discards it so every airport
+// pin is resolved fresh from the reliable offline source.
+const GEO_LS_KEY = "voyager_geocache_v6";
 const GEO_CAP = 800; // max total geocoding entries kept (keeps storage tiny)
 (function loadGeoCache() {
   try {

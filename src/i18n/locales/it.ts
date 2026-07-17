@@ -269,6 +269,7 @@ const translations: Record<string, string> = {
   toll_booth_placeholder: "Cerca casello autostradale…",
   train_scope_national: "Nazionale",
   train_scope_local: "Locale",
+  select_city_placeholder: "Seleziona città…",
   // ── Trip page ──────────────────────────────────────────────────────────
   add_to_favorites: "Aggiungi ai preferiti",
   remove_from_favorites: "Rimuovi dai preferiti",

@@ -267,6 +267,7 @@ const translations: Record<string, string> = {
   toll_booth_placeholder: "料金所を検索…",
   train_scope_national: "国鉄",
   train_scope_local: "近郊/地下鉄",
+  select_city_placeholder: "都市を選択…",
   // ── Trip page ──────────────────────────────────────────────────────────
   add_to_favorites: "Add to favorites",
   remove_from_favorites: "Remove from favorites",

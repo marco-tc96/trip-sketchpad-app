@@ -267,6 +267,7 @@ const translations: Record<string, string> = {
   toll_booth_placeholder: "Pesquisar praça de pedágio…",
   train_scope_national: "Nacional",
   train_scope_local: "Local",
+  select_city_placeholder: "Selecionar cidade…",
   // ── Trip page ──────────────────────────────────────────────────────────
   add_to_favorites: "Add to favorites",
   remove_from_favorites: "Remove from favorites",
