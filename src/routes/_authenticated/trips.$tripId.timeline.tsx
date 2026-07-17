@@ -2854,6 +2854,37 @@ async function geocodeStationCountry(q: string): Promise<string | null> {
   }
 }
 
+// Determine which city an existing free-text point (a POI, street address, or
+// city-centre pick) actually belongs to — used to correctly re-seed the
+// car/moto/taxi leg editor's city step (see HubCombobox's isCityMode branch)
+// when editing an existing leg. Saved point values are always the bare
+// place/POI name (never prefixed with the city), so an unscoped Nominatim
+// lookup is the only reliable way to recover "which city" for an address or
+// POI value; a city-centre value already matches `cityList` directly and
+// doesn't need this.
+const _placeCityCache = new Map<string, string | null>();
+async function geocodePlaceCity(q: string): Promise<string | null> {
+  const key = q.trim().toLowerCase();
+  if (!key) return null;
+  if (_placeCityCache.has(key)) return _placeCityCache.get(key)!;
+  try {
+    const r = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1&addressdetails=1`,
+      { headers: { Accept: "application/json" } },
+    );
+    const hits = (await r.json()) as Array<{
+      address?: { city?: string; town?: string; village?: string; municipality?: string };
+    }>;
+    const addr = hits?.[0]?.address;
+    const city = addr?.city || addr?.town || addr?.village || addr?.municipality || null;
+    _placeCityCache.set(key, city);
+    return city;
+  } catch {
+    _placeCityCache.set(key, null);
+    return null;
+  }
+}
+
 type CorridorBox = { minLat: number; minLng: number; maxLat: number; maxLng: number };
 // `category` groups a POI result in the road-mode picker's dropdown
 // (touristic sights vs. transport hubs vs. everything else); left undefined
@@ -3188,9 +3219,13 @@ function HubCombobox({
   );
   const [cityQuery, setCityQuery] = useState("");
   const [cityOpen, setCityOpen] = useState(false);
-  // Seed the city step from the caller's hint (e.g. the adjacent leg's handoff
-  // point) once it becomes available — but only while the user hasn't typed a
-  // city yet, so it's a soft default, never an override of an explicit choice.
+  // Seed the city step. When editing an existing leg, `value` already holds
+  // the saved point — recover ITS city first (exact match against the known
+  // city list, then a reverse-geocode for POI/address values) so the step
+  // never resets to empty or to the wrong city. Only fall back to the
+  // caller's hint (e.g. the adjacent leg's handoff point) for a genuinely new/
+  // empty leg, or if the saved value can't be resolved at all. Never override
+  // an explicit choice the user has already made in this session.
   useEffect(() => {
     // NB: only seeds the text — must NOT open the dropdown here. This effect
     // fires on mount for every road-mode field at once (the hint is usually
@@ -3198,9 +3233,26 @@ function HubCombobox({
     // field's suggestion list open simultaneously as soon as the leg editor
     // renders. Opening on an explicit user action (picking a city below) is
     // fine because that only ever affects the one field being touched.
-    if (isCityMode && !cityQuery && cityHint) setCityQuery(cityHint.name);
+    if (!isCityMode || cityQuery) return;
+    const raw = value.trim();
+    if (raw) {
+      const exact = cityList.find((c) => c.name.toLowerCase() === raw.toLowerCase());
+      if (exact) { setCityQuery(exact.name); return; }
+      let alive = true;
+      geocodePlaceCity(raw).then((city) => {
+        if (!alive) return;
+        if (city) {
+          const hit = cityList.find((c) => c.name.toLowerCase() === city.toLowerCase());
+          setCityQuery(hit ? hit.name : city);
+        } else if (cityHint) {
+          setCityQuery(cityHint.name);
+        }
+      });
+      return () => { alive = false; };
+    }
+    if (cityHint) setCityQuery(cityHint.name);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isCityMode, cityHint?.name]);
+  }, [isCityMode, value, cityHint?.name]);
 
   const cityMatch = cityList.find((c) => c.name.toLowerCase() === cityQuery.trim().toLowerCase());
   const activeCityCountry = cityMatch?.country ?? countries[0] ?? "";
