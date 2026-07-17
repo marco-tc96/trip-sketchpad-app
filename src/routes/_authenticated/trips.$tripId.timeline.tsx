@@ -420,7 +420,12 @@ async function fetchTransitLines(city: string, osmMode: string): Promise<Array<{
   const seen = new Set<string>();
   const lines: Array<{ ref: string; name: string; intercity?: boolean; express?: boolean }> = [];
   for (const el of data.elements) {
-    const ref = el.tags?.ref ?? "";
+    // Not every mapped route carries a structured `ref` tag — airport/
+    // limousine lines in particular are often entered with only a `name`
+    // (e.g. "Incheon Airport Limousine 6705A"). Requiring `ref` silently
+    // dropped those entirely; fall back to `name` so the line still shows up
+    // (just not de-duplicated/sorted as neatly as a real ref code would be).
+    const ref = el.tags?.ref || el.tags?.name || "";
     if (!ref || seen.has(ref)) continue;
     seen.add(ref);
     const name = el.tags?.name ?? ref;
@@ -446,7 +451,7 @@ async function fetchTransitLines(city: string, osmMode: string): Promise<Array<{
         const q2 = `[out:json][timeout:40];(${wideClauses};);out tags;`;
         const data2 = await overpassFetch(q2) as { elements: Array<{ tags: Record<string, string> }> };
         for (const el of data2.elements) {
-          const ref = el.tags?.ref ?? "";
+          const ref = el.tags?.ref || el.tags?.name || "";
           if (!ref || seen.has(ref)) continue;
           seen.add(ref);
           const name = el.tags?.name ?? ref;
@@ -515,7 +520,13 @@ async function fetchLineStops(city: string, osmMode: string, lineRef: string): P
   // picked from the list may be tagged "coach" rather than "bus".
   const modes = osmMode === "subway" ? ["subway", "metro"] : osmMode === "bus" ? ["bus", "coach"] : [osmMode];
   const runQuery = (locator: string, prelude: string) => {
-    const routeClauses = modes.map(m => `relation["type"="route"]["route"="${m}"]["ref"="${lineRef}"]${locator}`).join(";");
+    // `lineRef` may be a real `ref` tag OR a `name`-fallback key (see
+    // fetchTransitLines, for lines that were only tagged with a name) — match
+    // either tag so a picked line's stops still resolve in both cases.
+    const routeClauses = modes.flatMap(m => [
+      `relation["type"="route"]["route"="${m}"]["ref"="${lineRef}"]${locator}`,
+      `relation["type"="route"]["route"="${m}"]["name"="${lineRef}"]${locator}`,
+    ]).join(";");
     // Fetch the matching route relation(s) with their ORDERED members, plus the
     // tags of every member node/way so we can resolve stop names. The member
     // lookups (node(r.r)/way(r.r)) are NOT limited to the search area, so a route
