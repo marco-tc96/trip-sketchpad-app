@@ -113,6 +113,12 @@ const modeStyle = (mode: string) => MODE_STYLE[mode] ?? { color: PRIMARY };
 // draw in this colour instead of the standard urban bus blue, so e.g. an
 // airport express line stands apart from the city's local bus network.
 const INTERCITY_BUS_COLOR = "#f97316"; // orange-500
+// Dash pattern for a transit leg whose typed line couldn't be checked against
+// real OSM data (unknown ref, or its boarding/alighting names don't match a
+// real stop on it) — it's still drawn, as a plain best-guess hop between the
+// two geocoded points, but dotted so it visibly reads as unverified rather
+// than a real, checked route.
+const UNVERIFIED_DASH = "4 5";
 
 // Ground modes whose path we snap to real roads via OSRM; plane/ferry stay
 // straight (dotted/dashed) since there are no roads to follow.
@@ -806,19 +812,22 @@ function FitBounds({ points, restrictBounds }: { points: [number, number][]; res
   return null;
 }
 
-// Localised notice shown when some transit legs can't be drawn from OSM data.
+// Localised notice shown when some transit legs' typed line couldn't be
+// checked against real OSM data — they're still drawn (a dotted best-guess
+// hop between the two points, see UNVERIFIED_DASH), this just flags that
+// they're estimates rather than a confirmed, real route.
 function transitNotice(lang: string | undefined, n: number): string {
   const l = (lang || "en").slice(0, 2);
   const M: Record<string, [string, string]> = {
-    it: ["tratta non tracciabile (dati mappa mancanti)", "tratte non tracciabili (dati mappa mancanti)"],
-    en: ["leg couldn't be mapped (missing map data)", "legs couldn't be mapped (missing map data)"],
-    es: ["tramo no trazable (faltan datos del mapa)", "tramos no trazables (faltan datos del mapa)"],
-    fr: ["trajet non traçable (données manquantes)", "trajets non traçables (données manquantes)"],
-    de: ["Abschnitt nicht darstellbar (Kartendaten fehlen)", "Abschnitte nicht darstellbar (Kartendaten fehlen)"],
-    pt: ["trecho não traçável (faltam dados do mapa)", "trechos não traçáveis (faltam dados do mapa)"],
-    ja: ["区間を地図に表示できません（地図データ不足）", "区間を地図に表示できません（地図データ不足）"],
-    ko: ["구간을 지도에 표시할 수 없음(지도 데이터 없음)", "구간을 지도에 표시할 수 없음(지도 데이터 없음)"],
-    zh: ["段无法绘制（缺少地图数据）", "段无法绘制（缺少地图数据）"],
+    it: ["tratta mostrata come stima (linea non verificata)", "tratte mostrate come stima (linee non verificate)"],
+    en: ["leg shown as an estimate (line not verified)", "legs shown as an estimate (lines not verified)"],
+    es: ["tramo mostrado como estimación (línea no verificada)", "tramos mostrados como estimación (líneas no verificadas)"],
+    fr: ["trajet affiché en estimation (ligne non vérifiée)", "trajets affichés en estimation (lignes non vérifiées)"],
+    de: ["Abschnitt als Schätzung angezeigt (Linie nicht bestätigt)", "Abschnitte als Schätzung angezeigt (Linien nicht bestätigt)"],
+    pt: ["trecho exibido como estimativa (linha não verificada)", "trechos exibidos como estimativa (linhas não verificadas)"],
+    ja: ["区間は推定表示（未確認の路線）", "区間は推定表示（未確認の路線）"],
+    ko: ["구간을 추정치로 표시(미확인 노선)", "구간을 추정치로 표시(미확인 노선)"],
+    zh: ["路段以估算方式显示（未验证线路）", "路段以估算方式显示（未验证线路）"],
   };
   const [one, many] = M[l] ?? M.en;
   return `${n} ${n === 1 ? one : many}`;
@@ -838,7 +847,16 @@ const memTransit = new Map<string, TransitLine>();
 const memRoad = new Map<string, LL[]>();
 const memRail = new Map<string, LL[]>();
 
-const GEO_LS_KEY = "voyager_geocache_v2";
+// v3: bumped from v2 because v2 could contain entries written by the OLD
+// `resolve()`, which used to fall back to drawing a failed geocode at its
+// COUNTRY'S centroid and then persisted that fake point as if it were a
+// real, successful geocode (see `rememberGeo` — it only distinguishes
+// null/non-null, so a wrong-but-non-null centroid was cached forever). That
+// bug is fixed (no more centroid fallback), but any station/stop that had
+// already been geocoded wrong under v2 kept loading its bad cached point on
+// every visit regardless. Bumping the key discards every old entry so
+// everything is re-geocoded fresh under the corrected logic.
+const GEO_LS_KEY = "voyager_geocache_v3";
 const GEO_CAP = 800; // max total geocoding entries kept (keeps storage tiny)
 (function loadGeoCache() {
   try {
@@ -1566,11 +1584,17 @@ export function TripMap({
       // Intercity/airport buses draw in a distinct colour from local urban ones.
       const color = l.mode === "bus" && l.intercity ? INTERCITY_BUS_COLOR : baseColor;
 
+      // A leg with a line ref that resolves to a real OSM relation ("ok") draws
+      // that exact track. One that's still loading ("pending") is skipped for
+      // now, to avoid flashing a wrong fallback before the real geometry is in.
+      // One OSM couldn't verify at all ("failed" — an unknown ref, or a
+      // boarding/alighting name that doesn't match any real stop on it) is NOT
+      // silently dropped: it falls through to the plain straight-line drawing
+      // below, just forced dotted, so a manually-typed, unverifiable line still
+      // shows an honest best-guess hop instead of vanishing from the map.
+      let unverified = false;
       if (TRANSIT_MODES.has(l.mode)) {
         const res = transitResolved[key];
-        // A leg with a line ref is handled strictly by transitResolved: draw only
-        // when "ok"; pending/failed → not drawn (failed also raises the notice).
-        // A leg WITHOUT a line ref (res undefined) falls through to a plain line.
         if (res) {
           if (res.state === "ok" && res.positions && res.pins) {
             // Metro AND tram lines draw in their real network colour when OSM
@@ -1580,13 +1604,16 @@ export function TripMap({
             const usesRealColor = l.mode === "metro" || l.mode === "tram";
             const lineColor = usesRealColor && res.color ? res.color : color;
             out.push({ key, color: lineColor, dash, positions: res.positions, pins: res.pins, mode: l.mode, line: l.line });
+            return;
           }
-          return;
+          if (res.state === "pending") return;
+          unverified = true; // state === "failed"
         }
       }
 
-      // Non-transit legs → geocoded endpoints, snapped to roads (car/moto via OSRM,
-      // through the "enter" waypoints) or to the railway (train, via BRouter).
+      // Non-transit legs (and unverified transit legs, drawn dotted below) →
+      // geocoded endpoints, snapped to roads (car/moto via OSRM, through the
+      // "enter" waypoints) or to the railway (train, via BRouter).
       const a = l.a, b = l.b;
       if (!a || !b) return;
       let positions: LL[] = [a, b];
@@ -1608,7 +1635,7 @@ export function TripMap({
       if (!isCity(a)) pins.push({ ll: startPt, name: cleanPlace(l.from), big: true });
       for (const v of l.vias) if (v.pin) pins.push({ ll: projectOnPath(positions, v.ll), name: v.label, big: true, hollow: true });
       if (!isCity(b)) pins.push({ ll: endPt, name: cleanPlace(l.to), big: true });
-      out.push({ key, color, dash, positions, pins, mode: l.mode, line: l.line });
+      out.push({ key, color, dash: unverified ? UNVERIFIED_DASH : dash, positions, pins, mode: l.mode, line: l.line });
     });
     return out;
   }, [routeLines, routes, showRoutes, transitResolved, pathCache, railCache, cityKeySet]);

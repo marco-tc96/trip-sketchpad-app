@@ -2643,6 +2643,19 @@ function StopCombobox({
     [allHubs, cityLower],
   );
 
+  // Every stop OSM knows about in this city for the given mode — a much wider
+  // net than the hand-picked `hubsForMode` list (sometimes only 3-4 entries
+  // per city), fetched once per city/mode and filtered client-side below as
+  // the user types, same as `cityHubs`.
+  const [cityStops, setCityStops] = useState<string[]>([]);
+  useEffect(() => {
+    const cityTrim = city.trim();
+    if (!cityTrim) { setCityStops([]); return; }
+    let alive = true;
+    fetchCityStops(cityTrim, mode).then((res) => { if (alive) setCityStops(res); });
+    return () => { alive = false; };
+  }, [city, mode]);
+
   const nq = norm(value);
   const nCity = norm(city);
   const hasLineStops = (extraOptions?.length ?? 0) > 0;
@@ -2655,6 +2668,14 @@ function StopCombobox({
           )
         : cityHubs.slice(0, 40),
     [cityHubs, nq, nCity],
+  );
+
+  const cityStopsFiltered = useMemo(
+    () =>
+      nq && nq !== nCity
+        ? cityStops.filter((s) => norm(s).includes(nq))
+        : cityStops.slice(0, 40),
+    [cityStops, nq, nCity],
   );
 
   const remoteFiltered = useMemo(
@@ -2676,7 +2697,8 @@ function StopCombobox({
   }, [extraOptions, nq]);
 
   // When a line is selected, show ONLY that line's stops (not other lines' /
-  // city-wide stations). Otherwise fall back to city hub suggestions.
+  // city-wide stations). Otherwise fall back to city hubs + the broader OSM
+  // stop search + remote (Nominatim) hits — whatever contains the typed text.
   const suggestions = useMemo(() => {
     if (hasLineStops) {
       return extraFiltered.slice(0, 60).map((name) => ({ name }) as { name: string; city?: string });
@@ -2688,8 +2710,13 @@ function StopCombobox({
       if (seen.has(k)) continue;
       seen.add(k); out.push({ name: h.name, city: h.city });
     }
+    for (const name of cityStopsFiltered) {
+      const k = norm(name);
+      if (seen.has(k)) continue;
+      seen.add(k); out.push({ name });
+    }
     return out.slice(0, 60);
-  }, [hasLineStops, extraFiltered, localFiltered, remoteFiltered]);
+  }, [hasLineStops, extraFiltered, localFiltered, remoteFiltered, cityStopsFiltered]);
 
   return (
     <div className="relative">
@@ -3026,6 +3053,49 @@ async function fetchCityPOIs(city: string, country: string): Promise<WpSuggestio
     // limit) must not permanently poison this city with an empty POI list
     // for the rest of the session — the next time the field is focused it
     // should retry rather than silently stay empty forever.
+    return [];
+  }
+}
+
+// Broad, mode-specific stop search (bus/tram/metro) for the boarding/
+// alighting fields in `StopCombobox` — used as a suggestion source when no
+// specific line is picked yet (or the typed line isn't among the proposed
+// ones, so its real stops can't be looked up). The curated hub list
+// (`hubsForMode`) is hand-picked and sometimes has only 3-4 entries for a
+// given city, which isn't enough to reliably surface a match for whatever
+// the user actually types — this queries every stop OSM knows about in the
+// city instead, so typing any substring of a real stop's name has a real
+// chance of finding it.
+const STOP_CAP = 80;
+const STOP_QUERY_CLAUSES: Record<string, string> = {
+  bus: `node["highway"="bus_stop"]["name"](area.c);way["highway"="bus_stop"]["name"](area.c);node["amenity"="bus_station"]["name"](area.c);`,
+  tram: `node["railway"="tram_stop"]["name"](area.c);`,
+  metro: `node["railway"="station"]["station"="subway"]["name"](area.c);node["station"="subway"]["name"](area.c);node["railway"="subway_entrance"]["name"](area.c);`,
+};
+const _cityStopsCache = new Map<string, string[]>();
+async function fetchCityStops(city: string, mode: string): Promise<string[]> {
+  const clauses = STOP_QUERY_CLAUSES[mode];
+  if (!clauses || !city) return [];
+  const key = `${city}|${mode}`;
+  if (_cityStopsCache.has(key)) return _cityStopsCache.get(key)!;
+  try {
+    const areaQ = await getAreaQuery(city);
+    const q = `[out:json][timeout:30];${areaQ};(${clauses});out tags ${STOP_CAP + 50};`;
+    const data = (await overpassFetch(q, 20000)) as { elements: Array<{ tags?: Record<string, string> }> };
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const el of data.elements ?? []) {
+      const name = el.tags?.name;
+      if (!name || seen.has(name)) continue;
+      seen.add(name);
+      out.push(name);
+      if (out.length >= STOP_CAP) break;
+    }
+    _cityStopsCache.set(key, out);
+    return out;
+  } catch {
+    // Not cached — a transient Overpass hiccup shouldn't permanently starve
+    // this city/mode of suggestions for the rest of the session.
     return [];
   }
 }
