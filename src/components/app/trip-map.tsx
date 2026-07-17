@@ -505,13 +505,42 @@ function projectOnPath(path: LL[], pt: LL): LL {
   return best;
 }
 
-// Keep only the portion of the line between the boarding and alighting stops.
+// Where along a polyline a point projects: the segment index and how far
+// (0–1) into that segment — precise to the metre, unlike a nearest-VERTEX
+// index (which can sit tens of metres from the true stop if track vertices
+// are sparse there, leaving the trimmed line either short of, or past, the
+// pin that's snapped exactly onto the true projection via projectOnPath).
+function projectIndexT(path: LL[], pt: LL): { i: number; t: number; d2: number } {
+  let best = { i: 0, t: 0, d2: Infinity };
+  for (let i = 0; i < path.length - 1; i++) {
+    const A = path[i], B = path[i + 1];
+    const dx = B[0] - A[0], dy = B[1] - A[1];
+    const len2 = dx * dx + dy * dy;
+    let t = len2 > 0 ? ((pt[0] - A[0]) * dx + (pt[1] - A[1]) * dy) / len2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    const cx = A[0] + t * dx, cy = A[1] + t * dy;
+    const d2 = (cx - pt[0]) ** 2 + (cy - pt[1]) ** 2;
+    if (d2 < best.d2) best = { i, t, d2 };
+  }
+  return best;
+}
+
+// Keep only the portion of the line between the boarding and alighting
+// stops — trimmed exactly at each stop's projected point on the track (not
+// merely at the nearest existing vertex), so the drawn line's very end
+// always coincides with the alighting pin instead of stopping short of or
+// running past it.
 function trimPath(path: LL[], a: LL, b: LL): LL[] {
   if (path.length < 2) return path;
-  let i = nearestIdx(path, a);
-  let j = nearestIdx(path, b);
-  if (i > j) { const t = i; i = j; j = t; }
-  const seg = path.slice(i, j + 1);
+  let lo = projectIndexT(path, a);
+  let hi = projectIndexT(path, b);
+  if (lo.i > hi.i || (lo.i === hi.i && lo.t > hi.t)) { const tmp = lo; lo = hi; hi = tmp; }
+  const at = (p: { i: number; t: number }): LL => [
+    path[p.i][0] + p.t * (path[p.i + 1][0] - path[p.i][0]),
+    path[p.i][1] + p.t * (path[p.i + 1][1] - path[p.i][1]),
+  ];
+  const mid = path.slice(lo.i + 1, hi.i + 1);
+  const seg = [at(lo), ...mid, at(hi)];
   return seg.length >= 2 ? seg : path;
 }
 
@@ -681,8 +710,27 @@ function cleanPlace(s: string): string {
 
 function FitBounds({ points, restrictBounds }: { points: [number, number][]; restrictBounds?: L.LatLngBounds }) {
   const map = useMap();
+  // Once the user has manually dragged the map, stop auto-fitting entirely —
+  // otherwise a background update that changes `points` (one more leg
+  // endpoint finishing its geocode, an unrelated re-render giving the array
+  // a new identity, …) snaps the view straight back to the trip's own
+  // cities/pins, undoing a deliberate pan toward e.g. the home-country pin.
+  const userMovedRef = useRef(false);
+  useEffect(() => {
+    const onDragStart = () => { userMovedRef.current = true; };
+    map.on("dragstart", onDragStart);
+    return () => { map.off("dragstart", onDragStart); };
+  }, [map]);
+  // Also skip re-fitting when `points` is referentially new but not actually
+  // different in content — geocoding/route state updates recreate this array
+  // on every render even when the coordinates it holds haven't changed.
+  const lastKeyRef = useRef<string>("");
   useEffect(() => {
     if (points.length === 0) return;
+    if (userMovedRef.current) return;
+    const key = points.map((p) => `${p[0].toFixed(4)},${p[1].toFixed(4)}`).join("|");
+    if (key === lastKeyRef.current) return;
+    lastKeyRef.current = key;
     if (points.length === 1) {
       map.setView(points[0], 5, { animate: false });
       return;
@@ -805,20 +853,70 @@ function rememberGeo(m: Map<string, Coord>, updates: Record<string, Coord>) {
 // simplified copy to localStorage means a route already drawn once paints
 // instantly on the next visit (even after closing the tab), while only truly
 // new/changed legs go back to the network.
-const ROUTE_LS_KEY = "voyager_routecache_v1";
+// v2: bumped from v1 because v1 could contain routes simplified by the old
+// naive uniform-subsampling algorithm below, which dropped real turn/curve
+// points and left geometry that visually cuts across buildings. Bumping the
+// key forces those stale, degraded entries to be discarded so every route is
+// re-fetched fresh and re-simplified with the new shape-preserving algorithm.
+const ROUTE_LS_KEY = "voyager_routecache_v2";
 const ROUTE_PERSIST_CAP = 60;   // max entries persisted per cache type (road/rail/transit)
 const ROUTE_MAX_POINTS = 250;   // max points kept per polyline once persisted
 
-// Evenly-spaced downsample — keeps the route's overall shape while bounding
-// how much JSON we write to localStorage. The in-memory copy used for the
-// current session stays full-resolution; only the persisted copy is thinned.
+// Perpendicular distance from point p to the line through a-b (used by
+// Douglas-Peucker below).
+function perpDist(p: LL, a: LL, b: LL): number {
+  const dx = b[0] - a[0], dy = b[1] - a[1];
+  const len2 = dx * dx + dy * dy;
+  if (len2 === 0) return Math.hypot(p[0] - a[0], p[1] - a[1]);
+  const t = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2;
+  const cx = a[0] + t * dx, cy = a[1] + t * dy;
+  return Math.hypot(p[0] - cx, p[1] - cy);
+}
+
+// Classic Douglas-Peucker: keeps the points that actually define a turn or
+// curve and drops only near-collinear ones, so the simplified path still
+// hugs the real road geometry instead of straightening bends into chords
+// that cut across buildings.
+function douglasPeucker(pts: LL[], epsilon: number): LL[] {
+  if (pts.length < 3) return pts;
+  let maxDist = 0;
+  let idx = 0;
+  const a = pts[0], b = pts[pts.length - 1];
+  for (let i = 1; i < pts.length - 1; i++) {
+    const d = perpDist(pts[i], a, b);
+    if (d > maxDist) { maxDist = d; idx = i; }
+  }
+  if (maxDist > epsilon) {
+    const left = douglasPeucker(pts.slice(0, idx + 1), epsilon);
+    const right = douglasPeucker(pts.slice(idx), epsilon);
+    return left.slice(0, -1).concat(right);
+  }
+  return [a, b];
+}
+
+// Shape-preserving downsample — keeps the route's real turns/curves while
+// bounding how much JSON we write to localStorage. The in-memory copy used
+// for the current session stays full-resolution; only the persisted copy is
+// thinned. Starts with a small epsilon (~5m) and progressively loosens it
+// until the result fits within maxPoints; if Douglas-Peucker alone can't get
+// there, a final evenly-spaced pass trims the remainder (this only kicks in
+// for extremely dense/wiggly paths, so it barely affects overall shape).
 function simplifyLL(pts: LL[], maxPoints = ROUTE_MAX_POINTS): LL[] {
   if (!Array.isArray(pts) || pts.length <= maxPoints) return pts;
-  const step = pts.length / maxPoints;
-  const out: LL[] = [];
-  for (let i = 0; i < maxPoints; i++) out.push(pts[Math.floor(i * step)]);
-  out.push(pts[pts.length - 1]);
-  return out;
+  let eps = 0.00005; // ~5m in degrees
+  let out = douglasPeucker(pts, eps);
+  let guard = 0;
+  while (out.length > maxPoints && guard < 8) {
+    eps *= 2;
+    out = douglasPeucker(pts, eps);
+    guard++;
+  }
+  if (out.length <= maxPoints) return out;
+  const step = out.length / maxPoints;
+  const res: LL[] = [];
+  for (let i = 0; i < maxPoints; i++) res.push(out[Math.floor(i * step)]);
+  res.push(out[out.length - 1]);
+  return res;
 }
 // Most-recently-added N entries of a Map, without mutating it (persistence
 // caps are independent from the larger in-memory session caps below).
