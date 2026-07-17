@@ -1144,16 +1144,26 @@ export function TripMap({
   // Geocoded city centres for transit-line searches, keyed by `${country}|${city}`.
   const [cityGeo, setCityGeo] = useState<Record<string, { lat: number; lng: number } | null>>(() => Object.fromEntries(memGeoCtr));
 
-  // Unique endpoints to geocode for the legs we draw by geocoding (planes, cars,
-  // ferries, and transit legs WITHOUT a line ref). Transit-with-line legs are
-  // located from their OSM relation instead, so we skip their stops here.
+  // Unique endpoints to geocode for the legs we draw by geocoding (planes,
+  // cars, ferries, and transit legs). A transit-with-line leg (bus/metro/
+  // tram/local-train with a real line ref) is ALSO located from its OSM
+  // relation via `drawn` — more precise — but `drawn` only computes anything
+  // when the "Tratte" switch is on (see `showRoutes` below); the default view
+  // is "Città". A transit-with-line leg used to be skipped here entirely on
+  // the assumption `drawn` would always cover it, which meant its endpoint
+  // contributed NOTHING to the camera framing / maxBounds leash while on the
+  // default "Città" view — exactly the "can't pan to the departure country"
+  // regression reported repeatedly. This must NOT regress again: every leg's
+  // endpoint, regardless of mode or whether it has a line ref, is geocoded
+  // here so `boundsPoints`/`restrictBounds` below always have a fallback
+  // point for it — `drawn`'s more precise pin, when available, still refines
+  // it further, but never has to be the ONLY source.
   const routeEndpoints = useMemo<Array<{ name: string; country?: string; airport: boolean; iata?: string | null }>>(() => {
     // Geocode leg endpoints even in the "cities" view, so every leg endpoint (e.g.
     // a departure city that isn't in the trip's city list) can appear on the map.
     if (!routes || routes.length === 0) return [];
     const seen = new Map<string, { name: string; country?: string; airport: boolean; iata?: string | null }>();
     for (const r of routes) {
-      if (isTransitWithLine(r)) continue;
       const airport = r.mode === "plane";
       const raws = [r.from, r.to];
       // Road-leg waypoints (car/moto) need geocoding ONLY when they don't already
