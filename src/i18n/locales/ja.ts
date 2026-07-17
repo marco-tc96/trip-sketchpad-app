@@ -265,6 +265,8 @@ const translations: Record<string, string> = {
   line: "路線",
   select_line: "路線を選択…",
   toll_booth_placeholder: "料金所を検索…",
+  train_scope_national: "国鉄",
+  train_scope_local: "近郊/地下鉄",
   // ── Trip page ──────────────────────────────────────────────────────────
   add_to_favorites: "Add to favorites",
   remove_from_favorites: "Remove from favorites",

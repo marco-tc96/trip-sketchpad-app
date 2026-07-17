@@ -265,6 +265,8 @@ const translations: Record<string, string> = {
   line: "线路",
   select_line: "选择线路…",
   toll_booth_placeholder: "搜索收费站…",
+  train_scope_national: "国铁",
+  train_scope_local: "市郊铁路",
   // ── Trip page ──────────────────────────────────────────────────────────
   add_to_favorites: "Add to favorites",
   remove_from_favorites: "Remove from favorites",

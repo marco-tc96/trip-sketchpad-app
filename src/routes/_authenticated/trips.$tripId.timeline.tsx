@@ -138,6 +138,14 @@ type MixedLeg = {
   // Bus only: true when the line's own OSM tags/name mark it as an express/
   // rapid/shuttle service — independent of (and can combine with) intercity.
   express?: boolean;
+  // Train only: "national" (default, incl. legacy legs saved before this
+  // field existed) keeps the classic country → station picker for the big
+  // intercity/national network. "local" switches to the SAME city+line
+  // picker already used for bus/metro/tram — for a metropolitan-area
+  // commuter/suburban rail network (e.g. Barcelona's Rodalies) that has its
+  // own numbered/lettered lines (e.g. "R2 Nord") and stops, exactly like a
+  // metro or tram line, rather than a big national station.
+  trainScope?: "national" | "local";
 };
 const emptyMixedLeg = (): MixedLeg => ({
   mode: "bus", vehicle: "", from_stop: "", to_stop: "", depart_at: "", arrive_at: "",
@@ -209,8 +217,17 @@ const STOP_KINDS = new Set(["train", "bus", "metro", "tram"]);
 // multi-leg UI as public transport, but with from/to point-of-interest fields
 // (HubCombobox) instead of a vehicle/line + stop pair.
 const ROAD_KINDS = new Set(["car", "moto", "taxi"]);
+// Modes whose vehicle field is always a searchable real OSM line (never a
+// plain "national" station network). "train" is intentionally NOT listed
+// here — whether a train leg gets the line-search treatment depends on its
+// own per-leg trainScope toggle (see MixedLeg), checked separately at each
+// call site below.
 const PT_TRANSIT_KINDS = new Set(["bus", "metro", "tram"]);
-const OSM_ROUTE_MODE: Record<string, string> = { bus: "bus", metro: "subway", tram: "tram" };
+const OSM_ROUTE_MODE: Record<string, string> = { bus: "bus", metro: "subway", tram: "tram", train: "train" };
+// True when this leg should use the city+line picker (bus/metro/tram always;
+// train only when its own trainScope is explicitly "local").
+const usesLocalLinePicker = (leg: MixedLeg) =>
+  PT_TRANSIT_KINDS.has(leg.mode) || (leg.mode === "train" && leg.trainScope === "local");
 
 // ── Caches (module-level, persist across dialog opens) ───────────────────────
 const _areaCache = new Map<string, string>();   // city → overpass area snippet
@@ -2360,8 +2377,41 @@ function AddItemDialog({
                     </div>
                   ) : (
                     <>
+                      {/* Train only: national (big intercity/national network,
+                          country + station) vs local (this city's own
+                          metropolitan/suburban rail network, e.g. Barcelona's
+                          Rodalies — same city+line picker as bus/metro/tram).
+                          Switching clears vehicle/stop fields since the two
+                          scopes store fundamentally different things there
+                          (a free country-wide station name vs. a line ref +
+                          a stop scoped to that specific line). */}
+                      {leg.mode === "train" && (
+                        <div className="flex gap-1.5">
+                          {(["national", "local"] as const).map((scope) => {
+                            const isActive = (leg.trainScope ?? "national") === scope;
+                            return (
+                              <button
+                                key={scope}
+                                type="button"
+                                onClick={() => {
+                                  if ((leg.trainScope ?? "national") === scope) return;
+                                  updateMixedLeg(i, { trainScope: scope, vehicle: "", from_stop: "", to_stop: "" });
+                                }}
+                                className={cn(
+                                  "flex-1 rounded-lg border px-2 py-1 text-xs font-medium transition",
+                                  isActive
+                                    ? "border-gray-500 bg-gray-500 text-white"
+                                    : "border-gray-400/40 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-950/20",
+                                )}
+                              >
+                                {scope === "national" ? t("train_scope_national") : t("train_scope_local")}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
                       {/* Line / vehicle picker */}
-                      {PT_TRANSIT_KINDS.has(leg.mode) && form.location ? (
+                      {usesLocalLinePicker(leg) && form.location ? (
                         <LineCombobox
                           mode={leg.mode}
                           city={form.location}
@@ -2376,12 +2426,13 @@ function AddItemDialog({
                           placeholder={t("vehicle_name").split("(")[0].trim()}
                         />
                       )}
-                      {/* Stops — train picks its country first (a national
-                          network, not one city's points), then stations
-                          scoped to exactly that country (same picker as the
-                          outbound/return journey's train field). Bus/metro/
-                          tram/ferry keep the city+line-scoped stop search. */}
-                      {leg.mode === "train" ? (
+                      {/* Stops — national train picks its country first (a
+                          national network, not one city's points), then
+                          stations scoped to exactly that country (same picker
+                          as the outbound/return journey's train field).
+                          Bus/metro/tram and LOCAL train keep the
+                          city+line-scoped stop search. */}
+                      {leg.mode === "train" && (leg.trainScope ?? "national") === "national" ? (
                         <div className="space-y-2">
                           <HubCombobox
                             mode="train"

@@ -265,6 +265,8 @@ const translations: Record<string, string> = {
   line: "Línea",
   select_line: "Selecciona línea…",
   toll_booth_placeholder: "Buscar peaje…",
+  train_scope_national: "Nacional",
+  train_scope_local: "Local",
   // ── Trip page ──────────────────────────────────────────────────────────
   add_to_favorites: "Add to favorites",
   remove_from_favorites: "Remove from favorites",

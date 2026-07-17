@@ -891,7 +891,19 @@ const memRail = new Map<string, LL[]>();
 // the trip's single declared country, or no bias at all on a multi-country
 // trip). Both are fixed now; bumping the key discards every entry that may
 // have been geocoded wrong under the old, unfiltered behaviour.
-const GEO_LS_KEY = "voyager_geocache_v4";
+// v5: bumped from v4 because `geocodePlace`'s `isAirport` used to also
+// trigger on a text match against AIRPORT_RE (e.g. a train stop literally
+// named "... Aeroport ...") even when the caller had explicitly passed
+// airportHint=false — dropping the country filter and biasing toward the
+// aerodrome polygon instead of the real station. That's fixed (isAirport
+// now follows airportHint alone), but a plane leg whose endpoint is a
+// single-airport city (e.g. Barcelona — "BCN - Barcelona", no "El Prat" in
+// the label since formatAirport() only appends the airport's own name for
+// multi-airport cities) could ALSO have been geocoded wrong earlier and
+// then cached as a "successful" lookup — which the cache never retries.
+// Bumping the key discards every entry so El Prat (and anything similarly
+// affected) gets re-geocoded fresh under the corrected logic.
+const GEO_LS_KEY = "voyager_geocache_v5";
 const GEO_CAP = 800; // max total geocoding entries kept (keeps storage tiny)
 (function loadGeoCache() {
   try {
