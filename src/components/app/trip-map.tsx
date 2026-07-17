@@ -1739,25 +1739,35 @@ export function TripMap({
   // panning from one trip pin toward another (e.g. from the destination
   // city out toward the home-country pin) is never blocked partway there.
   //
-  // Built from the pins themselves (trip cities + every leg endpoint, NOT
-  // the drawn route geometry): a plain bounding box over every pin, padded by
-  // 250km on every side. NOTE: this used to be a circle whose diameter was
-  // just the two most distant pins — that only mathematically contains every
-  // OTHER pin when the triangle they form has an obtuse-or-right angle
-  // opposite the longest side, which is false for many real trip layouts
-  // (e.g. three cities forming a roughly equilateral spread). Any pin that
-  // fell outside that circle (beyond the 250km buffer) became permanently
-  // unreachable — the map would refuse to pan or zoom out far enough to show
-  // it, snapping back toward the two extreme points instead. A min/max box
-  // over ALL pins has no such blind spot: every pin is inside it by
-  // construction, on every device (desktop, tablet, phone all share this
-  // same maxBounds/minZoom logic).
+  // Built from EVERY pin actually rendered on the map: trip cities, every
+  // leg's generic resolved endpoint, AND every pin inside `drawn` — which for
+  // public-transit legs (bus/tram/metro/train with a line ref) is the REAL
+  // OSM relation stop coordinate from `matchStop`, not the generic geocode
+  // used for `legEndpoints`. Those two can differ meaningfully (a stop's
+  // precise position vs. a coarse name-based geocode of the same label), and
+  // omitting the real ones was the actual bug: a transit pin that landed
+  // outside the leash became permanently unreachable — maxBounds prevented
+  // the viewport from ever panning/zooming to it, which is indistinguishable
+  // from "the line just isn't there" even though it was still being drawn.
+  // Including `drawn`'s pins closes that gap for every mode, not just
+  // transit, and fixes the map on every device since they all share this
+  // same maxBounds/minZoom logic.
+  //
+  // (This used to be a circle whose diameter was just the two most distant
+  // pins — that only mathematically contains every OTHER pin when the
+  // triangle they form has an obtuse-or-right angle opposite the longest
+  // side, false for many real trip layouts. A min/max box over ALL pins has
+  // no such blind spot: every pin is inside it by construction.)
   const restrictBounds = useMemo(() => {
-    const pins: LL[] = [...cityPoints, ...legEndpoints.map((e) => e.ll)];
+    const pins: LL[] = [
+      ...cityPoints,
+      ...legEndpoints.map((e) => e.ll),
+      ...drawn.flatMap((d) => d.pins.map((p) => p.ll)),
+    ];
     if (pins.length === 0) return undefined;
     if (pins.length === 1) return circleBoundsKm(pins[0], 250);
     return boundsFromPointsKm(pins, 250);
-  }, [cityPoints, legEndpoints]);
+  }, [cityPoints, legEndpoints, drawn]);
 
   if (boundsPoints.length === 0) {
     return (
