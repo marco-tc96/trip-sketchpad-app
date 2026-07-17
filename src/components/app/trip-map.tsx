@@ -704,7 +704,13 @@ async function geocodePlace(query: string, country?: string, airportHint = false
   const searchQ = isAirport && !AIRPORT_RE.test(cleaned) ? `${cleaned} airport` : cleaned;
   try {
     const params = new URLSearchParams({ q: searchQ, format: "json", limit: isAirport ? "10" : "1", addressdetails: "0" });
-    if (country && !isAirport) params.set("countrycodes", country.toLowerCase());
+    // Applied for airport searches too now that `country` can carry the
+    // trip's FULL country list (comma-separated, which Nominatim's
+    // countrycodes accepts) for a plane leg — this is what disambiguates a
+    // same-named airport abroad (e.g. Barcelona, Venezuela) from the one the
+    // trip is actually about, the same ambiguity the offline dataset lookup
+    // above already guards against.
+    if (country) params.set("countrycodes", country.toLowerCase());
     const r = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`, {
       headers: { Accept: "application/json" },
     });
@@ -949,7 +955,19 @@ const memRail = new Map<string, LL[]>();
 // the kind of failure that reads as "still wrong" after the fix. Coordinates
 // are now coerced with Number(...) so a numeric string resolves correctly.
 // Bumping discards any pin resolved while that silent fallback was in play.
-const GEO_LS_KEY = "voyager_geocache_v8";
+// v9: bumped from v8 because the root cause of "El Prat still wrong" for a
+// top-level flight leg (as opposed to a mixed-leg local-train stop, already
+// fixed) turned out to be upstream of every fix above: `buildMapRoutes` in
+// trips.$tripId.tsx never set a `country` at all for a top-level journey leg
+// (meta.legs — outbound/return/flight items), so a plane leg's endpoint like
+// "Barcelona" reached the v7/v8 country-scoped disambiguation with country
+// undefined — same-named-airport-abroad ambiguity (Barcelona, Venezuela)
+// couldn't be resolved, the lookup returned null, and it fell through to the
+// unscoped live search, which could land on the city rather than the actual
+// airport. Plane legs now carry the trip's full country list (comma-
+// separated) as that hint. Bumping discards any plane-leg pin resolved
+// before this fix existed.
+const GEO_LS_KEY = "voyager_geocache_v9";
 const GEO_CAP = 800; // max total geocoding entries kept (keeps storage tiny)
 (function loadGeoCache() {
   try {

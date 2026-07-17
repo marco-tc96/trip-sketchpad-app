@@ -116,6 +116,18 @@ function buildMapRoutes(
           // Flight number, shown on the map's departure pin for plane legs only
           // (not a transit "line" ref — doesn't trigger OSM line lookup).
           ...(legMode === "plane" && l.number ? { line: l.number } : {}),
+          // Plane legs ONLY: a top-level journey leg has no single "city" to
+          // derive a country from (unlike mixed_legs, below), yet its
+          // endpoint ("Barcelona", "Barcelona (BCN)"…) is exactly the kind of
+          // name that collides with a same-named airport in a country the
+          // trip has nothing to do with (e.g. Barcelona, Venezuela). The
+          // trip's FULL country list is the only hint available here, but
+          // it's still enough to disambiguate against — passed as a comma-
+          // separated list (both the offline airport lookup and Nominatim's
+          // countrycodes param accept that). NOT applied to other modes:
+          // road/rail/bus legs are legitimately cross-border and must stay
+          // free-form (see the comment above `isRoad`).
+          ...(legMode === "plane" && countries.length > 0 ? { country: countries.join(",") } : {}),
         });
       }
       continue;

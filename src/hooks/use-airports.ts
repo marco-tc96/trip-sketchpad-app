@@ -256,6 +256,14 @@ export async function airportCoordsByIata(code: string): Promise<{ lat: number; 
 // narrows to that country FIRST, and only widens to a global search if the
 // country-scoped narrowing finds nothing (e.g. the country hint was itself
 // missing/wrong).
+// `countryIso` accepts either a single ISO code ("ES") or a comma-separated
+// list ("ES,IT,FR"). A top-level flight leg isn't anchored to one specific
+// city/country the way a mixed-leg transfer is (it's the trip's own journey
+// BETWEEN countries) — its only available disambiguation hint is the full
+// set of countries the trip touches. Scoping to "any of the trip's
+// countries" is enough to tell Barcelona (Spain, on the trip) apart from a
+// same-named airport in a country the trip has nothing to do with (e.g.
+// Barcelona, Venezuela — IATA BLA), without needing one single exact country.
 export async function airportCoordsByPlaceName(query: string, countryIso?: string | null): Promise<{ lat: number; lng: number } | null> {
   const q = (query ?? "").trim().toLowerCase();
   if (q.length < 2) return null;
@@ -266,8 +274,13 @@ export async function airportCoordsByPlaceName(query: string, countryIso?: strin
     const hay = `${a.name} ${a.municipality ?? ""}`.toLowerCase();
     return hay.includes(q) || q.includes((a.municipality ?? "").toLowerCase().trim() || "\0");
   });
-  const iso = (countryIso ?? "").trim().toUpperCase();
-  let matches = iso ? candidates(all.filter((a) => (a.iso_country ?? "").toUpperCase() === iso)) : [];
+  const isoList = (countryIso ?? "")
+    .split(",")
+    .map((s) => s.trim().toUpperCase())
+    .filter(Boolean);
+  let matches = isoList.length
+    ? candidates(all.filter((a) => isoList.includes((a.iso_country ?? "").toUpperCase())))
+    : [];
   if (matches.length !== 1) matches = candidates(all);
   if (matches.length !== 1) return null;
   const lat = toFiniteCoord(matches[0].latitude_deg);
