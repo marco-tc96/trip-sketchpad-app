@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { Check, Loader2, LogOut, Moon, Settings as SettingsIcon, Sun, X } from "lucide-react";
+import { Check, Droplets, LayoutGrid, Loader2, LogOut, Moon, Settings as SettingsIcon, Sun, X } from "lucide-react";
 import { useServerFn } from "@tanstack/react-start";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,7 @@ import { LANGUAGES, type Lang } from "@/i18n/translations";
 import { setLanguage } from "@/i18n";
 import { allCountries, countryNameLocalized } from "@/lib/country-data";
 import { useTheme } from "@/lib/theme";
+import { useDockStyle } from "@/lib/dock-style";
 import { useAuth } from "@/lib/auth-context";
 import { cn } from "@/lib/utils";
 import { checkUsernameAvailable } from "@/lib/profile.functions";
@@ -44,6 +45,7 @@ export function SettingsDialog({
   const { t, i18n } = useTranslation();
   const { signOut } = useAuth();
   const { theme, setTheme } = useTheme();
+  const { dockStyle, setDockStyle } = useDockStyle();
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<ProfileFormValues>(initial);
@@ -275,6 +277,42 @@ export function SettingsDialog({
               >
                 <Moon className="h-3.5 w-3.5" />
                 {t("dark_mode")}
+              </button>
+            </div>
+          </div>
+
+          {/* Dock style — purely visual, device-local (not saved to the
+              profile row, same as the light/dark toggle above), so it takes
+              effect immediately via useDockStyle without going through
+              onSave/handleSave at all. */}
+          <div className="space-y-1.5">
+            <Label>{t("dock_style")}</Label>
+            <div className="inline-flex w-full rounded-full border border-border bg-secondary/40 p-1 text-sm">
+              <button
+                type="button"
+                onClick={() => setDockStyle("default")}
+                className={cn(
+                  "flex flex-1 items-center justify-center gap-1.5 rounded-full px-3 py-1.5 transition",
+                  dockStyle === "default"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <LayoutGrid className="h-3.5 w-3.5" />
+                {t("dock_style_default")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setDockStyle("liquid")}
+                className={cn(
+                  "flex flex-1 items-center justify-center gap-1.5 rounded-full px-3 py-1.5 transition",
+                  dockStyle === "liquid"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <Droplets className="h-3.5 w-3.5" />
+                {t("dock_style_liquid")}
               </button>
             </div>
           </div>

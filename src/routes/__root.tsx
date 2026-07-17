@@ -23,6 +23,7 @@ import "@fontsource/space-grotesk/700.css";
 import "@/i18n";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { ThemeProvider } from "@/lib/theme";
+import { DockStyleProvider } from "@/lib/dock-style";
 import { Toaster } from "@/components/ui/sonner";
 import { subscribePush, checkTripNotifications } from "@/lib/notifications.functions";
 
@@ -282,13 +283,15 @@ function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <AuthProvider>
-          <NotificationBootstrap />
-          <SplashWrapper>
-            <Outlet />
-          </SplashWrapper>
-          <Toaster richColors position="top-center" />
-        </AuthProvider>
+        <DockStyleProvider>
+          <AuthProvider>
+            <NotificationBootstrap />
+            <SplashWrapper>
+              <Outlet />
+            </SplashWrapper>
+            <Toaster richColors position="top-center" />
+          </AuthProvider>
+        </DockStyleProvider>
       </ThemeProvider>
     </QueryClientProvider>
   );

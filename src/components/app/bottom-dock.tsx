@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { countUnreadNotifications } from "@/lib/notifications.functions";
 import { listTrips } from "@/lib/trips.functions";
+import { useDockStyle } from "@/lib/dock-style";
 import { cn } from "@/lib/utils";
 
 type NavItem = {
@@ -23,6 +24,8 @@ const NAV_ITEMS: NavItem[] = [
 export function BottomDock() {
   const { t } = useTranslation();
   const loc = useLocation();
+  const { dockStyle } = useDockStyle();
+  const isLiquid = dockStyle === "liquid";
 
   const countFn = useServerFn(countUnreadNotifications);
   const { data: countData } = useQuery({
@@ -53,9 +56,39 @@ export function BottomDock() {
   return (
     <nav
       aria-label="Primary"
-      className="fixed inset-x-0 z-40 mx-auto flex w-fit max-w-[calc(100vw-1.5rem)] items-center gap-2 sm:gap-1 rounded-full border border-border/60 bg-card/85 px-2.5 sm:px-2 py-2 sm:py-1.5 shadow-soft backdrop-blur-xl"
+      className={cn(
+        "fixed inset-x-0 z-40 mx-auto flex w-fit max-w-[calc(100vw-1.5rem)] items-center gap-2 sm:gap-1 rounded-full px-2.5 sm:px-2 py-2 sm:py-1.5 transition-colors",
+        isLiquid
+          // "Liquid glass" look: lower-opacity tint (lets the blurred content
+          // behind really show through, unlike the default's fairly opaque
+          // card background), a bright hairline border + soft outer shadow to
+          // read as a distinct glass slab, and extra blur/saturation so
+          // colours behind it stay vivid instead of washing out grey.
+          ? "border border-white/40 bg-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.18)] backdrop-blur-2xl backdrop-saturate-150 dark:border-white/15 dark:bg-white/[0.07]"
+          : "border border-border/60 bg-card/85 shadow-soft backdrop-blur-xl",
+      )}
       style={{ bottom: "calc(0.75rem + env(safe-area-inset-bottom, 0px))" }}
     >
+      {/* Liquid-glass specular highlight — a soft light-to-transparent sheen
+          across the top half, the detail that sells "glass" rather than just
+          "blurred pill". Purely decorative (aria-hidden), sits behind the
+          nav's own content via a negative z-index, same trick already used
+          below for the ongoing-trip gradient. */}
+      {isLiquid && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-0 -z-10 overflow-hidden rounded-full"
+        >
+          <span
+            className="absolute inset-0"
+            style={{
+              background: "linear-gradient(180deg, rgba(255,255,255,0.45) 0%, rgba(255,255,255,0) 55%)",
+              mixBlendMode: "overlay",
+            }}
+          />
+        </span>
+      )}
+
       {/* Ongoing-trip highlight — soft amber gradient bleeding in from the
           dock's left edge, fading back to the dock's normal colour once past
           the luggage icon (approaching the Trips icon). Negative z-index so
