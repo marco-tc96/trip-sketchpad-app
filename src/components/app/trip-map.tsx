@@ -1340,11 +1340,23 @@ export function TripMap({
   }, [enrichedCities]);
 
   // Resolve a route endpoint to coordinates (trip city → geocode → centroid).
+  // `isAirport` (true only for a plane leg's own from/to, set by every caller
+  // below) skips the "reuse the trip city's own marker" shortcut: that
+  // shortcut exists so e.g. a train leg's "Barcelona - Sants" endpoint reuses
+  // the same dot as the Barcelona city marker instead of drawing a second,
+  // slightly-different one — reasonable for a place that genuinely IS the
+  // city. But a plane leg's "Barcelona" means Barcelona's AIRPORT (El Prat,
+  // ~12 km from the centre) — snapping it onto the city-centre marker was
+  // exactly why the airport pin kept landing on Barcelona itself no matter
+  // how the actual airport-coordinate lookup below was fixed: this shortcut
+  // ran FIRST and returned before that logic was ever reached.
   const resolve = useMemo(() => {
-    return (raw: string, country?: string): [number, number] | null => {
+    return (raw: string, country?: string, isAirport?: boolean): [number, number] | null => {
       const name = cleanPlace(raw);
-      const byCity = cityByName.get(_normName(name));
-      if (byCity) return byCity;
+      if (!isAirport) {
+        const byCity = cityByName.get(_normName(name));
+        if (byCity) return byCity;
+      }
       const key = `${country ?? ""}|${name}`;
       const cached = routeGeo[key];
       if (cached) return [cached.lat, cached.lng];
@@ -1382,8 +1394,8 @@ export function TripMap({
         if (g) center = [g.lat, g.lng];
       }
       const ck = center ? `${Math.round(center[0] * 100) / 100},${Math.round(center[1] * 100) / 100}` : "";
-      const a = resolve(r.from, r.country);
-      const b = resolve(r.to, r.country);
+      const a = resolve(r.from, r.country, r.mode === "plane");
+      const b = resolve(r.to, r.country, r.mode === "plane");
       // Build the road-leg vias (car/moto): city stops (with a pin).
       // `viasReady` waits for city coordinates.
       const vias: Via[] = [];
@@ -2011,7 +2023,7 @@ export function TripMap({
     const out: Array<{ ll: [number, number]; name: string }> = [];
     for (const r of routes) {
       for (const raw of [r.from, r.to]) {
-        const ll = resolve(raw, r.country);
+        const ll = resolve(raw, r.country, r.mode === "plane");
         if (!ll) continue;
         const k = `${ll[0].toFixed(3)},${ll[1].toFixed(3)}`;
         if (seen.has(k)) continue;
