@@ -33,17 +33,22 @@ export const Route = createFileRoute("/_authenticated/trips/$tripId")({
 //  • outbound/return (and any transport with meta.legs) → each leg from→to
 //  • multi-modal transfers (meta.mixed_legs) → each leg from_stop→to_stop
 //  • single stop-based transit (meta.from_stop/to_stop)
-// The trip's own declared country is passed to stop-based legs (mixed_legs,
-// from_stop/to_stop) as a SOFT geocoding bias only — trip-map.tsx's geocoder
-// gracefully falls back to its best unbiased match when nothing in that
-// country matches, so a country-crossing leg (e.g. a Belfast–Dublin side
-// trip on an otherwise Italy-only trip) still resolves correctly. This is
-// safe now that trip-map.tsx no longer falls back to drawing a failed
-// geocode at that country's geometric centroid (see resolve() there) — the
-// bias only ever helps disambiguate an in-country name, it can no longer
-// cause a wrong-country pin. Road legs (meta.legs, below) still get no hint
-// at all, since a road trip's start/end are far more likely to genuinely
-// span two of the trip's own countries back-to-back.
+// Stop-based legs (mixed_legs, from_stop/to_stop) get a SOFT geocoding-bias
+// country hint — preferably the ISO country of the trip's own city that the
+// item's location matches (so a multi-country trip still biases each leg
+// toward the RIGHT one of its countries, not just whichever one happens to
+// be first), falling back to the trip's single declared country when there
+// is exactly one and the item's location doesn't match a known city. It's a
+// bias only — trip-map.tsx's geocoder gracefully falls back to its best
+// unbiased match when nothing in that country matches, so a country-
+// crossing leg (e.g. a Belfast–Dublin side trip on an otherwise Italy-only
+// trip) still resolves correctly. This is safe now that trip-map.tsx no
+// longer falls back to drawing a failed geocode at that country's
+// geometric centroid (see resolve() there) — the bias only ever helps
+// disambiguate an in-country name, it can no longer cause a wrong-country
+// pin. Road legs (meta.legs, below) still get no hint at all, since a road
+// trip's start/end are far more likely to genuinely span two of the trip's
+// own countries back-to-back.
 function buildMapRoutes(
   items: Array<{ kind: string; location?: string | null; meta?: unknown }>,
   tripData: unknown,
@@ -52,9 +57,28 @@ function buildMapRoutes(
     ? (tripData as { countries: string[] }).countries
     : [];
   const singleCountry = countries.length === 1 ? countries[0] : undefined;
+  // Per-item country bias, looked up from the trip's OWN declared cities
+  // (which each carry their own ISO country) rather than relying solely on
+  // `singleCountry` — that only exists for a trip declared in exactly ONE
+  // country. A multi-country trip (e.g. a Nordic road trip through six of
+  // them) left every stop-based leg with NO country bias at all, so its
+  // geocoding was purely global/unscoped — the single biggest reason a
+  // station could resolve to a same-named place in the wrong country, or
+  // fail to resolve at all. This fixes that for any leg whose item's
+  // location matches one of the trip's own cities, whether or not the trip
+  // itself has one country or many.
+  const cities = Array.isArray((tripData as { cities?: unknown } | undefined)?.cities)
+    ? (tripData as { cities: Array<{ name?: string; country?: string }> }).cities
+    : [];
+  const countryByCity = new Map<string, string>();
+  for (const c of cities) {
+    const nm = (c?.name ?? "").trim().toLowerCase();
+    if (nm && c?.country) countryByCity.set(nm, c.country);
+  }
   const out: MapRoute[] = [];
   for (const it of items) {
     const city = it.location ?? undefined;
+    const legCountry = (city && countryByCity.get(city.trim().toLowerCase())) || singleCountry;
     const meta = (it.meta ?? {}) as {
       mode?: string;
       legs?: Array<{
@@ -94,7 +118,7 @@ function buildMapRoutes(
             from: l.from_stop,
             to: l.to_stop,
             mode: l.mode ?? it.kind,
-            country: singleCountry,
+            country: legCountry,
             line: l.vehicle,
             city,
             // Bus only: found via the wide intercity/airport search rather than
@@ -106,7 +130,7 @@ function buildMapRoutes(
       continue;
     }
     if (meta.from_stop && meta.to_stop) {
-      out.push({ from: meta.from_stop, to: meta.to_stop, mode: it.kind, country: singleCountry, city });
+      out.push({ from: meta.from_stop, to: meta.to_stop, mode: it.kind, country: legCountry, city });
     }
   }
   return out;
@@ -742,15 +766,11 @@ function TripLayout() {
               <div className="flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 text-xs text-muted-foreground sm:justify-start sm:text-sm">
                 {cityGroups.map((g) => (
                   <span key={g.iso || "unknown"} className="inline-flex items-center gap-1.5">
-                    <span>
-                      <span className="mr-1">{g.flag}</span>
-                      {g.cityNames.join(" · ")}
+                    <span className="inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted-foreground/90">
+                      <span>{g.flag}</span>
+                      {g.countryName && <span>{g.countryName}</span>}
                     </span>
-                    {g.countryName && (
-                      <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted-foreground/90">
-                        {g.countryName}
-                      </span>
-                    )}
+                    <span>{g.cityNames.join(" · ")}</span>
                   </span>
                 ))}
               </div>

@@ -578,7 +578,14 @@ async function photonGeocode(query: string, country?: string): Promise<{ lat: nu
   const qq = (query ?? "").replace(/\s*\/\s*/g, " ").trim();
   if (!qq) return null;
   try {
-    const params = new URLSearchParams({ q: qq, limit: "1" });
+    // With a country hint, ask for several candidates (not just the single
+    // global top match) — the loop below picks the first one actually IN
+    // that country. Requesting only 1 result made that filter a no-op: with
+    // nothing else in the array to fall through to, it always ended up
+    // returning the lone (possibly wrong-country) result regardless of the
+    // match below, which is how a same-named station/stop in another
+    // country could silently win over the real, in-country one.
+    const params = new URLSearchParams({ q: qq, limit: country ? "5" : "1" });
     const r = await fetch(`https://photon.komoot.io/api/?${params.toString()}`, { headers: { Accept: "application/json" } });
     if (!r.ok) return null;
     const data = (await r.json()) as {
@@ -856,7 +863,17 @@ const memRail = new Map<string, LL[]>();
 // already been geocoded wrong under v2 kept loading its bad cached point on
 // every visit regardless. Bumping the key discards every old entry so
 // everything is re-geocoded fresh under the corrected logic.
-const GEO_LS_KEY = "voyager_geocache_v3";
+// v4: bumped from v3 because `photonGeocode`'s country-preference check was a
+// no-op — it queried Photon with `limit=1`, so there was never a SECOND
+// candidate to fall through to if the lone result didn't match the given
+// country; it always returned that one result regardless. A same-named
+// station/stop in the wrong country could win outright, especially on a
+// multi-country trip (see also `buildMapRoutes` in trips.$tripId.tsx, which
+// now biases each leg toward the ISO country of its OWN city instead of only
+// the trip's single declared country, or no bias at all on a multi-country
+// trip). Both are fixed now; bumping the key discards every entry that may
+// have been geocoded wrong under the old, unfiltered behaviour.
+const GEO_LS_KEY = "voyager_geocache_v4";
 const GEO_CAP = 800; // max total geocoding entries kept (keeps storage tiny)
 (function loadGeoCache() {
   try {
