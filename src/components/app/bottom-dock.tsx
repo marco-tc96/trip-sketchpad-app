@@ -56,6 +56,22 @@ export function BottomDock() {
       className="fixed inset-x-0 z-40 mx-auto flex w-fit max-w-[calc(100vw-1.5rem)] items-center gap-2 sm:gap-1 rounded-full border border-border/60 bg-card/85 px-2.5 sm:px-2 py-2 sm:py-1.5 shadow-soft backdrop-blur-xl"
       style={{ bottom: "calc(0.75rem + env(safe-area-inset-bottom, 0px))" }}
     >
+      {/* Ongoing-trip highlight — soft amber gradient bleeding in from the
+          dock's left edge, fading back to the dock's normal colour once past
+          the luggage icon (approaching the Trips icon). Negative z-index so
+          it paints behind the nav's (non-positioned) links regardless of
+          DOM order. Hidden while the ongoing-trip tab itself is active,
+          since that tab already gets its own solid amber background. */}
+      {ongoingTrip && !ongoingActive && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 left-0 -z-10 w-20 sm:w-16 rounded-l-full"
+          style={{
+            background: "linear-gradient(to right, rgba(251,191,36,0.32), rgba(251,191,36,0) 90%)",
+          }}
+        />
+      )}
+
       {/* Ongoing-trip nav — only when a trip is underway, shown to the LEFT of
           the Trips icon, in yellow rather than the app's primary (orange). */}
       {ongoingTrip && (
