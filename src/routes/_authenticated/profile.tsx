@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
@@ -16,6 +16,7 @@ import type { Lang } from "@/i18n/translations";
 import { setLanguage } from "@/i18n";
 import { flagOf, countryNameLocalized, cityNameLocalized, geocodeCity } from "@/lib/country-data";
 import { SettingsDialog, type ProfileFormValues } from "@/components/app/settings-dialog";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/profile")({
   component: ProfilePage,
@@ -71,9 +72,14 @@ const CONTINENT_EMOJI: Record<string, string> = {
 // which is exactly why metro used to look like tram here; this custom glyph
 // is deliberately a different silhouette (a horizontal wagon) so the two
 // are unmistakable at a glance.
-function MetroWagonIcon({ className }: { className?: string }) {
+// NB: must forward `style` (not just `className`) — callers pass the per-mode
+// colour via an inline `style={{ color }}` (see MODE_COLOR below), and a
+// component that drops that prop silently renders in the inherited default
+// text colour instead. This was exactly why the metro icon showed up
+// grey/white instead of violet on the profile page.
+function MetroWagonIcon({ className, style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} style={style}>
       <rect x="3" y="6" width="18" height="11" rx="2" />
       <line x1="3" y1="12" x2="21" y2="12" />
       <rect x="6.3" y="8.3" width="3.6" height="2.4" rx="0.4" />
@@ -81,6 +87,58 @@ function MetroWagonIcon({ className }: { className?: string }) {
       <circle cx="7.5" cy="19" r="1.4" />
       <circle cx="16.5" cy="19" r="1.4" />
     </svg>
+  );
+}
+
+// Same back-and-forth scroll-on-overflow technique used for stop names in the
+// trip timeline (see ScrollText in trips.$tripId.timeline.tsx) — kept as its
+// own copy here since the two routes don't share a components module for it.
+// Long line/route/station names (e.g. "Milano - Centrale ↔ Somma Lombardo -
+// Malpensa Aeroporto T2") no longer just truncate with "…" on narrow/mobile
+// screens; instead the full text slides into view and back.
+function ScrollText({ children, className }: { children: React.ReactNode; className?: string }) {
+  const boxRef = useRef<HTMLSpanElement>(null);
+  const textRef = useRef<HTMLSpanElement>(null);
+  const [shift, setShift] = useState(0);
+  useEffect(() => {
+    if (typeof document !== "undefined" && !document.getElementById("marquee-pingpong-style")) {
+      const s = document.createElement("style");
+      s.id = "marquee-pingpong-style";
+      s.textContent = "@keyframes marquee-pingpong{from{transform:translateX(0)}to{transform:translateX(var(--marquee-shift))}}";
+      document.head.appendChild(s);
+    }
+    const measure = () => {
+      const box = boxRef.current, txt = textRef.current;
+      if (!box || !txt) return;
+      const diff = txt.scrollWidth - box.clientWidth;
+      setShift(diff > 4 ? diff : 0);
+    };
+    measure();
+    let ro: ResizeObserver | undefined;
+    if (typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver(measure);
+      if (boxRef.current) ro.observe(boxRef.current);
+      if (textRef.current) ro.observe(textRef.current);
+    }
+    return () => ro?.disconnect();
+  }, [children]);
+  return (
+    <span ref={boxRef} className={cn("block overflow-hidden whitespace-nowrap", className)}>
+      <span
+        ref={textRef}
+        className="inline-block will-change-transform"
+        style={shift ? ({
+          animationName: "marquee-pingpong",
+          animationDuration: `${Math.max(4, shift / 25)}s`,
+          animationTimingFunction: "ease-in-out",
+          animationIterationCount: "infinite",
+          animationDirection: "alternate",
+          ["--marquee-shift" as string]: `-${shift}px`,
+        } as React.CSSProperties) : undefined}
+      >
+        {children}
+      </span>
+    </span>
   );
 }
 
@@ -113,15 +171,15 @@ const MODE_LABEL_KEY: Record<string, string> = {
 // (see MODE_STYLE in trip-map.tsx) — kept in sync so a mode reads as the
 // same colour everywhere in the app.
 const MODE_COLOR: Record<string, string> = {
-  car: "#ef4444",   // red-500
-  moto: "#22c55e",  // green-500
-  plane: "#38bdf8", // sky-400
-  train: "#6b7280", // gray-500
-  taxi: "#eab308",  // yellow-500
-  bus: "#2563eb",   // blue-600
-  metro: "#8b5cf6", // violet-500
-  tram: "#10b981",  // emerald-500
-  ferry: "#0d9488", // teal-600
+  car: "#ef4444",                 // red-500 — auto
+  moto: "#f97316",                // orange-500 — moto
+  plane: "var(--foreground)",     // theme-adaptive: white in dark mode, black in light mode — aereo
+  train: "var(--muted-foreground)", // theme-adaptive grey (lighter in dark mode, darker in light mode) — treno
+  taxi: "#eab308",                // yellow-500 — taxi
+  bus: "#0ea5e9",                 // sky-500 — bus (matches the trip page's bus colour)
+  metro: "#8b5cf6",               // violet-500 — metro
+  tram: "#10b981",                // emerald-500 — tram
+  ferry: "#7dd3fc",               // sky-300 (azzurro chiaro) — traghetto
 };
 
 // ── Farthest-points compass: geocode every visited city (once, then cached —
@@ -626,13 +684,13 @@ function ProfilePage() {
                     const color = MODE_COLOR[r.mode];
                     return (
                       <li key={r.mode} className="flex items-center justify-between gap-2">
-                        <span className="flex min-w-0 items-center gap-1.5 truncate">
+                        <span className="flex min-w-0 flex-1 items-center gap-1.5">
                           <Icon className="h-3.5 w-3.5 shrink-0" style={color ? { color } : undefined} />
                           <span className="shrink-0 text-[10px] uppercase tracking-wider text-muted-foreground">{t(MODE_LABEL_KEY[r.mode] ?? r.mode)}</span>
-                          <span className="truncate font-medium">
+                          <ScrollText className="min-w-0 flex-1 font-medium">
                             {r.name}
                             {r.city && <span className="ml-1 text-muted-foreground">({r.city})</span>}
-                          </span>
+                          </ScrollText>
                         </span>
                         <span className="shrink-0 tabular-nums font-medium">{r.count}</span>
                       </li>
@@ -651,10 +709,10 @@ function ProfilePage() {
                     const color = MODE_COLOR[r.mode];
                     return (
                       <li key={r.mode} className="flex items-center justify-between gap-2">
-                        <span className="flex min-w-0 items-center gap-1.5 truncate">
+                        <span className="flex min-w-0 flex-1 items-center gap-1.5">
                           <Icon className="h-3.5 w-3.5 shrink-0" style={color ? { color } : undefined} />
                           <span className="shrink-0 text-[10px] uppercase tracking-wider text-muted-foreground">{t(MODE_LABEL_KEY[r.mode] ?? r.mode)}</span>
-                          <span className="truncate font-medium">{r.a} ↔ {r.b}</span>
+                          <ScrollText className="min-w-0 flex-1 font-medium">{r.a} ↔ {r.b}</ScrollText>
                         </span>
                         <span className="shrink-0 tabular-nums font-medium">{r.count}</span>
                       </li>
@@ -673,15 +731,15 @@ function ProfilePage() {
                     const color = MODE_COLOR[r.mode];
                     return (
                       <li key={r.mode} className="flex items-center justify-between gap-2">
-                        <span className="flex min-w-0 items-center gap-1.5 truncate">
+                        <span className="flex min-w-0 flex-1 items-center gap-1.5">
                           <Icon className="h-3.5 w-3.5 shrink-0" style={color ? { color } : undefined} />
                           <span className="shrink-0 text-[10px] uppercase tracking-wider text-muted-foreground">
                             {r.mode === "plane" ? t("mode_plane") : t(MODE_LABEL_KEY[r.mode] ?? r.mode)}
                           </span>
-                          <span className="truncate font-medium">
+                          <ScrollText className="min-w-0 flex-1 font-medium">
                             {r.name}
                             {r.city && <span className="ml-1 text-muted-foreground">({r.city})</span>}
-                          </span>
+                          </ScrollText>
                         </span>
                         <span className="shrink-0 tabular-nums font-medium">{r.count}</span>
                       </li>

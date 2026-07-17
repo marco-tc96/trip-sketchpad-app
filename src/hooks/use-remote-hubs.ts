@@ -11,6 +11,8 @@ const KIND_QUERY: Record<HubKind, string> = {
   bus: "bus station",
   ferry: "ferry terminal port",
   toll: "toll booth motorway",
+  metro: "metro station subway station",
+  tram: "tram stop",
 };
 
 type NominatimItem = {
@@ -83,5 +85,12 @@ export function modeToKind(mode: string): HubKind | null {
   if (mode === "train") return "train";
   if (mode === "bus") return "bus";
   if (mode === "ferry") return "ferry";
+  // metro/tram previously had no HubKind at all, so useRemoteHubs was always
+  // disabled (kind === null) for those two modes — the station combobox
+  // showed zero live suggestions no matter what the user typed. Added so a
+  // metro/tram leg gets the same "search a real stop" experience as
+  // train/bus/ferry.
+  if (mode === "metro") return "metro";
+  if (mode === "tram") return "tram";
   return null;
 }

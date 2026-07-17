@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import {
   Plane, Bus, Car, CarTaxiFront, Bike, Ship, Hotel, MapPin, Sparkles, ArrowRightLeft,
   PlaneTakeoff, PlaneLanding, Plus, Trash2, ChevronsUpDown, Check, Clock,
-  CalendarDays, Luggage, Pencil, X, Menu, TramFront, TrainFront, Train,
+  CalendarDays, Luggage, Pencil, X, Menu, TramFront, TrainFront,
 } from "lucide-react";
 import { toast } from "sonner";
 import { listItems, createItem, updateItem, deleteItem, ITEM_KINDS } from "@/lib/itinerary.functions";
@@ -30,6 +30,22 @@ import { useRemoteHubs, modeToKind } from "@/hooks/use-remote-hubs";
 import {
   useAirports, airportsForCountries, airportsSearch, formatAirport, type AirportHub,
 } from "@/hooks/use-airports";
+
+// Side-view metro wagon icon — used instead of a generic train/tram glyph so
+// a metro leg/kind never reads as identical to a tram one at a glance (same
+// design as the matching icon on the Profile page's transport stats).
+function MetroWagonIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <rect x="3" y="6" width="18" height="11" rx="2" />
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <rect x="6.3" y="8.3" width="3.6" height="2.4" rx="0.4" />
+      <rect x="14.1" y="8.3" width="3.6" height="2.4" rx="0.4" />
+      <circle cx="7.5" cy="19" r="1.4" />
+      <circle cx="16.5" cy="19" r="1.4" />
+    </svg>
+  );
+}
 
 type ItemRow = {
   id: string;
@@ -159,7 +175,7 @@ function collectUsedPlaces(items: ItemRow[]): string[] {
 const isUsedPlace = (name: string, usedPlaces?: string[]) =>
   !!usedPlaces && usedPlaces.some((p) => p.toLowerCase() === name.trim().toLowerCase());
 const MODE_ICON: Record<TransportMode, React.ComponentType<{ className?: string }>> = {
-  car: Car, moto: Bike, taxi: CarTaxiFront, train: TrainFront, plane: Plane, ferry: Ship, bus: Bus, metro: TramFront, tram: Train,
+  car: Car, moto: Bike, taxi: CarTaxiFront, train: TrainFront, plane: Plane, ferry: Ship, bus: Bus, metro: MetroWagonIcon, tram: TramFront,
 };
 
 export const Route = createFileRoute("/_authenticated/trips/$tripId/timeline")({
@@ -181,8 +197,8 @@ const KIND_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   activity: Sparkles,
   zone: MapPin,
   other: MapPin,
-  metro: TramFront,
-  tram: Train,
+  metro: MetroWagonIcon,
+  tram: TramFront,
 };
 
 const TRANSPORT_KINDS = new Set([
@@ -562,28 +578,31 @@ async function fetchLineStops(city: string, osmMode: string, lineRef: string): P
 }
 
 const TRANSIT_COLOR_ACTIVE: Record<string, string> = {
-  train: "border-amber-500 bg-amber-500 text-white",
+  // Grey, not amber — kept in sync with the Profile page's treno colour,
+  // which is a theme-adaptive grey (lighter in dark mode, darker in light
+  // mode) rather than a fixed hue.
+  train: "border-gray-500 bg-gray-500 text-white",
   bus:   "border-sky-500 bg-sky-500 text-white",
   metro: "border-violet-500 bg-violet-500 text-white",
   tram:  "border-emerald-500 bg-emerald-500 text-white",
   car:   "border-red-500 bg-red-500 text-white",
-  moto:  "border-green-500 bg-green-500 text-white",
+  moto:  "border-orange-500 bg-orange-500 text-white",
   taxi:  "border-yellow-500 bg-yellow-500 text-white",
 };
 const TRANSIT_COLOR_INACTIVE: Record<string, string> = {
-  train: "border-amber-400/40 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/20",
+  train: "border-gray-400/40 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-950/20",
   bus:   "border-sky-400/40 text-sky-600 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/20",
   metro: "border-violet-400/40 text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/20",
   tram:  "border-emerald-400/40 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/20",
   car:   "border-red-400/40 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20",
-  moto:  "border-green-400/40 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-950/20",
+  moto:  "border-orange-400/40 text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-950/20",
   taxi:  "border-yellow-400/40 text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/20",
 };
 const TRANSIT_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   train: TrainFront,
   bus:   Bus,
-  metro: TramFront,
-  tram:  Train,
+  metro: MetroWagonIcon,
+  tram:  TramFront,
   car:   Car,
   moto:  Bike,
   taxi:  CarTaxiFront,
@@ -594,12 +613,14 @@ const TRANSIT_ICON: Record<string, React.ComponentType<{ className?: string }>> 
 // their leg-row icon silently fall back to a flat gray instead of picking up
 // a colour like every other mode.
 const TRANSIT_TEXT: Record<string, string> = {
-  train: "text-amber-500",
+  // Theme-adaptive grey (lighter in dark mode, darker in light mode) —
+  // matches the treno colour used on the Profile page's transport stats.
+  train: "text-gray-600 dark:text-gray-300",
   bus:   "text-sky-500",
   metro: "text-violet-500",
   tram:  "text-emerald-500",
   car:   "text-red-500",
-  moto:  "text-green-500",
+  moto:  "text-orange-500",
   taxi:  "text-yellow-500",
 };
 
@@ -2011,8 +2032,8 @@ function AddItemDialog({
     { kind: "flight", icon: Plane, label: t("flight") },
     { kind: "train", icon: TrainFront, label: t("train") },
     { kind: "bus", icon: Bus, label: t("bus") },
-    { kind: "metro" as (typeof ITEM_KINDS)[number], icon: TramFront, label: t("metro") },
-    { kind: "tram" as (typeof ITEM_KINDS)[number], icon: Train, label: t("tram") },
+    { kind: "metro" as (typeof ITEM_KINDS)[number], icon: MetroWagonIcon, label: t("metro") },
+    { kind: "tram" as (typeof ITEM_KINDS)[number], icon: TramFront, label: t("tram") },
     { kind: "car", icon: Car, label: t("car") },
     { kind: "taxi" as (typeof ITEM_KINDS)[number], icon: CarTaxiFront, label: t("taxi") },
     { kind: "moto" as (typeof ITEM_KINDS)[number], icon: Bike, label: t("moto") },

@@ -9,7 +9,7 @@
 // "Mostra altri" action. Falls back to free-text input / remote search
 // (use-remote-hubs.ts) when no curated data exists for a country.
 
-export type HubKind = "train" | "bus" | "ferry" | "toll";
+export type HubKind = "train" | "bus" | "ferry" | "toll" | "metro" | "tram";
 
 export type Hub = {
   code?: string;   // station code, when one commonly exists (rare outside airports)
@@ -241,6 +241,8 @@ function modeToHubKind(mode: string): HubKind | null {
   if (mode === "train") return "train";
   if (mode === "bus") return "bus";
   if (mode === "ferry") return "ferry";
+  if (mode === "metro") return "metro";
+  if (mode === "tram") return "tram";
   return null;
 }
 

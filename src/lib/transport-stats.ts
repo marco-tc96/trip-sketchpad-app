@@ -164,6 +164,15 @@ export function aggregateTransport(rows: { kind: string; meta: unknown; location
     }
   }
 
+  // Each list above is built per-mode (one winning entry per mode, pushed in
+  // whatever order the modes were first encountered in the raw data) — never
+  // actually sorted against each other, so e.g. a 2x bus line could render
+  // above a 3x metro line. Sort every list by count, descending, so the most
+  // used entry overall always leads regardless of which mode it belongs to.
+  topLines.sort((a, b) => b.count - a.count);
+  topRoutes.sort((a, b) => b.count - a.count);
+  topStations.sort((a, b) => b.count - a.count);
+
   return { vehicleCounts, topLines, topRoutes, topStations, legsByMode };
 }
 

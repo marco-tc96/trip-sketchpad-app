@@ -96,16 +96,16 @@ const PRIMARY = "oklch(0.66 0.14 38)";
 // when the line's real OSM colour couldn't be resolved (see `drawn`, which
 // prefers the fetched line colour when available).
 const MODE_STYLE: Record<string, { color: string; dash?: string }> = {
-  car:      { color: "#ef4444" },              // red-500 — macchina
-  moto:     { color: "#22c55e" },              // green-500 — moto
-  plane:    { color: "#38bdf8", dash: "2 8" }, // sky-400 (azzurro), dotted
-  train:    { color: "#6b7280" },              // gray-500 — treno
-  taxi:     { color: "#eab308" },              // yellow-500 — taxi
-  bus:      { color: "#2563eb" },              // blue-600 — bus
-  metro:    { color: "#8b5cf6" },              // violet-500 fallback (real line colour preferred)
-  tram:     { color: "#10b981" },              // emerald-500
-  ferry:    { color: "#0d9488", dash: "8 6" }, // teal-600, dashed
-  transfer: { color: "#64748b" },              // slate-500
+  car:      { color: "#ef4444" },                          // red-500 — auto
+  moto:     { color: "#f97316" },                          // orange-500 — moto
+  plane:    { color: "var(--foreground)", dash: "2 8" },   // theme-adaptive (white in dark / black in light) — aereo, dotted
+  train:    { color: "var(--muted-foreground)" },          // theme-adaptive grey — treno
+  taxi:     { color: "#eab308" },                          // yellow-500 — taxi
+  bus:      { color: "#0ea5e9" },                          // sky-500 — bus (same as the leg editor)
+  metro:    { color: "#8b5cf6" },                          // violet-500 fallback (real line colour preferred)
+  tram:     { color: "#10b981" },                          // emerald-500 — tram
+  ferry:    { color: "#7dd3fc", dash: "8 6" },              // sky-300 (azzurro chiaro) — traghetto, dashed
+  transfer: { color: "#64748b" },                          // slate-500
 };
 const modeStyle = (mode: string) => MODE_STYLE[mode] ?? { color: PRIMARY };
 // Intercity/airport bus lines (found via the wide radius search rather than
@@ -656,7 +656,17 @@ function stripHubCityPrefix(s: string): string {
 async function geocodePlace(query: string, country?: string, airportHint = false, iata?: string | null): Promise<{ lat: number; lng: number } | null> {
   const q = (query ?? "").trim();
   if (!q) return null;
-  const isAirport = airportHint || AIRPORT_RE.test(q);
+  // isAirport is driven ONLY by airportHint (i.e. the leg is genuinely a
+  // "plane" leg) — NOT by testing the label text against AIRPORT_RE. A
+  // train/bus/metro/tram stop can legitimately have "aeroport"/"airport" in
+  // its own name (e.g. Barcelona's Rodalies "Aeroport T2" station) without
+  // being the airport itself; treating it as an airport search here used to
+  // drop the country filter, skip the fast Photon lookup, and bias results
+  // toward the huge aerodrome polygon/point instead of the actual station —
+  // which is exactly what put El Prat's pin in the wrong spot. Only a real
+  // plane leg (airportHint === true, set from r.mode === "plane") should get
+  // the airport-specific IATA/aerodrome resolution below.
+  const isAirport = airportHint;
   // Airports: the IATA code gives an exact, unambiguous location — try it first.
   if (isAirport && iata) {
     const byIata = await fetchAirportByIata(iata);
