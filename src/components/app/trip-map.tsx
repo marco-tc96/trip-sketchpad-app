@@ -210,7 +210,12 @@ const TRANSIT_MODES = new Set(["bus", "metro", "tram", "train"]);
 // is tagged subway / light_rail / monorail depending on the city (e.g. Valencia's
 // metro is light_rail in OSM), so we accept several and match the ref afterwards.
 const OSM_ROUTE_MODES: Record<string, string[]> = {
-  bus: ["bus"],
+  // "coach" is OSM's tag for long-distance/intercity/express bus services
+  // (distinct from "bus" for local/urban lines) — the leg picker now surfaces
+  // these too (see fetchTransitLines in the timeline editor), so the map must
+  // recognise the same tag or a selected express/intercity line would show in
+  // the picker but then fail to trace on the map.
+  bus: ["bus", "coach"],
   metro: ["subway", "light_rail", "monorail", "metro"],
   tram: ["tram", "light_rail"],
   train: ["train", "light_rail"],

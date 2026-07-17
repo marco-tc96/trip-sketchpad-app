@@ -69,6 +69,9 @@ const WP_LABELS: Record<
   string,
   {
     cities: string; place: string; addCity: string; via: string; recommended: string; intercity: string;
+    // Bus line category badge (LineCombobox) — express/rapid/shuttle coach
+    // services, distinct from the existing "intercity" badge.
+    express: string;
     poi: string; city: string; useCity: string;
     // Sub-headers for the grouped POI dropdown (touristic / transport hubs / other).
     poiTouristic: string; poiTransport: string; poiOther: string;
@@ -80,15 +83,15 @@ const WP_LABELS: Record<
     usedSectionTitle: string;
   }
 > = {
-  it: { cities: "Tappe di stop (città)", place: "Città o luogo", addCity: "Aggiungi città", via: "via", recommended: "Consigliato", intercity: "Extraurbano", poi: "Punti di interesse", city: "Città", useCity: "Usa {{city}} (centro città)", poiTouristic: "Turistici", poiTransport: "Stazioni e aeroporti", poiOther: "Altri luoghi", country: "Paese", selectCountry: "Seleziona un paese", usedBadge: "Già usato", usedSectionTitle: "Già usati in questo viaggio" },
-  en: { cities: "Stops (cities)", place: "City or place", addCity: "Add city", via: "via", recommended: "Recommended", intercity: "Intercity", poi: "Points of interest", city: "City", useCity: "Use {{city}} (city centre)", poiTouristic: "Sightseeing", poiTransport: "Stations & airports", poiOther: "Other places", country: "Country", selectCountry: "Select a country", usedBadge: "Already used", usedSectionTitle: "Already used in this trip" },
-  es: { cities: "Paradas (ciudades)", place: "Ciudad o lugar", addCity: "Añadir ciudad", via: "vía", recommended: "Recomendado", intercity: "Interurbano", poi: "Puntos de interés", city: "Ciudad", useCity: "Usar {{city}} (centro)", poiTouristic: "Turísticos", poiTransport: "Estaciones y aeropuertos", poiOther: "Otros lugares", country: "País", selectCountry: "Selecciona un país", usedBadge: "Ya usado", usedSectionTitle: "Ya usados en este viaje" },
-  fr: { cities: "Étapes (villes)", place: "Ville ou lieu", addCity: "Ajouter une ville", via: "via", recommended: "Recommandé", intercity: "Interurbain", poi: "Points d'intérêt", city: "Ville", useCity: "Utiliser {{city}} (centre-ville)", poiTouristic: "Touristique", poiTransport: "Gares et aéroports", poiOther: "Autres lieux", country: "Pays", selectCountry: "Sélectionner un pays", usedBadge: "Déjà utilisé", usedSectionTitle: "Déjà utilisés dans ce voyage" },
-  de: { cities: "Stopps (Städte)", place: "Stadt oder Ort", addCity: "Stadt hinzufügen", via: "über", recommended: "Empfohlen", intercity: "Überland", poi: "Sehenswürdigkeiten", city: "Stadt", useCity: "{{city}} verwenden (Stadtzentrum)", poiTouristic: "Touristisch", poiTransport: "Bahnhöfe & Flughäfen", poiOther: "Sonstige Orte", country: "Land", selectCountry: "Land auswählen", usedBadge: "Bereits verwendet", usedSectionTitle: "In dieser Reise bereits verwendet" },
-  pt: { cities: "Paradas (cidades)", place: "Cidade ou lugar", addCity: "Adicionar cidade", via: "via", recommended: "Recomendado", intercity: "Interurbano", poi: "Pontos de interesse", city: "Cidade", useCity: "Usar {{city}} (centro)", poiTouristic: "Turísticos", poiTransport: "Estações e aeroportos", poiOther: "Outros locais", country: "País", selectCountry: "Selecione um país", usedBadge: "Já usado", usedSectionTitle: "Já usados nesta viagem" },
-  ja: { cities: "立ち寄り（都市）", place: "都市または場所", addCity: "都市を追加", via: "経由", recommended: "おすすめ", intercity: "郊外路線", poi: "観光スポット", city: "都市", useCity: "{{city}}を使用（市の中心部）", poiTouristic: "観光", poiTransport: "駅・空港", poiOther: "その他の場所", country: "国", selectCountry: "国を選択", usedBadge: "使用済み", usedSectionTitle: "この旅行で使用済み" },
-  ko: { cities: "경유(도시)", place: "도시 또는 장소", addCity: "도시 추가", via: "경유", recommended: "추천", intercity: "시외", poi: "관심 지점", city: "도시", useCity: "{{city}} 사용(시내 중심)", poiTouristic: "관광", poiTransport: "역·공항", poiOther: "기타 장소", country: "국가", selectCountry: "국가 선택", usedBadge: "사용됨", usedSectionTitle: "이 여행에서 이미 사용됨" },
-  zh: { cities: "停靠（城市）", place: "城市或地点", addCity: "添加城市", via: "途经", recommended: "推荐", intercity: "城际", poi: "兴趣点", city: "城市", useCity: "使用{{city}}（市中心）", poiTouristic: "旅游景点", poiTransport: "车站和机场", poiOther: "其他地点", country: "国家", selectCountry: "选择国家", usedBadge: "已使用", usedSectionTitle: "本次旅行中已使用" },
+  it: { cities: "Tappe di stop (città)", place: "Città o luogo", addCity: "Aggiungi città", via: "via", recommended: "Consigliato", intercity: "Extraurbano", express: "Express", poi: "Punti di interesse", city: "Città", useCity: "Usa {{city}} (centro città)", poiTouristic: "Turistici", poiTransport: "Stazioni e aeroporti", poiOther: "Altri luoghi", country: "Paese", selectCountry: "Seleziona un paese", usedBadge: "Già usato", usedSectionTitle: "Già usati in questo viaggio" },
+  en: { cities: "Stops (cities)", place: "City or place", addCity: "Add city", via: "via", recommended: "Recommended", intercity: "Intercity", express: "Express", poi: "Points of interest", city: "City", useCity: "Use {{city}} (city centre)", poiTouristic: "Sightseeing", poiTransport: "Stations & airports", poiOther: "Other places", country: "Country", selectCountry: "Select a country", usedBadge: "Already used", usedSectionTitle: "Already used in this trip" },
+  es: { cities: "Paradas (ciudades)", place: "Ciudad o lugar", addCity: "Añadir ciudad", via: "vía", recommended: "Recomendado", intercity: "Interurbano", express: "Exprés", poi: "Puntos de interés", city: "Ciudad", useCity: "Usar {{city}} (centro)", poiTouristic: "Turísticos", poiTransport: "Estaciones y aeropuertos", poiOther: "Otros lugares", country: "País", selectCountry: "Selecciona un país", usedBadge: "Ya usado", usedSectionTitle: "Ya usados en este viaje" },
+  fr: { cities: "Étapes (villes)", place: "Ville ou lieu", addCity: "Ajouter une ville", via: "via", recommended: "Recommandé", intercity: "Interurbain", express: "Express", poi: "Points d'intérêt", city: "Ville", useCity: "Utiliser {{city}} (centre-ville)", poiTouristic: "Touristique", poiTransport: "Gares et aéroports", poiOther: "Autres lieux", country: "Pays", selectCountry: "Sélectionner un pays", usedBadge: "Déjà utilisé", usedSectionTitle: "Déjà utilisés dans ce voyage" },
+  de: { cities: "Stopps (Städte)", place: "Stadt oder Ort", addCity: "Stadt hinzufügen", via: "über", recommended: "Empfohlen", intercity: "Überland", express: "Express", poi: "Sehenswürdigkeiten", city: "Stadt", useCity: "{{city}} verwenden (Stadtzentrum)", poiTouristic: "Touristisch", poiTransport: "Bahnhöfe & Flughäfen", poiOther: "Sonstige Orte", country: "Land", selectCountry: "Land auswählen", usedBadge: "Bereits verwendet", usedSectionTitle: "In dieser Reise bereits verwendet" },
+  pt: { cities: "Paradas (cidades)", place: "Cidade ou lugar", addCity: "Adicionar cidade", via: "via", recommended: "Recomendado", intercity: "Interurbano", express: "Expresso", poi: "Pontos de interesse", city: "Cidade", useCity: "Usar {{city}} (centro)", poiTouristic: "Turísticos", poiTransport: "Estações e aeroportos", poiOther: "Outros locais", country: "País", selectCountry: "Selecione um país", usedBadge: "Já usado", usedSectionTitle: "Já usados nesta viagem" },
+  ja: { cities: "立ち寄り（都市）", place: "都市または場所", addCity: "都市を追加", via: "経由", recommended: "おすすめ", intercity: "郊外路線", express: "急行", poi: "観光スポット", city: "都市", useCity: "{{city}}を使用（市の中心部）", poiTouristic: "観光", poiTransport: "駅・空港", poiOther: "その他の場所", country: "国", selectCountry: "国を選択", usedBadge: "使用済み", usedSectionTitle: "この旅行で使用済み" },
+  ko: { cities: "경유(도시)", place: "도시 또는 장소", addCity: "도시 추가", via: "경유", recommended: "추천", intercity: "시외", express: "급행", poi: "관심 지점", city: "도시", useCity: "{{city}} 사용(시내 중심)", poiTouristic: "관광", poiTransport: "역·공항", poiOther: "기타 장소", country: "국가", selectCountry: "국가 선택", usedBadge: "사용됨", usedSectionTitle: "이 여행에서 이미 사용됨" },
+  zh: { cities: "停靠（城市）", place: "城市或地点", addCity: "添加城市", via: "途经", recommended: "推荐", intercity: "城际", express: "快线", poi: "兴趣点", city: "城市", useCity: "使用{{city}}（市中心）", poiTouristic: "旅游景点", poiTransport: "车站和机场", poiOther: "其他地点", country: "国家", selectCountry: "选择国家", usedBadge: "已使用", usedSectionTitle: "本次旅行中已使用" },
 };
 const wpL = (lang: string | undefined) => WP_LABELS[(lang || "it").slice(0, 2)] ?? WP_LABELS.it;
 // Small colored pill flagging a POI/station already used elsewhere in the
@@ -112,9 +115,13 @@ type MixedLeg = {
   depart_at: string;
   arrive_at: string;
   // Bus only: true when this line was found via the wide intercity/airport
-  // search rather than the strict city-boundary one (see fetchTransitLines) —
-  // carried through to the map so it can draw in a different colour.
+  // search, or tagged as a long-distance "coach" route, rather than a strict
+  // local city-boundary line (see fetchTransitLines) — carried through to the
+  // map so it can draw in a different colour.
   intercity?: boolean;
+  // Bus only: true when the line's own OSM tags/name mark it as an express/
+  // rapid/shuttle service — independent of (and can combine with) intercity.
+  express?: boolean;
 };
 const emptyMixedLeg = (): MixedLeg => ({
   mode: "bus", vehicle: "", from_stop: "", to_stop: "", depart_at: "", arrive_at: "",
@@ -191,7 +198,7 @@ const OSM_ROUTE_MODE: Record<string, string> = { bus: "bus", metro: "subway", tr
 
 // ── Caches (module-level, persist across dialog opens) ───────────────────────
 const _areaCache = new Map<string, string>();   // city → overpass area snippet
-const _lineCache = new Map<string, Array<{ ref: string; name: string }>>();
+const _lineCache = new Map<string, Array<{ ref: string; name: string; intercity?: boolean; express?: boolean }>>();
 const _stopCache = new Map<string, string[]>();
 
 // ── Overpass fetch: race several mirrors, first success wins ─────────────────
@@ -371,13 +378,39 @@ async function getAreaQuery(city: string): Promise<string> {
 // still being "buses that pass through this city", not a whole country.
 const INTERCITY_BUS_RADIUS_M = 45000;
 
-async function fetchTransitLines(city: string, osmMode: string): Promise<Array<{ ref: string; name: string; intercity?: boolean }>> {
+// A relation's ref/name/tags → which badge (if any) its line gets in the
+// picker. `express` and `intercity` are independent/can combine (an airport
+// express coach is both); express is shown in preference when both apply,
+// since it's the more specific, more immediately useful distinction.
+// - express: OSM `service`/`bus` tag says so, or the ref/name itself reads
+//   as one ("Express", "Rapid", a shuttle service) — the wording transit
+//   agencies themselves use for this category worldwide.
+// - intercity: OSM tags it `route=coach` (the standard tag for long-distance
+//   coach services, distinct from `route=bus` for local/urban lines), OR it
+//   was only found via the wide radius search below (outside the city's own
+//   administrative boundary — i.e. it plainly isn't a local line).
+const EXPRESS_RE = /\bexpress\b|\brapid\b|\bshuttle\b/i;
+function classifyBusLine(
+  tags: Record<string, string> | undefined,
+  ref: string,
+  name: string,
+  foundWide: boolean,
+): { intercity?: boolean; express?: boolean } {
+  const hay = `${ref} ${name}`;
+  const isExpress = tags?.service === "express" || tags?.bus === "express" || EXPRESS_RE.test(hay);
+  const isIntercity = foundWide || tags?.route === "coach" || tags?.service === "long_distance";
+  return { intercity: isIntercity || undefined, express: isExpress || undefined };
+}
+
+async function fetchTransitLines(city: string, osmMode: string): Promise<Array<{ ref: string; name: string; intercity?: boolean; express?: boolean }>> {
   const key = `${city}|${osmMode}`;
   if (_lineCache.has(key)) return _lineCache.get(key)!;
   const areaQ = await getAreaQuery(city);
-  // Metro: OSM uses both "subway" (international) and "metro" (some countries like Hungary, France).
-  // Query both to maximise coverage.
-  const modes = osmMode === "subway" ? ["subway", "metro"] : [osmMode];
+  // Metro: OSM uses both "subway" (international) and "metro" (some countries
+  // like Hungary, France). Bus: OSM tags long-distance/intercity services as
+  // "coach" rather than "bus" — query both, or express/intercity coach lines
+  // are silently missed entirely rather than just left unlabelled.
+  const modes = osmMode === "subway" ? ["subway", "metro"] : osmMode === "bus" ? ["bus", "coach"] : [osmMode];
   const clauses = modes.flatMap(m => [
     `relation["type"="route_master"]["route_master"="${m}"](area.c)`,
     `relation["type"="route"]["route"="${m}"](area.c)`,
@@ -385,31 +418,39 @@ async function fetchTransitLines(city: string, osmMode: string): Promise<Array<{
   const q = `[out:json][timeout:40];${areaQ};(${clauses};);out tags;`;
   const data = await overpassFetch(q) as { elements: Array<{ tags: Record<string, string> }> };
   const seen = new Set<string>();
-  const lines: Array<{ ref: string; name: string; intercity?: boolean }> = [];
+  const lines: Array<{ ref: string; name: string; intercity?: boolean; express?: boolean }> = [];
   for (const el of data.elements) {
     const ref = el.tags?.ref ?? "";
     if (!ref || seen.has(ref)) continue;
     seen.add(ref);
-    lines.push({ ref, name: el.tags?.name ?? ref });
+    const name = el.tags?.name ?? ref;
+    lines.push({ ref, name, ...classifyBusLine(el.tags, ref, name, false) });
   }
 
   // Buses: the strict administrative-boundary query above only finds LOCAL/
   // urban lines. Intercity and airport express buses (e.g. Seoul's Incheon
   // Airport limousine bus 6103) mostly run OUTSIDE that boundary and are
   // missed entirely — search a wide radius around the city's geocoded centre
-  // as well, and flag anything found only this way as `intercity`.
+  // as well (both "bus" and "coach"), and flag anything found only this way
+  // as (at least) `intercity`.
   if (osmMode === "bus") {
     try {
       const center = await geocodePlaceName(city);
       if (center) {
         const around = `(around:${INTERCITY_BUS_RADIUS_M},${center.lat},${center.lng})`;
-        const q2 = `[out:json][timeout:40];(relation["type"="route_master"]["route_master"="bus"]${around};relation["type"="route"]["route"="bus"]${around};);out tags;`;
+        const wideModes = ["bus", "coach"];
+        const wideClauses = wideModes.flatMap(m => [
+          `relation["type"="route_master"]["route_master"="${m}"]${around}`,
+          `relation["type"="route"]["route"="${m}"]${around}`,
+        ]).join(";");
+        const q2 = `[out:json][timeout:40];(${wideClauses};);out tags;`;
         const data2 = await overpassFetch(q2) as { elements: Array<{ tags: Record<string, string> }> };
         for (const el of data2.elements) {
           const ref = el.tags?.ref ?? "";
           if (!ref || seen.has(ref)) continue;
           seen.add(ref);
-          lines.push({ ref, name: el.tags?.name ?? ref, intercity: true });
+          const name = el.tags?.name ?? ref;
+          lines.push({ ref, name, ...classifyBusLine(el.tags, ref, name, true) });
         }
       }
     } catch { /* the local-boundary results above still stand */ }
@@ -470,8 +511,9 @@ async function fetchLineStops(city: string, osmMode: string, lineRef: string): P
   const key = `${city}|${osmMode}|${lineRef}`;
   if (_stopCache.has(key)) return _stopCache.get(key)!;
   const areaQ = await getAreaQuery(city);
-  // Same dual-mode handling as fetchTransitLines for consistency
-  const modes = osmMode === "subway" ? ["subway", "metro"] : [osmMode];
+  // Same dual-mode handling as fetchTransitLines for consistency — a line
+  // picked from the list may be tagged "coach" rather than "bus".
+  const modes = osmMode === "subway" ? ["subway", "metro"] : osmMode === "bus" ? ["bus", "coach"] : [osmMode];
   const runQuery = (locator: string, prelude: string) => {
     const routeClauses = modes.map(m => `relation["type"="route"]["route"="${m}"]["ref"="${lineRef}"]${locator}`).join(";");
     // Fetch the matching route relation(s) with their ORDERED members, plus the
@@ -2279,7 +2321,7 @@ function AddItemDialog({
                           city={form.location}
                           value={leg.vehicle}
                           onChange={(ref) => updateMixedLeg(i, { vehicle: ref })}
-                          onPick={(line) => updateMixedLeg(i, { vehicle: line.ref, intercity: line.intercity })}
+                          onPick={(line) => updateMixedLeg(i, { vehicle: line.ref, intercity: line.intercity, express: line.express })}
                         />
                       ) : (
                         <Input
@@ -2676,13 +2718,13 @@ function LineCombobox({
   onChange: (ref: string) => void;
   // Fired (in addition to onChange) when a suggestion is actually picked, with
   // the full line info — lets the caller also record whether it's an
-  // intercity/airport bus (see fetchTransitLines) for the map's colour.
-  onPick?: (line: { ref: string; name: string; intercity?: boolean }) => void;
+  // intercity/express bus (see fetchTransitLines) for the map's colour.
+  onPick?: (line: { ref: string; name: string; intercity?: boolean; express?: boolean }) => void;
 }) {
   const { t, i18n } = useTranslation();
   const lang = i18n.language || "it";
   const [open, setOpen] = useState(false);
-  const [lines, setLines] = useState<Array<{ ref: string; name: string; intercity?: boolean }>>([]);
+  const [lines, setLines] = useState<Array<{ ref: string; name: string; intercity?: boolean; express?: boolean }>>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -2729,9 +2771,23 @@ function LineCombobox({
                 onMouseDown={(e) => { e.preventDefault(); onChange(line.ref); onPick?.(line); setOpen(false); }}
                 className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
               >
-                <span className={cn("shrink-0 font-semibold", line.intercity && "text-amber-600 dark:text-amber-400")}>{line.ref}</span>
+                <span
+                  className={cn(
+                    "shrink-0 font-semibold",
+                    line.express ? "text-violet-600 dark:text-violet-400" : line.intercity && "text-amber-600 dark:text-amber-400",
+                  )}
+                >
+                  {line.ref}
+                </span>
                 {desc && (
                   <span className="min-w-0 flex-1 truncate text-xs opacity-55">{withRomanization(desc, lang)}</span>
+                )}
+                {/* Independent badges — a line can be both (e.g. an airport
+                    express coach), so both show rather than picking one. */}
+                {line.express && (
+                  <span className="shrink-0 rounded-full bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-violet-600 dark:text-violet-400">
+                    {wpL(lang).express}
+                  </span>
                 )}
                 {line.intercity && (
                   <span className="shrink-0 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
