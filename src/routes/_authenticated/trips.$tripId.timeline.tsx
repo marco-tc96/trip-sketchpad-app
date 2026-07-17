@@ -76,17 +76,19 @@ const WP_LABELS: Record<
     country: string; selectCountry: string;
     // Badge shown next to a POI/station already used elsewhere in the trip.
     usedBadge: string;
+    // Section title for the "already used in this trip" list.
+    usedSectionTitle: string;
   }
 > = {
-  it: { cities: "Tappe di stop (città)", place: "Città o luogo", addCity: "Aggiungi città", via: "via", recommended: "Consigliato", intercity: "Extraurbano", poi: "Punti di interesse", city: "Città", useCity: "Usa {{city}} (centro città)", poiTouristic: "Turistici", poiTransport: "Stazioni e aeroporti", poiOther: "Altri luoghi", country: "Paese", selectCountry: "Seleziona un paese", usedBadge: "Già usato" },
-  en: { cities: "Stops (cities)", place: "City or place", addCity: "Add city", via: "via", recommended: "Recommended", intercity: "Intercity", poi: "Points of interest", city: "City", useCity: "Use {{city}} (city centre)", poiTouristic: "Sightseeing", poiTransport: "Stations & airports", poiOther: "Other places", country: "Country", selectCountry: "Select a country", usedBadge: "Already used" },
-  es: { cities: "Paradas (ciudades)", place: "Ciudad o lugar", addCity: "Añadir ciudad", via: "vía", recommended: "Recomendado", intercity: "Interurbano", poi: "Puntos de interés", city: "Ciudad", useCity: "Usar {{city}} (centro)", poiTouristic: "Turísticos", poiTransport: "Estaciones y aeropuertos", poiOther: "Otros lugares", country: "País", selectCountry: "Selecciona un país", usedBadge: "Ya usado" },
-  fr: { cities: "Étapes (villes)", place: "Ville ou lieu", addCity: "Ajouter une ville", via: "via", recommended: "Recommandé", intercity: "Interurbain", poi: "Points d'intérêt", city: "Ville", useCity: "Utiliser {{city}} (centre-ville)", poiTouristic: "Touristique", poiTransport: "Gares et aéroports", poiOther: "Autres lieux", country: "Pays", selectCountry: "Sélectionner un pays", usedBadge: "Déjà utilisé" },
-  de: { cities: "Stopps (Städte)", place: "Stadt oder Ort", addCity: "Stadt hinzufügen", via: "über", recommended: "Empfohlen", intercity: "Überland", poi: "Sehenswürdigkeiten", city: "Stadt", useCity: "{{city}} verwenden (Stadtzentrum)", poiTouristic: "Touristisch", poiTransport: "Bahnhöfe & Flughäfen", poiOther: "Sonstige Orte", country: "Land", selectCountry: "Land auswählen", usedBadge: "Bereits verwendet" },
-  pt: { cities: "Paradas (cidades)", place: "Cidade ou lugar", addCity: "Adicionar cidade", via: "via", recommended: "Recomendado", intercity: "Interurbano", poi: "Pontos de interesse", city: "Cidade", useCity: "Usar {{city}} (centro)", poiTouristic: "Turísticos", poiTransport: "Estações e aeroportos", poiOther: "Outros locais", country: "País", selectCountry: "Selecione um país", usedBadge: "Já usado" },
-  ja: { cities: "立ち寄り（都市）", place: "都市または場所", addCity: "都市を追加", via: "経由", recommended: "おすすめ", intercity: "郊外路線", poi: "観光スポット", city: "都市", useCity: "{{city}}を使用（市の中心部）", poiTouristic: "観光", poiTransport: "駅・空港", poiOther: "その他の場所", country: "国", selectCountry: "国を選択", usedBadge: "使用済み" },
-  ko: { cities: "경유(도시)", place: "도시 또는 장소", addCity: "도시 추가", via: "경유", recommended: "추천", intercity: "시외", poi: "관심 지점", city: "도시", useCity: "{{city}} 사용(시내 중심)", poiTouristic: "관광", poiTransport: "역·공항", poiOther: "기타 장소", country: "국가", selectCountry: "국가 선택", usedBadge: "사용됨" },
-  zh: { cities: "停靠（城市）", place: "城市或地点", addCity: "添加城市", via: "途经", recommended: "推荐", intercity: "城际", poi: "兴趣点", city: "城市", useCity: "使用{{city}}（市中心）", poiTouristic: "旅游景点", poiTransport: "车站和机场", poiOther: "其他地点", country: "国家", selectCountry: "选择国家", usedBadge: "已使用" },
+  it: { cities: "Tappe di stop (città)", place: "Città o luogo", addCity: "Aggiungi città", via: "via", recommended: "Consigliato", intercity: "Extraurbano", poi: "Punti di interesse", city: "Città", useCity: "Usa {{city}} (centro città)", poiTouristic: "Turistici", poiTransport: "Stazioni e aeroporti", poiOther: "Altri luoghi", country: "Paese", selectCountry: "Seleziona un paese", usedBadge: "Già usato", usedSectionTitle: "Già usati in questo viaggio" },
+  en: { cities: "Stops (cities)", place: "City or place", addCity: "Add city", via: "via", recommended: "Recommended", intercity: "Intercity", poi: "Points of interest", city: "City", useCity: "Use {{city}} (city centre)", poiTouristic: "Sightseeing", poiTransport: "Stations & airports", poiOther: "Other places", country: "Country", selectCountry: "Select a country", usedBadge: "Already used", usedSectionTitle: "Already used in this trip" },
+  es: { cities: "Paradas (ciudades)", place: "Ciudad o lugar", addCity: "Añadir ciudad", via: "vía", recommended: "Recomendado", intercity: "Interurbano", poi: "Puntos de interés", city: "Ciudad", useCity: "Usar {{city}} (centro)", poiTouristic: "Turísticos", poiTransport: "Estaciones y aeropuertos", poiOther: "Otros lugares", country: "País", selectCountry: "Selecciona un país", usedBadge: "Ya usado", usedSectionTitle: "Ya usados en este viaje" },
+  fr: { cities: "Étapes (villes)", place: "Ville ou lieu", addCity: "Ajouter une ville", via: "via", recommended: "Recommandé", intercity: "Interurbain", poi: "Points d'intérêt", city: "Ville", useCity: "Utiliser {{city}} (centre-ville)", poiTouristic: "Touristique", poiTransport: "Gares et aéroports", poiOther: "Autres lieux", country: "Pays", selectCountry: "Sélectionner un pays", usedBadge: "Déjà utilisé", usedSectionTitle: "Déjà utilisés dans ce voyage" },
+  de: { cities: "Stopps (Städte)", place: "Stadt oder Ort", addCity: "Stadt hinzufügen", via: "über", recommended: "Empfohlen", intercity: "Überland", poi: "Sehenswürdigkeiten", city: "Stadt", useCity: "{{city}} verwenden (Stadtzentrum)", poiTouristic: "Touristisch", poiTransport: "Bahnhöfe & Flughäfen", poiOther: "Sonstige Orte", country: "Land", selectCountry: "Land auswählen", usedBadge: "Bereits verwendet", usedSectionTitle: "In dieser Reise bereits verwendet" },
+  pt: { cities: "Paradas (cidades)", place: "Cidade ou lugar", addCity: "Adicionar cidade", via: "via", recommended: "Recomendado", intercity: "Interurbano", poi: "Pontos de interesse", city: "Cidade", useCity: "Usar {{city}} (centro)", poiTouristic: "Turísticos", poiTransport: "Estações e aeroportos", poiOther: "Outros locais", country: "País", selectCountry: "Selecione um país", usedBadge: "Já usado", usedSectionTitle: "Já usados nesta viagem" },
+  ja: { cities: "立ち寄り（都市）", place: "都市または場所", addCity: "都市を追加", via: "経由", recommended: "おすすめ", intercity: "郊外路線", poi: "観光スポット", city: "都市", useCity: "{{city}}を使用（市の中心部）", poiTouristic: "観光", poiTransport: "駅・空港", poiOther: "その他の場所", country: "国", selectCountry: "国を選択", usedBadge: "使用済み", usedSectionTitle: "この旅行で使用済み" },
+  ko: { cities: "경유(도시)", place: "도시 또는 장소", addCity: "도시 추가", via: "경유", recommended: "추천", intercity: "시외", poi: "관심 지점", city: "도시", useCity: "{{city}} 사용(시내 중심)", poiTouristic: "관광", poiTransport: "역·공항", poiOther: "기타 장소", country: "국가", selectCountry: "국가 선택", usedBadge: "사용됨", usedSectionTitle: "이 여행에서 이미 사용됨" },
+  zh: { cities: "停靠（城市）", place: "城市或地点", addCity: "添加城市", via: "途经", recommended: "推荐", intercity: "城际", poi: "兴趣点", city: "城市", useCity: "使用{{city}}（市中心）", poiTouristic: "旅游景点", poiTransport: "车站和机场", poiOther: "其他地点", country: "国家", selectCountry: "选择国家", usedBadge: "已使用", usedSectionTitle: "本次旅行中已使用" },
 };
 const wpL = (lang: string | undefined) => WP_LABELS[(lang || "it").slice(0, 2)] ?? WP_LABELS.it;
 // Small colored pill flagging a POI/station already used elsewhere in the
@@ -120,15 +122,19 @@ const emptyMixedLeg = (): MixedLeg => ({
 
 // Every place name (POI/station/address) the trip has already used anywhere
 // — the outbound/return journey's legs, a daily activity's own location, and
-// every leg endpoint of a multi-leg daily activity. Surfaced back in the
-// road/train pickers (lower-cased, trimmed) so a repeat visit — e.g. picking
-// up again from the same station or landmark — is easy to spot instead of
-// buried in a long POI list.
-function collectUsedPlaces(items: ItemRow[]): Set<string> {
-  const set = new Set<string>();
+// every leg endpoint of a multi-leg daily activity. Original casing is kept
+// (deduped case-insensitively) so the names can be listed back to the user
+// verbatim, not just used to flag a match. Surfaced back in the road/train
+// pickers so a repeat visit — e.g. picking up again from the same station or
+// landmark — is easy to spot and re-pick instead of hunting through a long
+// POI list or re-typing it from scratch.
+function collectUsedPlaces(items: ItemRow[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
   const add = (v?: string | null) => {
-    const s = (v ?? "").trim().toLowerCase();
-    if (s) set.add(s);
+    const s = (v ?? "").trim();
+    const key = s.toLowerCase();
+    if (s && !seen.has(key)) { seen.add(key); out.push(s); }
   };
   for (const it of items) {
     add(it.location);
@@ -141,10 +147,10 @@ function collectUsedPlaces(items: ItemRow[]): Set<string> {
     (meta?.mixed_legs ?? []).forEach((l) => { add(l.from_stop); add(l.to_stop); });
     (meta?.legs ?? []).forEach((l) => { add(l.from); add(l.to); });
   }
-  return set;
+  return out;
 }
-const isUsedPlace = (name: string, usedPlaces?: Set<string>) =>
-  !!usedPlaces && usedPlaces.has(name.trim().toLowerCase());
+const isUsedPlace = (name: string, usedPlaces?: string[]) =>
+  !!usedPlaces && usedPlaces.some((p) => p.toLowerCase() === name.trim().toLowerCase());
 const MODE_ICON: Record<TransportMode, React.ComponentType<{ className?: string }>> = {
   car: Car, moto: Bike, taxi: CarTaxiFront, train: TrainFront, plane: Plane, ferry: Ship, bus: Bus, metro: TramFront, tram: Train,
 };
@@ -1086,7 +1092,7 @@ type JourneyItem = {
 
 function JourneyBlock({
   tripId, outbound, ret, tripCountries, usedPlaces,
-}: { tripId: string; outbound: JourneyItem | undefined; ret: JourneyItem | undefined; tripCountries: string[]; usedPlaces?: Set<string> }) {
+}: { tripId: string; outbound: JourneyItem | undefined; ret: JourneyItem | undefined; tripCountries: string[]; usedPlaces?: string[] }) {
   return (
     <div className="space-y-3">
       <JourneyLeg tripId={tripId} kind="outbound" item={outbound} tripCountries={tripCountries} usedPlaces={usedPlaces} />
@@ -1097,7 +1103,7 @@ function JourneyBlock({
 
 function JourneyLeg({
   tripId, kind, item, tripCountries, usedPlaces,
-}: { tripId: string; kind: "outbound" | "return"; item: JourneyItem | undefined; tripCountries: string[]; usedPlaces?: Set<string> }) {
+}: { tripId: string; kind: "outbound" | "return"; item: JourneyItem | undefined; tripCountries: string[]; usedPlaces?: string[] }) {
   const { t, i18n } = useTranslation();
   const lang = i18n.language || "it";
   const meta = (item?.meta ?? null) as TransportMeta | null;
@@ -1501,7 +1507,7 @@ function TransportDialog({
   existing?: { id: string; meta: TransportMeta | null };
   trigger: React.ReactNode;
   tripCountries?: string[];
-  usedPlaces?: Set<string>;
+  usedPlaces?: string[];
 }) {
   const { t, i18n } = useTranslation();
   const lang = i18n.language || "it";
@@ -1866,7 +1872,7 @@ function AddItemDialog({
   trigger?: React.ReactNode;
   tripCities?: Array<{ name: string; country: string }>;
   tripCountries?: string[];
-  usedPlaces?: Set<string>;
+  usedPlaces?: string[];
   existing?: ItemRow;
   isWishlist?: boolean;
   maxDayIndex?: number;
@@ -2877,7 +2883,10 @@ async function fetchCityPOIs(city: string, country: string): Promise<WpSuggestio
     _poiCache.set(key, out);
     return out;
   } catch {
-    _poiCache.set(key, []);
+    // Deliberately NOT cached: a transient failure (Overpass timeout/rate
+    // limit) must not permanently poison this city with an empty POI list
+    // for the rest of the session — the next time the field is focused it
+    // should retry rather than silently stay empty forever.
     return [];
   }
 }
@@ -2903,8 +2912,16 @@ async function searchRoadPoints(
     const data = (await r.json()) as {
       features?: Array<{ properties?: Record<string, string>; geometry?: { coordinates?: [number, number] } }>;
     };
-    const out: WpSuggestion[] = [];
+    // Photon does a loose substring match, so searching "airport" returns an
+    // "XYZ Airport Hotel" or "Airport Shuttle" just as readily as the airport
+    // itself. Score and re-rank: an exact/prefix name match, or a result
+    // whose OSM category is a "primary" place the query is plausibly naming
+    // directly (an airport, a station, a landmark…), outranks a business
+    // whose name merely happens to contain the query word.
+    const PRIMARY_OSM_KEYS = new Set(["aeroway", "railway", "tourism", "historic", "leisure", "natural", "waterway", "public_transport"]);
+    const query_lower = query.toLowerCase();
     const seen = new Set<string>();
+    const scored: Array<{ item: WpSuggestion; score: number }> = [];
     for (const f of data.features ?? []) {
       const p = f.properties ?? {};
       const coords = f.geometry?.coordinates;
@@ -2917,9 +2934,16 @@ async function searchRoadPoints(
       const key = `${nm}|${coords[1].toFixed(4)}|${coords[0].toFixed(4)}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      out.push({ name: nm, label, country, lat: coords[1], lng: coords[0] });
+      const n = nm.toLowerCase();
+      let score = 0;
+      if (n === query_lower) score += 100;
+      else if (n.startsWith(query_lower)) score += 40;
+      if (p.osm_key && PRIMARY_OSM_KEYS.has(p.osm_key)) score += 25;
+      scored.push({ item: { name: nm, label, country, lat: coords[1], lng: coords[0] }, score });
     }
-    return out;
+    // Stable sort — ties keep Photon's own relevance order.
+    scored.sort((a, b) => b.score - a.score);
+    return scored.map((s) => s.item);
   } catch {
     return [];
   }
@@ -3003,7 +3027,7 @@ function HubCombobox({
   // Every place name already used elsewhere in the trip (lower-cased) — POI/
   // station suggestions matching one are flagged with a small "already used"
   // badge so re-picking the same spot is easy to spot in a long list.
-  usedPlaces?: Set<string>;
+  usedPlaces?: string[];
 }) {
   const { t, i18n } = useTranslation();
   const lang = i18n.language || "it";
@@ -3097,34 +3121,37 @@ function HubCombobox({
     const showSuggested = !!suggested && !value.trim();
     const cityLabel = cityQuery.trim();
     const useCityLabel = wpL(lang).useCity.replace("{{city}}", cityLabel);
-    // Below 2 chars typed in the point field: up to 50 POIs of the chosen
-    // city. From 2 chars: a live Photon search (POIs + addresses), biased to
+    // Below 2 chars typed in the point field: the browse view — up to 50 POIs
+    // of the chosen city, plus every place already used elsewhere in the
+    // trip. From 2 chars: a live Photon search (POIs + addresses), biased to
     // that exact city and typo-tolerant — a near-miss on a landmark name
     // still surfaces the real place.
-    const poiToShow = value.trim().length < 2 ? poiItems.slice(0, POI_CAP) : [];
+    const browsing = value.trim().length < 2;
+    // Places already used elsewhere in the trip get their own dedicated,
+    // always-first section (right after "use city centre") rather than being
+    // buried inside a POI category — this also covers used places that
+    // Overpass never tagged as a POI at all (a hotel address, "Hungaroring",
+    // …), which a simple in-list highlight could never surface.
+    const usedToShow = browsing ? (usedPlaces ?? []).filter((p) => p.trim()) : [];
+    const usedLower = new Set(usedToShow.map((p) => p.toLowerCase()));
+    // Excluded from the POI groups below so an already-used POI isn't shown
+    // twice (once in its dedicated section, once in its category).
+    const poiToShow = browsing ? poiItems.filter((s) => !usedLower.has(s.name.toLowerCase())).slice(0, POI_CAP) : [];
     const liveToShow = liveItems;
     // Group POIs by category (touristic sights, transport hubs, everything
-    // else) so the dropdown reads as sections rather than one long list.
-    // Within each group: a place already used elsewhere in the trip floats
-    // to the top (easy to spot for a repeat visit), and each group is capped
-    // to a tighter, more scannable size — touristic sights get the most
-    // room since they're usually what matters most, "other" the least —
-    // while any already-used place is guaranteed to survive the cap thanks
-    // to the sort above. Empty groups are dropped entirely.
+    // else) so the dropdown reads as sections rather than one long list —
+    // each capped to a tighter, more scannable size (touristic sights get
+    // the most room since they're usually what matters most, "other" the
+    // least). Empty groups are dropped entirely.
     const POI_GROUP_CAP: Record<PoiCategory, number> = { touristic: 30, transport: 15, other: 10 };
     const poiGroups: Array<{ key: PoiCategory; label: string; items: WpSuggestion[] }> = (
       ["touristic", "transport", "other"] as PoiCategory[]
     )
-      .map((cat) => {
-        const items = poiToShow
-          .filter((s) => (s.category ?? "other") === cat)
-          .sort((a, b) => Number(isUsedPlace(b.name, usedPlaces)) - Number(isUsedPlace(a.name, usedPlaces)));
-        return {
-          key: cat,
-          label: cat === "touristic" ? wpL(lang).poiTouristic : cat === "transport" ? wpL(lang).poiTransport : wpL(lang).poiOther,
-          items: items.slice(0, POI_GROUP_CAP[cat]),
-        };
-      })
+      .map((cat) => ({
+        key: cat,
+        label: cat === "touristic" ? wpL(lang).poiTouristic : cat === "transport" ? wpL(lang).poiTransport : wpL(lang).poiOther,
+        items: poiToShow.filter((s) => (s.category ?? "other") === cat).slice(0, POI_GROUP_CAP[cat]),
+      }))
       .filter((g) => g.items.length > 0);
     return (
       <div className="space-y-1.5">
@@ -3197,7 +3224,7 @@ function HubCombobox({
               onChange={(e) => { onChange(e.target.value); setOpen(true); }}
               autoComplete="off"
             />
-            {open && (poiToShow.length > 0 || liveToShow.length > 0 || liveLoading || value.trim() !== cityLabel) && (
+            {open && (poiToShow.length > 0 || liveToShow.length > 0 || liveLoading || usedToShow.length > 0 || value.trim() !== cityLabel) && (
               <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-72 overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
                 {value.trim() !== cityLabel && (
                   <button
@@ -3209,6 +3236,31 @@ function HubCombobox({
                     <MapPin className="h-3.5 w-3.5 shrink-0 opacity-60" />
                     <span className="min-w-0 flex-1 truncate">{useCityLabel}</span>
                   </button>
+                )}
+                {/* Places already used elsewhere in this trip — always first
+                    (right after "use city centre"), regardless of whether
+                    Overpass happens to know them as a tagged POI. */}
+                {usedToShow.length > 0 && (
+                  <div className="mb-1 border-b border-border/60 pb-1">
+                    <p className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-widest text-sky-600 dark:text-sky-400">
+                      {wpL(lang).usedSectionTitle}
+                    </p>
+                    {usedToShow.map((name, i) => {
+                      const sel = value === name;
+                      return (
+                        <button
+                          type="button"
+                          key={`used-${name}-${i}`}
+                          onMouseDown={(e) => { e.preventDefault(); onChange(name); setOpen(false); }}
+                          className="flex w-full items-center gap-2 rounded-sm bg-sky-500/5 px-2 py-1.5 text-left text-sm hover:bg-sky-500/10"
+                        >
+                          <Check className={cn("h-4 w-4 shrink-0", sel ? "opacity-100" : "opacity-0")} />
+                          <MapPin className="h-3.5 w-3.5 shrink-0 text-sky-600 dark:text-sky-400" />
+                          <span className="min-w-0 flex-1 truncate">{name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 )}
                 {liveToShow.length > 0 && (
                   <div className="py-0.5">
