@@ -169,7 +169,7 @@ function TripHeroCard({ trip, variant }: { trip: Trip; variant: "ongoing" | "nex
       {/* Countdown strip */}
       <div className="flex items-center justify-between bg-card px-5 py-3">
         <span className="text-xs text-muted-foreground">
-          {isOngoing ? `${fmt(trip.start_date, lang)} → …` : fmtRange(trip.start_date, trip.end_date, lang)}
+          {fmtRange(trip.start_date, trip.end_date, lang)}
         </span>
         <span
           className={
@@ -428,13 +428,15 @@ function TripsList() {
       {/* ── Countdown + stats: always visible once loaded, regardless of favorites ── */}
       {!q.isLoading && (
         <div className="mt-6 space-y-4">
-          {/* Ongoing trip (if any) featured above the next-trip hero */}
-          {primaryOngoing && <TripHeroCard trip={primaryOngoing} variant="ongoing" />}
-          {planned[0] ? (
+          {/* While a trip is ongoing, it's the ONLY hero shown — the next trip
+              reappears on its own the day after the ongoing one ends. */}
+          {primaryOngoing ? (
+            <TripHeroCard trip={primaryOngoing} variant="ongoing" />
+          ) : planned[0] ? (
             <TripHeroCard trip={planned[0]} variant="next" />
-          ) : !primaryOngoing ? (
+          ) : (
             <EmptyHeroCard />
-          ) : null}
+          )}
 
           {/* Year stats rings — show only when there are real trips */}
           {allTripsCount > 0 && (

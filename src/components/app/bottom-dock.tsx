@@ -65,7 +65,7 @@ export function BottomDock() {
           className={cn(
             "group flex items-center gap-1.5 rounded-full px-4 py-3 sm:px-3.5 sm:py-2 text-xs font-medium transition",
             ongoingActive
-              ? "bg-amber-400 text-white shadow-soft"
+              ? "bg-amber-400 text-amber-950 shadow-soft"
               : "text-amber-500 hover:bg-amber-400/10 dark:text-amber-400",
           )}
         >
@@ -74,10 +74,12 @@ export function BottomDock() {
         </Link>
       )}
 
-      {/* Compass nav */}
+      {/* Compass nav — forced inactive while the ongoing-trip shortcut is the
+          one actually highlighted (its page is under /trips too), so only one
+          of the two is ever shown as active at a time. */}
       {(() => {
         const { to, icon: Icon, labelKey, match } = NAV_ITEMS[0];
-        const active = match(loc.pathname);
+        const active = match(loc.pathname) && !ongoingActive;
         return (
           <Link
             key={to}
