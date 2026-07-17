@@ -24,7 +24,12 @@ type NominatimItem = {
   extratags?: { iata?: string; icao?: string };
 };
 
-async function searchNominatim(kind: HubKind, query: string): Promise<Hub[]> {
+// `countryIso`, when given, is passed through as Nominatim's `countrycodes`
+// filter — for train mode specifically we ask the user to pick a country
+// FIRST (trains connect cities on a national network, not a single city's
+// points), so once a country is chosen the live search should return
+// stations from exactly that country rather than a global, unscoped match.
+async function searchNominatim(kind: HubKind, query: string, countryIso?: string): Promise<Hub[]> {
   const q = query.trim();
   if (q.length < 2) return [];
   const url = new URL("https://nominatim.openstreetmap.org/search");
@@ -33,6 +38,7 @@ async function searchNominatim(kind: HubKind, query: string): Promise<Hub[]> {
   url.searchParams.set("addressdetails", "1");
   url.searchParams.set("extratags", "1");
   url.searchParams.set("q", `${q} ${KIND_QUERY[kind]}`);
+  if (countryIso) url.searchParams.set("countrycodes", countryIso.toLowerCase());
   const r = await fetch(url.toString(), {
     headers: { "Accept-Language": "it,en" },
   });
@@ -53,11 +59,11 @@ async function searchNominatim(kind: HubKind, query: string): Promise<Hub[]> {
   return out;
 }
 
-export function useRemoteHubs(kind: HubKind | null, query: string) {
+export function useRemoteHubs(kind: HubKind | null, query: string, countryIso?: string) {
   const q = query.trim();
   return useQuery({
-    queryKey: ["remote-hubs", kind, q.toLowerCase()],
-    queryFn: () => (kind ? searchNominatim(kind, q) : Promise.resolve([])),
+    queryKey: ["remote-hubs", kind, q.toLowerCase(), countryIso ?? ""],
+    queryFn: () => (kind ? searchNominatim(kind, q, countryIso) : Promise.resolve([])),
     enabled: !!kind && q.length >= 2,
     staleTime: 1000 * 60 * 60,
     gcTime: 1000 * 60 * 60,

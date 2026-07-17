@@ -65,7 +65,7 @@ export function BottomDock() {
       {ongoingTrip && !ongoingActive && (
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-y-0 left-0 -z-10 w-20 sm:w-16 rounded-l-full"
+          className="pointer-events-none absolute inset-y-0 left-0 -z-10 w-32 sm:w-28 rounded-l-full"
           style={{
             background: "linear-gradient(to right, rgba(251,191,36,0.32), rgba(251,191,36,0) 90%)",
           }}

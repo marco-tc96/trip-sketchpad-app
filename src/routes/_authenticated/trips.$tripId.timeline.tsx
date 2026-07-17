@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { citiesOfCountry, flagOf, cityNameLocalized } from "@/lib/country-data";
+import { citiesOfCountry, flagOf, cityNameLocalized, countryNameLocalized } from "@/lib/country-data";
 import { cn } from "@/lib/utils";
 import { withRomanization, registerEnName } from "@/lib/romanize";
 import { useCityPhoto } from "@/hooks/use-city-photo";
@@ -72,17 +72,19 @@ const WP_LABELS: Record<
     poi: string; city: string; useCity: string;
     // Sub-headers for the grouped POI dropdown (touristic / transport hubs / other).
     poiTouristic: string; poiTransport: string; poiOther: string;
+    // Train leg's "pick a country first" step (see HubCombobox's isTrainMode).
+    country: string; selectCountry: string;
   }
 > = {
-  it: { cities: "Tappe di stop (città)", place: "Città o luogo", addCity: "Aggiungi città", via: "via", recommended: "Consigliato", intercity: "Extraurbano", poi: "Punti di interesse", city: "Città", useCity: "Usa {{city}} (centro città)", poiTouristic: "Turistici", poiTransport: "Stazioni e aeroporti", poiOther: "Altri luoghi" },
-  en: { cities: "Stops (cities)", place: "City or place", addCity: "Add city", via: "via", recommended: "Recommended", intercity: "Intercity", poi: "Points of interest", city: "City", useCity: "Use {{city}} (city centre)", poiTouristic: "Sightseeing", poiTransport: "Stations & airports", poiOther: "Other places" },
-  es: { cities: "Paradas (ciudades)", place: "Ciudad o lugar", addCity: "Añadir ciudad", via: "vía", recommended: "Recomendado", intercity: "Interurbano", poi: "Puntos de interés", city: "Ciudad", useCity: "Usar {{city}} (centro)", poiTouristic: "Turísticos", poiTransport: "Estaciones y aeropuertos", poiOther: "Otros lugares" },
-  fr: { cities: "Étapes (villes)", place: "Ville ou lieu", addCity: "Ajouter une ville", via: "via", recommended: "Recommandé", intercity: "Interurbain", poi: "Points d'intérêt", city: "Ville", useCity: "Utiliser {{city}} (centre-ville)", poiTouristic: "Touristique", poiTransport: "Gares et aéroports", poiOther: "Autres lieux" },
-  de: { cities: "Stopps (Städte)", place: "Stadt oder Ort", addCity: "Stadt hinzufügen", via: "über", recommended: "Empfohlen", intercity: "Überland", poi: "Sehenswürdigkeiten", city: "Stadt", useCity: "{{city}} verwenden (Stadtzentrum)", poiTouristic: "Touristisch", poiTransport: "Bahnhöfe & Flughäfen", poiOther: "Sonstige Orte" },
-  pt: { cities: "Paradas (cidades)", place: "Cidade ou lugar", addCity: "Adicionar cidade", via: "via", recommended: "Recomendado", intercity: "Interurbano", poi: "Pontos de interesse", city: "Cidade", useCity: "Usar {{city}} (centro)", poiTouristic: "Turísticos", poiTransport: "Estações e aeroportos", poiOther: "Outros locais" },
-  ja: { cities: "立ち寄り（都市）", place: "都市または場所", addCity: "都市を追加", via: "経由", recommended: "おすすめ", intercity: "郊外路線", poi: "観光スポット", city: "都市", useCity: "{{city}}を使用（市の中心部）", poiTouristic: "観光", poiTransport: "駅・空港", poiOther: "その他の場所" },
-  ko: { cities: "경유(도시)", place: "도시 또는 장소", addCity: "도시 추가", via: "경유", recommended: "추천", intercity: "시외", poi: "관심 지점", city: "도시", useCity: "{{city}} 사용(시내 중심)", poiTouristic: "관광", poiTransport: "역·공항", poiOther: "기타 장소" },
-  zh: { cities: "停靠（城市）", place: "城市或地点", addCity: "添加城市", via: "途经", recommended: "推荐", intercity: "城际", poi: "兴趣点", city: "城市", useCity: "使用{{city}}（市中心）", poiTouristic: "旅游景点", poiTransport: "车站和机场", poiOther: "其他地点" },
+  it: { cities: "Tappe di stop (città)", place: "Città o luogo", addCity: "Aggiungi città", via: "via", recommended: "Consigliato", intercity: "Extraurbano", poi: "Punti di interesse", city: "Città", useCity: "Usa {{city}} (centro città)", poiTouristic: "Turistici", poiTransport: "Stazioni e aeroporti", poiOther: "Altri luoghi", country: "Paese", selectCountry: "Seleziona un paese" },
+  en: { cities: "Stops (cities)", place: "City or place", addCity: "Add city", via: "via", recommended: "Recommended", intercity: "Intercity", poi: "Points of interest", city: "City", useCity: "Use {{city}} (city centre)", poiTouristic: "Sightseeing", poiTransport: "Stations & airports", poiOther: "Other places", country: "Country", selectCountry: "Select a country" },
+  es: { cities: "Paradas (ciudades)", place: "Ciudad o lugar", addCity: "Añadir ciudad", via: "vía", recommended: "Recomendado", intercity: "Interurbano", poi: "Puntos de interés", city: "Ciudad", useCity: "Usar {{city}} (centro)", poiTouristic: "Turísticos", poiTransport: "Estaciones y aeropuertos", poiOther: "Otros lugares", country: "País", selectCountry: "Selecciona un país" },
+  fr: { cities: "Étapes (villes)", place: "Ville ou lieu", addCity: "Ajouter une ville", via: "via", recommended: "Recommandé", intercity: "Interurbain", poi: "Points d'intérêt", city: "Ville", useCity: "Utiliser {{city}} (centre-ville)", poiTouristic: "Touristique", poiTransport: "Gares et aéroports", poiOther: "Autres lieux", country: "Pays", selectCountry: "Sélectionner un pays" },
+  de: { cities: "Stopps (Städte)", place: "Stadt oder Ort", addCity: "Stadt hinzufügen", via: "über", recommended: "Empfohlen", intercity: "Überland", poi: "Sehenswürdigkeiten", city: "Stadt", useCity: "{{city}} verwenden (Stadtzentrum)", poiTouristic: "Touristisch", poiTransport: "Bahnhöfe & Flughäfen", poiOther: "Sonstige Orte", country: "Land", selectCountry: "Land auswählen" },
+  pt: { cities: "Paradas (cidades)", place: "Cidade ou lugar", addCity: "Adicionar cidade", via: "via", recommended: "Recomendado", intercity: "Interurbano", poi: "Pontos de interesse", city: "Cidade", useCity: "Usar {{city}} (centro)", poiTouristic: "Turísticos", poiTransport: "Estações e aeroportos", poiOther: "Outros locais", country: "País", selectCountry: "Selecione um país" },
+  ja: { cities: "立ち寄り（都市）", place: "都市または場所", addCity: "都市を追加", via: "経由", recommended: "おすすめ", intercity: "郊外路線", poi: "観光スポット", city: "都市", useCity: "{{city}}を使用（市の中心部）", poiTouristic: "観光", poiTransport: "駅・空港", poiOther: "その他の場所", country: "国", selectCountry: "国を選択" },
+  ko: { cities: "경유(도시)", place: "도시 또는 장소", addCity: "도시 추가", via: "경유", recommended: "추천", intercity: "시외", poi: "관심 지점", city: "도시", useCity: "{{city}} 사용(시내 중심)", poiTouristic: "관광", poiTransport: "역·공항", poiOther: "기타 장소", country: "국가", selectCountry: "국가 선택" },
+  zh: { cities: "停靠（城市）", place: "城市或地点", addCity: "添加城市", via: "途经", recommended: "推荐", intercity: "城际", poi: "兴趣点", city: "城市", useCity: "使用{{city}}（市中心）", poiTouristic: "旅游景点", poiTransport: "车站和机场", poiOther: "其他地点", country: "国家", selectCountry: "选择国家" },
 };
 const wpL = (lang: string | undefined) => WP_LABELS[(lang || "it").slice(0, 2)] ?? WP_LABELS.it;
 type MixedLeg = {
@@ -2217,17 +2219,40 @@ function AddItemDialog({
                           placeholder={t("vehicle_name").split("(")[0].trim()}
                         />
                       )}
-                      {/* Stops — suggestions limited to the selected line's stops */}
-                      <MixedLegStops
-                        mode={leg.mode}
-                        city={form.location}
-                        vehicle={leg.vehicle}
-                        countries={tripCountries}
-                        fromStop={leg.from_stop}
-                        toStop={leg.to_stop}
-                        onFrom={(v) => updateMixedLeg(i, { from_stop: v })}
-                        onTo={(v) => updateMixedLeg(i, { to_stop: v })}
-                      />
+                      {/* Stops — train picks its country first (a national
+                          network, not one city's points), then stations
+                          scoped to exactly that country (same picker as the
+                          outbound/return journey's train field). Bus/metro/
+                          tram/ferry keep the city+line-scoped stop search. */}
+                      {leg.mode === "train" ? (
+                        <div className="space-y-2">
+                          <HubCombobox
+                            mode="train"
+                            countries={tripCountries}
+                            value={leg.from_stop}
+                            onChange={(v) => updateMixedLeg(i, { from_stop: v })}
+                            placeholder={t("boarding_stop")}
+                          />
+                          <HubCombobox
+                            mode="train"
+                            countries={tripCountries}
+                            value={leg.to_stop}
+                            onChange={(v) => updateMixedLeg(i, { to_stop: v })}
+                            placeholder={t("alighting_stop")}
+                          />
+                        </div>
+                      ) : (
+                        <MixedLegStops
+                          mode={leg.mode}
+                          city={form.location}
+                          vehicle={leg.vehicle}
+                          countries={tripCountries}
+                          fromStop={leg.from_stop}
+                          toStop={leg.to_stop}
+                          onFrom={(v) => updateMixedLeg(i, { from_stop: v })}
+                          onTo={(v) => updateMixedLeg(i, { to_stop: v })}
+                        />
+                      )}
                     </>
                   )}
                   {/* Times — 2 columns are fine since time inputs are compact */}
@@ -2924,10 +2949,31 @@ function HubCombobox({
   const [open, setOpen] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const isPlane = mode === "plane";
-  const isHub = mode === "train" || mode === "bus" || mode === "ferry" || mode === "metro" || mode === "tram";
+  // Train is handled by its own branch below (isTrainMode) — a national
+  // network, so its station picker is scoped to one explicitly-chosen
+  // country rather than the whole trip. bus/ferry/metro/tram keep the
+  // original "search across all trip countries" behaviour.
+  const isHub = mode === "bus" || mode === "ferry" || mode === "metro" || mode === "tram";
+  const isTrainMode = mode === "train";
   const isCityMode = mode === "car" || mode === "moto" || mode === "taxi";
   const airportsData = useAirports(true);
   const remote = useRemoteHubs(isHub ? modeToKind(mode) : null, isHub ? value : "");
+
+  // ── Train-mode: pick the country first, then see (and search) exactly that
+  // country's stations — trains connect cities on a national network, not a
+  // single city's points, so scoping by country gives a far more precise
+  // list than searching across every country the trip touches at once.
+  const [trainCountry, setTrainCountry] = useState("");
+  const [trainCountryOpen, setTrainCountryOpen] = useState(false);
+  useEffect(() => {
+    if (isTrainMode && !trainCountry && countries[0]) setTrainCountry(countries[0]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isTrainMode, countries[0]]);
+  const trainRemote = useRemoteHubs(
+    isTrainMode ? "train" : null,
+    isTrainMode ? value : "",
+    isTrainMode ? trainCountry : undefined,
+  );
 
   // ── Road-mode: an explicit "which city" step, then POIs/addresses scoped to
   // EXACTLY that city — departure and arrival are edited independently, since
@@ -3140,6 +3186,148 @@ function HubCombobox({
             )}
           </div>
         )}
+      </div>
+    );
+  }
+
+  if (isTrainMode) {
+    const countryLabel = (iso: string) => `${flagOf(iso)} ${countryNameLocalized(iso, lang)}`;
+    const activeCountry = trainCountry || countries[0] || "";
+    const stationsAll: Hub[] = activeCountry ? hubsForMode("train", [activeCountry], true) : [];
+    const stationsMajor: Hub[] = activeCountry ? hubsForMode("train", [activeCountry], false) : [];
+    const list: Hub[] = showAll ? stationsAll : stationsMajor;
+    const q = value.trim().toLowerCase();
+    const matchQuery = (h: Hub) =>
+      [h.name, h.city].filter(Boolean).join(" ").toLowerCase().includes(q) &&
+      formatHub(h).toLowerCase() !== q;
+    const filtered: Hub[] = q ? stationsAll.filter(matchQuery).slice(0, 80) : list;
+    const remoteHubs: Hub[] = (trainRemote.data ?? []).filter(
+      (r) => !filtered.some((f) => f.name.toLowerCase() === r.name.toLowerCase() && f.city === r.city),
+    );
+    const hiddenCount = stationsAll.length - stationsMajor.length;
+
+    return (
+      <div className="space-y-1.5">
+        {/* Step 1 — which country (independent of the other endpoint, since a
+            train may well cross a border) */}
+        <div className="relative">
+          <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{wpL(lang).country}</p>
+          <button
+            type="button"
+            onClick={() => setTrainCountryOpen((v) => !v)}
+            onBlur={() => setTimeout(() => setTrainCountryOpen(false), 150)}
+            className="flex w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-left text-sm"
+          >
+            <span className="truncate">{activeCountry ? countryLabel(activeCountry) : wpL(lang).selectCountry}</span>
+            <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+          </button>
+          {trainCountryOpen && countries.length > 0 && (
+            <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-56 overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+              {countries.map((iso) => {
+                const sel = iso === activeCountry;
+                return (
+                  <button
+                    type="button"
+                    key={iso}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      setTrainCountry(iso);
+                      setTrainCountryOpen(false);
+                      setOpen(true);
+                    }}
+                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                  >
+                    <Check className={cn("h-4 w-4 shrink-0", sel ? "opacity-100" : "opacity-0")} />
+                    <span className="truncate">{countryLabel(iso)}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Step 2 — station, scoped to exactly that country. Free text is
+            still the saved value; matching stations (local list + live
+            country-filtered search) are suggested below as it's typed. */}
+        <div className="relative">
+          <Input
+            value={value}
+            placeholder={placeholder || t("search_type")}
+            onFocus={() => setOpen(true)}
+            onBlur={() => setTimeout(() => setOpen(false), 150)}
+            onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+            autoComplete="off"
+          />
+          {open && (filtered.length > 0 || hiddenCount > 0 || (q && (remoteHubs.length > 0 || trainRemote.isFetching))) && (
+            <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-72 overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+              {filtered.length === 0 && !q && (
+                <div className="px-2 py-1.5 text-xs text-muted-foreground">{t("no_option")}</div>
+              )}
+              {filtered.length > 0 && (
+                <div className="py-1">
+                  <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                    {showAll || q ? t("all_options") : t("main_options")}
+                  </p>
+                  {filtered.map((h, i) => {
+                    const label = formatHub(h);
+                    const sel = value === label;
+                    return (
+                      <button
+                        type="button"
+                        key={`${h.city ?? ""}-${h.name}-${i}`}
+                        onMouseDown={(e) => { e.preventDefault(); onChange(label); setOpen(false); }}
+                        className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                      >
+                        <Check className={cn("h-4 w-4 shrink-0", sel ? "opacity-100" : "opacity-0")} />
+                        <span className="min-w-0 flex-1 truncate">
+                          <span className="font-medium">{h.city ?? h.name}</span>
+                          {h.city && <span className="ml-1.5 text-xs opacity-70">- {h.name}</span>}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {q && remoteHubs.length > 0 && (
+                <div className="border-t border-border/60 py-1">
+                  <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                    {t("global_results")}
+                  </p>
+                  {remoteHubs.map((h, i) => {
+                    const label = formatHub(h);
+                    return (
+                      <button
+                        type="button"
+                        key={`remote-${h.name}-${i}`}
+                        onMouseDown={(e) => { e.preventDefault(); onChange(label); setOpen(false); }}
+                        className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                      >
+                        <Check className="h-4 w-4 shrink-0 opacity-0" />
+                        <span className="min-w-0 flex-1 truncate">
+                          <span className="font-medium">{h.city ?? h.name}</span>
+                          {h.city && <span className="ml-1.5 text-xs opacity-70">- {h.name}</span>}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {q && trainRemote.isFetching && remoteHubs.length === 0 && (
+                <div className="px-2 py-1.5 text-xs text-muted-foreground">{t("global_search")}</div>
+              )}
+              {!q && !showAll && hiddenCount > 0 && (
+                <button
+                  type="button"
+                  onMouseDown={(e) => { e.preventDefault(); setShowAll(true); }}
+                  className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-muted-foreground hover:bg-accent"
+                >
+                  <ChevronsUpDown className="h-4 w-4" />
+                  <span>{t("show_more", { count: hiddenCount })}</span>
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
