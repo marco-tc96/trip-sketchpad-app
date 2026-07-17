@@ -275,21 +275,6 @@ async function overpassFetch(query: string, timeoutMs = 25000): Promise<{ elemen
 type LL = [number, number];
 const _near = (p: LL, q: LL) => Math.abs(p[0] - q[0]) < 1e-4 && Math.abs(p[1] - q[1]) < 1e-4;
 
-// ── Great-circle distance (haversine, km) — used to build the pan/zoom
-// "leash" below from a real-world radius rather than a proportional lat/lng
-// padding, so it behaves the same whether the trip's pins are 20km apart or
-// 2000km apart.
-const EARTH_RADIUS_KM = 6371;
-function haversineKm(a: LL, b: LL): number {
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const dLat = toRad(b[0] - a[0]);
-  const dLng = toRad(b[1] - a[1]);
-  const lat1 = toRad(a[0]);
-  const lat2 = toRad(b[0]);
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
-  return 2 * EARTH_RADIUS_KM * Math.asin(Math.min(1, Math.sqrt(h)));
-}
-
 // Bounding box that circumscribes a circle of `radiusKm` around `center` —
 // Leaflet's maxBounds is rectangular, so this is the practical way to give
 // panning a circular "feel": everything inside the circle is reachable at
@@ -301,6 +286,34 @@ function circleBoundsKm(center: LL, radiusKm: number): L.LatLngBounds {
   return L.latLngBounds(
     [center[0] - latDelta, center[1] - lngDelta],
     [center[0] + latDelta, center[1] + lngDelta],
+  );
+}
+
+// Bounding box around EVERY point in `pins`, padded by `padKm` real-world
+// kilometres on every side. Unlike a circle built from just the two most
+// distant pins (which only mathematically contains a third point when the
+// triangle they form has an obtuse-or-right angle opposite the longest side
+// — false in general, e.g. a roughly equilateral spread of trip cities),
+// this is a plain min/max box over ALL pins, so every single one is
+// guaranteed to sit strictly inside before the padding is even added. The
+// longitude padding uses the highest absolute latitude among the pins (where
+// a degree of longitude is shortest) so the buffer is never under-sized near
+// the poles.
+function boundsFromPointsKm(pins: LL[], padKm: number): L.LatLngBounds {
+  let minLat = pins[0][0], maxLat = pins[0][0], minLng = pins[0][1], maxLng = pins[0][1];
+  let maxAbsLat = Math.abs(pins[0][0]);
+  for (const [lat, lng] of pins) {
+    if (lat < minLat) minLat = lat;
+    if (lat > maxLat) maxLat = lat;
+    if (lng < minLng) minLng = lng;
+    if (lng > maxLng) maxLng = lng;
+    if (Math.abs(lat) > maxAbsLat) maxAbsLat = Math.abs(lat);
+  }
+  const latDelta = padKm / 111.32;
+  const lngDelta = padKm / (111.32 * Math.max(0.1, Math.cos((maxAbsLat * Math.PI) / 180)));
+  return L.latLngBounds(
+    [minLat - latDelta, minLng - lngDelta],
+    [maxLat + latDelta, maxLng + lngDelta],
   );
 }
 
@@ -1388,11 +1401,37 @@ export function TripMap({
     const map: Record<string, TResolved> = {};
     if (!showRoutes || !routes) return map;
 
-    // Match a stored stop name to a real relation stop, by name only.
-    const matchStop = (raw: string, union: TransitStop[]): TransitStop | null =>
-      union.find((s) => sameStop(s.name, raw)) ??
-      union.find((s) => similarStop(s.name, raw)) ??
-      null;
+    // Match a stored stop name to a real relation stop. Name matching alone is
+    // ambiguous: `sameStop`'s substring check means a stop literally named
+    // "Modena" matches, but so does e.g. "Via Modena" — a street in a
+    // *different* town (Formigine, Soliera, …) named after the road leading to
+    // Modena, which is common in Italian stop naming. Picking the first array
+    // hit (as this used to) meant the SAME leg could resolve to a different,
+    // wrong physical stop across renders depending on Overpass's non-guaranteed
+    // element order. Fixed by: (1) always preferring an EXACT name match over a
+    // loose substring/edit-distance one, and (2) within a tier, breaking ties by
+    // picking the candidate physically closest to the leg's geocoded city
+    // centre — a stop actually in Modena will always sit much nearer to
+    // Modena's city-centre coordinate than a same-named stop in a neighbouring
+    // town several km away.
+    const distTo = (s: TransitStop, center: LL) => {
+      const dy = s.ll[0] - center[0];
+      const dx = (s.ll[1] - center[1]) * Math.cos((center[0] * Math.PI) / 180);
+      return dx * dx + dy * dy;
+    };
+    const nearestOf = (cands: TransitStop[], center: LL): TransitStop | null => {
+      if (cands.length === 0) return null;
+      if (cands.length === 1) return cands[0];
+      return cands.reduce((best, s) => (distTo(s, center) < distTo(best, center) ? s : best));
+    };
+    const matchStop = (raw: string, union: TransitStop[], center: LL): TransitStop | null => {
+      const exact = union.filter((s) => _normName(cleanPlace(s.name)) === _normName(cleanPlace(raw)));
+      if (exact.length > 0) return nearestOf(exact, center);
+      const loose = union.filter((s) => sameStop(s.name, raw));
+      if (loose.length > 0) return nearestOf(loose, center);
+      const fuzzy = union.filter((s) => similarStop(s.name, raw));
+      return nearestOf(fuzzy, center);
+    };
 
     routeLines.forEach((l) => {
       if (!TRANSIT_MODES.has(l.mode)) return;
@@ -1401,6 +1440,7 @@ export function TripMap({
       // in `drawn` (NO "not traceable" notice for these).
       if (!l.line) return;
       if (!l.center) { map[key] = { state: "pending" }; return; } // stops not geocoded yet
+      const center: LL = l.center;
       const tl = transitPathCache[l.cacheKey];
       if (!tl) { map[key] = { state: "pending" }; return; }
       if (tl.variants.length === 0) { map[key] = { state: "failed" }; return; }
@@ -1413,8 +1453,8 @@ export function TripMap({
         if (uSeen.has(uk)) continue; uSeen.add(uk); union.push(s);
       }
 
-      const board = matchStop(l.from, union);
-      const alight = matchStop(l.to, union);
+      const board = matchStop(l.from, union, center);
+      const alight = matchStop(l.to, union, center);
       if (!board || !alight) { map[key] = { state: "failed" }; return; }
 
       // Pick the variant whose track passes closest to BOTH matched stops,
@@ -1700,30 +1740,23 @@ export function TripMap({
   // city out toward the home-country pin) is never blocked partway there.
   //
   // Built from the pins themselves (trip cities + every leg endpoint, NOT
-  // the drawn route geometry): find the two most distant pins — they define
-  // a circle's diameter — then allow free panning anywhere inside that
-  // circle plus a further 250km buffer past its edge in any direction.
-  // Every pin is guaranteed to sit at or inside the circle itself, so it's
-  // always reachable at any zoom; only the area well beyond every pin gets
-  // clipped. Leaflet's maxBounds is rectangular, so the circle is expressed
-  // as its circumscribing box (see circleBoundsKm) — slightly more
-  // permissive at the diagonal corners than a true circle, which is fine
-  // here since the goal is "don't feel boxed in", not a hard geometric cap.
+  // the drawn route geometry): a plain bounding box over every pin, padded by
+  // 250km on every side. NOTE: this used to be a circle whose diameter was
+  // just the two most distant pins — that only mathematically contains every
+  // OTHER pin when the triangle they form has an obtuse-or-right angle
+  // opposite the longest side, which is false for many real trip layouts
+  // (e.g. three cities forming a roughly equilateral spread). Any pin that
+  // fell outside that circle (beyond the 250km buffer) became permanently
+  // unreachable — the map would refuse to pan or zoom out far enough to show
+  // it, snapping back toward the two extreme points instead. A min/max box
+  // over ALL pins has no such blind spot: every pin is inside it by
+  // construction, on every device (desktop, tablet, phone all share this
+  // same maxBounds/minZoom logic).
   const restrictBounds = useMemo(() => {
     const pins: LL[] = [...cityPoints, ...legEndpoints.map((e) => e.ll)];
     if (pins.length === 0) return undefined;
     if (pins.length === 1) return circleBoundsKm(pins[0], 250);
-
-    let a = pins[0], b = pins[1], best = -1;
-    for (let i = 0; i < pins.length; i++) {
-      for (let j = i + 1; j < pins.length; j++) {
-        const d = haversineKm(pins[i], pins[j]);
-        if (d > best) { best = d; a = pins[i]; b = pins[j]; }
-      }
-    }
-    const center: LL = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-    const radiusKm = best / 2 + 250;
-    return circleBoundsKm(center, radiusKm);
+    return boundsFromPointsKm(pins, 250);
   }, [cityPoints, legEndpoints]);
 
   if (boundsPoints.length === 0) {
