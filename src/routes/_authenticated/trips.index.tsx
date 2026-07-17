@@ -109,38 +109,18 @@ function StatRing({
   );
 }
 
-// ── Countdown card ──────────────────────────────────────────────────────────
-function CountdownCard({
-  nextPlanned,
-  nextOngoing,
-}: {
-  nextPlanned: Trip | null;
-  nextOngoing: Trip | null;
-}) {
+// ── Trip hero card ───────────────────────────────────────────────────────────
+// Shared hero presentation for the "next trip" (orange countdown to departure)
+// and, when one is underway, the "ongoing trip" (yellow countdown to its end) —
+// stacked with the ongoing one on top, so it's never buried below the stats.
+function TripHeroCard({ trip, variant }: { trip: Trip; variant: "ongoing" | "next" }) {
   const { t, i18n } = useTranslation();
   const lang = i18n.language ?? "en";
+  const isOngoing = variant === "ongoing";
 
-  const trip = nextPlanned ?? nextOngoing;
-
-  if (!trip) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-3 rounded-3xl border border-dashed border-border bg-card p-6 text-center">
-        <Globe2 className="h-8 w-8 text-muted-foreground/40" />
-        <p className="text-sm text-muted-foreground">{t("no_upcoming_trips")}</p>
-        <Link
-          to="/trips/new"
-          className="inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-xs font-medium text-primary-foreground shadow-soft transition hover:opacity-90"
-        >
-          {t("new_trip")}
-        </Link>
-      </div>
-    );
-  }
-
-  const isOngoing = !nextPlanned && !!nextOngoing;
   const todayMs = new Date().setHours(0, 0, 0, 0);
-  const startMs = new Date(trip.start_date).setHours(0, 0, 0, 0);
-  const daysLeft = Math.round((startMs - todayMs) / 86400000);
+  const refMs = new Date(isOngoing ? trip.end_date : trip.start_date).setHours(0, 0, 0, 0);
+  const daysLeft = Math.round((refMs - todayMs) / 86400000);
 
   const countries: string[] = Array.isArray(
     (trip as unknown as { countries?: string[] }).countries,
@@ -153,14 +133,9 @@ function CountdownCard({
   const gradient = flagGradient(countries);
   const coverEmoji = (trip as unknown as { cover_emoji?: string | null }).cover_emoji;
 
-  const countdownLabel =
-    isOngoing
-      ? null
-      : daysLeft <= 0
-        ? fmt(trip.start_date, lang)
-        : daysLeft === 1
-          ? t("day_to_departure", { n: 1 })
-          : t("days_to_departure", { n: daysLeft });
+  const badgeLabel = isOngoing
+    ? (daysLeft <= 0 ? t("last_day") : daysLeft === 1 ? t("day_to_end", { n: 1 }) : t("days_to_end", { n: daysLeft }))
+    : (daysLeft <= 0 ? fmt(trip.start_date, lang) : daysLeft === 1 ? t("day_to_departure", { n: 1 }) : t("days_to_departure", { n: daysLeft }));
 
   return (
     <Link
@@ -196,17 +171,34 @@ function CountdownCard({
         <span className="text-xs text-muted-foreground">
           {isOngoing ? `${fmt(trip.start_date, lang)} → …` : fmtRange(trip.start_date, trip.end_date, lang)}
         </span>
-        {isOngoing ? (
-          <span className="rounded-full bg-amber-500/15 px-3 py-0.5 text-xs font-bold text-amber-600 dark:text-amber-400">
-            {t("ongoing")}
-          </span>
-        ) : countdownLabel ? (
-          <span className="rounded-full bg-primary/10 px-3 py-0.5 text-xs font-bold text-primary">
-            {countdownLabel}
-          </span>
-        ) : null}
+        <span
+          className={
+            isOngoing
+              ? "rounded-full bg-amber-400/15 px-3 py-0.5 text-xs font-bold text-amber-500 dark:text-amber-300"
+              : "rounded-full bg-primary/10 px-3 py-0.5 text-xs font-bold text-primary"
+          }
+        >
+          {badgeLabel}
+        </span>
       </div>
     </Link>
+  );
+}
+
+// Empty state shown only when there's neither an ongoing nor a next trip.
+function EmptyHeroCard() {
+  const { t } = useTranslation();
+  return (
+    <div className="flex flex-col items-center justify-center gap-3 rounded-3xl border border-dashed border-border bg-card p-6 text-center">
+      <Globe2 className="h-8 w-8 text-muted-foreground/40" />
+      <p className="text-sm text-muted-foreground">{t("no_upcoming_trips")}</p>
+      <Link
+        to="/trips/new"
+        className="inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-xs font-medium text-primary-foreground shadow-soft transition hover:opacity-90"
+      >
+        {t("new_trip")}
+      </Link>
+    </div>
   );
 }
 
@@ -293,6 +285,14 @@ function TripsList() {
   const ongoing = useMemo(
     () => realTrips.filter((tr) => tr.start_date <= today && !isConcluded(tr)).sort((a, b) => b.start_date.localeCompare(a.start_date)),
     [realTrips, today, isConcluded],
+  );
+  // The most recently-started ongoing trip is featured as a hero card above the
+  // stats (see render below) instead of buried in the "Ongoing" list — the list
+  // below only shows any OTHER ongoing trips, if more than one is underway.
+  const primaryOngoing = ongoing[0] ?? null;
+  const ongoingRest = useMemo(
+    () => ongoing.filter((tr) => tr.id !== primaryOngoing?.id),
+    [ongoing, primaryOngoing],
   );
   const planned = useMemo(
     () => realTrips.filter((tr) => tr.start_date > today).sort((a, b) => a.start_date.localeCompare(b.start_date)),
@@ -428,11 +428,13 @@ function TripsList() {
       {/* ── Countdown + stats: always visible once loaded, regardless of favorites ── */}
       {!q.isLoading && (
         <div className="mt-6 space-y-4">
-          {/* Countdown to next trip */}
-          <CountdownCard
-            nextPlanned={planned[0] ?? null}
-            nextOngoing={ongoing[0] ?? null}
-          />
+          {/* Ongoing trip (if any) featured above the next-trip hero */}
+          {primaryOngoing && <TripHeroCard trip={primaryOngoing} variant="ongoing" />}
+          {planned[0] ? (
+            <TripHeroCard trip={planned[0]} variant="next" />
+          ) : !primaryOngoing ? (
+            <EmptyHeroCard />
+          ) : null}
 
           {/* Year stats rings — show only when there are real trips */}
           {allTripsCount > 0 && (
@@ -479,8 +481,8 @@ function TripsList() {
         <EmptyState />
       ) : (
         <div className="mt-8 space-y-8">
-          {ongoing.length > 0 && (
-            <Section title={t("ongoing")} trips={ongoing} accent="ongoing" />
+          {ongoingRest.length > 0 && (
+            <Section title={t("ongoing")} trips={ongoingRest} accent="ongoing" />
           )}
           {planned.length > 0 && (
             <CompactSection title={t("planned")} trips={planned} accentColor={ACCENT_COLORS.planned} />
