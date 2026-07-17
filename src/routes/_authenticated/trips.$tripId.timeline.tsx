@@ -65,16 +65,24 @@ const isRoadMode = (m: TransportMode) => m === "car" || m === "moto" || m === "t
 
 // Small localized labels for the road-leg editor (kept local so we don't have to
 // touch the global i18n bundle for these few strings).
-const WP_LABELS: Record<string, { cities: string; place: string; addCity: string; via: string; recommended: string; intercity: string; poi: string; city: string; useCity: string }> = {
-  it: { cities: "Tappe di stop (città)", place: "Città o luogo", addCity: "Aggiungi città", via: "via", recommended: "Consigliato", intercity: "Extraurbano", poi: "Punti di interesse", city: "Città", useCity: "Usa {{city}} (centro città)" },
-  en: { cities: "Stops (cities)", place: "City or place", addCity: "Add city", via: "via", recommended: "Recommended", intercity: "Intercity", poi: "Points of interest", city: "City", useCity: "Use {{city}} (city centre)" },
-  es: { cities: "Paradas (ciudades)", place: "Ciudad o lugar", addCity: "Añadir ciudad", via: "vía", recommended: "Recomendado", intercity: "Interurbano", poi: "Puntos de interés", city: "Ciudad", useCity: "Usar {{city}} (centro)" },
-  fr: { cities: "Étapes (villes)", place: "Ville ou lieu", addCity: "Ajouter une ville", via: "via", recommended: "Recommandé", intercity: "Interurbain", poi: "Points d'intérêt", city: "Ville", useCity: "Utiliser {{city}} (centre-ville)" },
-  de: { cities: "Stopps (Städte)", place: "Stadt oder Ort", addCity: "Stadt hinzufügen", via: "über", recommended: "Empfohlen", intercity: "Überland", poi: "Sehenswürdigkeiten", city: "Stadt", useCity: "{{city}} verwenden (Stadtzentrum)" },
-  pt: { cities: "Paradas (cidades)", place: "Cidade ou lugar", addCity: "Adicionar cidade", via: "via", recommended: "Recomendado", intercity: "Interurbano", poi: "Pontos de interesse", city: "Cidade", useCity: "Usar {{city}} (centro)" },
-  ja: { cities: "立ち寄り（都市）", place: "都市または場所", addCity: "都市を追加", via: "経由", recommended: "おすすめ", intercity: "郊外路線", poi: "観光スポット", city: "都市", useCity: "{{city}}を使用（市の中心部）" },
-  ko: { cities: "경유(도시)", place: "도시 또는 장소", addCity: "도시 추가", via: "경유", recommended: "추천", intercity: "시외", poi: "관심 지점", city: "도시", useCity: "{{city}} 사용(시내 중심)" },
-  zh: { cities: "停靠（城市）", place: "城市或地点", addCity: "添加城市", via: "途经", recommended: "推荐", intercity: "城际", poi: "兴趣点", city: "城市", useCity: "使用{{city}}（市中心）" },
+const WP_LABELS: Record<
+  string,
+  {
+    cities: string; place: string; addCity: string; via: string; recommended: string; intercity: string;
+    poi: string; city: string; useCity: string;
+    // Sub-headers for the grouped POI dropdown (touristic / transport hubs / other).
+    poiTouristic: string; poiTransport: string; poiOther: string;
+  }
+> = {
+  it: { cities: "Tappe di stop (città)", place: "Città o luogo", addCity: "Aggiungi città", via: "via", recommended: "Consigliato", intercity: "Extraurbano", poi: "Punti di interesse", city: "Città", useCity: "Usa {{city}} (centro città)", poiTouristic: "Turistici", poiTransport: "Stazioni e aeroporti", poiOther: "Altri luoghi" },
+  en: { cities: "Stops (cities)", place: "City or place", addCity: "Add city", via: "via", recommended: "Recommended", intercity: "Intercity", poi: "Points of interest", city: "City", useCity: "Use {{city}} (city centre)", poiTouristic: "Sightseeing", poiTransport: "Stations & airports", poiOther: "Other places" },
+  es: { cities: "Paradas (ciudades)", place: "Ciudad o lugar", addCity: "Añadir ciudad", via: "vía", recommended: "Recomendado", intercity: "Interurbano", poi: "Puntos de interés", city: "Ciudad", useCity: "Usar {{city}} (centro)", poiTouristic: "Turísticos", poiTransport: "Estaciones y aeropuertos", poiOther: "Otros lugares" },
+  fr: { cities: "Étapes (villes)", place: "Ville ou lieu", addCity: "Ajouter une ville", via: "via", recommended: "Recommandé", intercity: "Interurbain", poi: "Points d'intérêt", city: "Ville", useCity: "Utiliser {{city}} (centre-ville)", poiTouristic: "Touristique", poiTransport: "Gares et aéroports", poiOther: "Autres lieux" },
+  de: { cities: "Stopps (Städte)", place: "Stadt oder Ort", addCity: "Stadt hinzufügen", via: "über", recommended: "Empfohlen", intercity: "Überland", poi: "Sehenswürdigkeiten", city: "Stadt", useCity: "{{city}} verwenden (Stadtzentrum)", poiTouristic: "Touristisch", poiTransport: "Bahnhöfe & Flughäfen", poiOther: "Sonstige Orte" },
+  pt: { cities: "Paradas (cidades)", place: "Cidade ou lugar", addCity: "Adicionar cidade", via: "via", recommended: "Recomendado", intercity: "Interurbano", poi: "Pontos de interesse", city: "Cidade", useCity: "Usar {{city}} (centro)", poiTouristic: "Turísticos", poiTransport: "Estações e aeroportos", poiOther: "Outros locais" },
+  ja: { cities: "立ち寄り（都市）", place: "都市または場所", addCity: "都市を追加", via: "経由", recommended: "おすすめ", intercity: "郊外路線", poi: "観光スポット", city: "都市", useCity: "{{city}}を使用（市の中心部）", poiTouristic: "観光", poiTransport: "駅・空港", poiOther: "その他の場所" },
+  ko: { cities: "경유(도시)", place: "도시 또는 장소", addCity: "도시 추가", via: "경유", recommended: "추천", intercity: "시외", poi: "관심 지점", city: "도시", useCity: "{{city}} 사용(시내 중심)", poiTouristic: "관광", poiTransport: "역·공항", poiOther: "기타 장소" },
+  zh: { cities: "停靠（城市）", place: "城市或地点", addCity: "添加城市", via: "途经", recommended: "推荐", intercity: "城际", poi: "兴趣点", city: "城市", useCity: "使用{{city}}（市中心）", poiTouristic: "旅游景点", poiTransport: "车站和机场", poiOther: "其他地点" },
 };
 const wpL = (lang: string | undefined) => WP_LABELS[(lang || "it").slice(0, 2)] ?? WP_LABELS.it;
 type MixedLeg = {
@@ -2668,7 +2676,11 @@ async function geocodePlaceName(q: string): Promise<{ lat: number; lng: number }
 }
 
 type CorridorBox = { minLat: number; minLng: number; maxLat: number; maxLng: number };
-type WpSuggestion = { name: string; label: string; country: string; lat: number; lng: number };
+// `category` groups a POI result in the road-mode picker's dropdown
+// (touristic sights vs. transport hubs vs. everything else); left undefined
+// for non-POI suggestions (cities, live/free-text search results).
+type PoiCategory = "touristic" | "transport" | "other";
+type WpSuggestion = { name: string; label: string; country: string; lat: number; lng: number; category?: PoiCategory };
 
 // Suggest cities matching `q` as the user types, biased to the corridor between
 // the leg's start and end. Uses Photon (a type-ahead geocoder) which does proper
@@ -2712,17 +2724,48 @@ async function searchCorridorCities(q: string, box: CorridorBox | null, lang: st
 }
 
 // ── Road-leg point-of-interest search (car/moto/taxi from/to fields) ─────────
-// Named landmarks (tourism/historic/leisure/amenity/mall) inside a city, so a
-// road leg's start/end can be a specific place ("Colosseo") rather than only
-// the whole city — capped at 50 so the list stays scannable.
+// Named landmarks inside a city, so a road leg's start/end can be a specific
+// place ("Colosseo") rather than only the whole city. Grouped into three
+// categories so the dropdown can show them under sub-headers instead of one
+// long undifferentiated list — capped at 50 total so it stays scannable.
 const _poiCache = new Map<string, WpSuggestion[]>();
-const POI_TAGS: Array<[string, string[]]> = [
-  ["tourism", ["attraction", "museum", "gallery", "zoo", "aquarium", "theme_park", "viewpoint", "monument", "artwork"]],
-  ["historic", ["monument", "castle", "memorial", "ruins", "archaeological_site", "fort", "church"]],
-  ["leisure", ["park", "garden", "stadium", "water_park"]],
-  ["amenity", ["theatre", "cinema", "arts_centre", "marketplace", "place_of_worship", "university"]],
-  ["shop", ["mall"]],
+const POI_CATEGORIES: Array<{ key: PoiCategory; tags: Array<[string, string[]]> }> = [
+  {
+    key: "touristic",
+    tags: [
+      ["tourism", ["attraction", "museum", "gallery", "zoo", "aquarium", "theme_park", "viewpoint", "monument", "artwork"]],
+      ["historic", ["monument", "castle", "memorial", "ruins", "archaeological_site", "fort", "church"]],
+    ],
+  },
+  {
+    key: "transport",
+    tags: [
+      ["railway", ["station", "halt"]],
+      ["aeroway", ["aerodrome", "terminal"]],
+      ["amenity", ["bus_station"]],
+      ["public_transport", ["station"]],
+    ],
+  },
+  {
+    key: "other",
+    tags: [
+      ["leisure", ["park", "garden", "stadium", "water_park"]],
+      ["amenity", ["theatre", "cinema", "arts_centre", "marketplace", "place_of_worship", "university"]],
+      ["shop", ["mall"]],
+    ],
+  },
 ];
+// `tag=value` → category, so a returned element's tags can be mapped back to
+// the group it was fetched for without re-deriving the query logic.
+const POI_TAG_CATEGORY = new Map<string, PoiCategory>();
+POI_CATEGORIES.forEach((cat) => cat.tags.forEach(([k, vals]) => vals.forEach((v) => POI_TAG_CATEGORY.set(`${k}=${v}`, cat.key))));
+function categorizePoi(tags: Record<string, string>): PoiCategory {
+  for (const [k, v] of Object.entries(tags)) {
+    const cat = POI_TAG_CATEGORY.get(`${k}=${v}`);
+    if (cat) return cat;
+  }
+  return "other";
+}
 const POI_CAP = 50;
 
 async function fetchCityPOIs(city: string, country: string): Promise<WpSuggestion[]> {
@@ -2730,9 +2773,9 @@ async function fetchCityPOIs(city: string, country: string): Promise<WpSuggestio
   if (_poiCache.has(key)) return _poiCache.get(key)!;
   try {
     const areaQ = await getAreaQuery(city);
-    const clauses = POI_TAGS.flatMap(([k, vals]) =>
-      vals.map((v) => `node["${k}"="${v}"]["name"](area.c);way["${k}"="${v}"]["name"](area.c);`),
-    ).join("");
+    const clauses = POI_CATEGORIES.flatMap((cat) => cat.tags)
+      .flatMap(([k, vals]) => vals.map((v) => `node["${k}"="${v}"]["name"](area.c);way["${k}"="${v}"]["name"](area.c);`))
+      .join("");
     const q = `[out:json][timeout:30];${areaQ};(${clauses});out center ${POI_CAP + 30};`;
     const data = (await overpassFetch(q, 20000)) as unknown as {
       elements: Array<{ tags?: Record<string, string>; lat?: number; lon?: number; center?: { lat: number; lon: number } }>;
@@ -2746,7 +2789,7 @@ async function fetchCityPOIs(city: string, country: string): Promise<WpSuggestio
       const lon = el.lon ?? el.center?.lon;
       if (typeof lat !== "number" || typeof lon !== "number") continue;
       seen.add(name);
-      out.push({ name, label: name, country, lat, lng: lon });
+      out.push({ name, label: name, country, lat, lng: lon, category: categorizePoi(el.tags ?? {}) });
       if (out.length >= POI_CAP) break;
     }
     _poiCache.set(key, out);
@@ -2953,6 +2996,18 @@ function HubCombobox({
     // still surfaces the real place.
     const poiToShow = value.trim().length < 2 ? poiItems.slice(0, POI_CAP) : [];
     const liveToShow = liveItems;
+    // Group POIs by category (touristic sights, transport hubs, everything
+    // else) so the dropdown reads as sections rather than one long list —
+    // empty groups are dropped, and the order below is the display order.
+    const poiGroups: Array<{ key: PoiCategory; label: string; items: WpSuggestion[] }> = (
+      ["touristic", "transport", "other"] as PoiCategory[]
+    )
+      .map((cat) => ({
+        key: cat,
+        label: cat === "touristic" ? wpL(lang).poiTouristic : cat === "transport" ? wpL(lang).poiTransport : wpL(lang).poiOther,
+        items: poiToShow.filter((s) => (s.category ?? "other") === cat),
+      }))
+      .filter((g) => g.items.length > 0);
     return (
       <div className="space-y-1.5">
         {showSuggested && (
@@ -3059,17 +3114,17 @@ function HubCombobox({
                 {liveLoading && liveToShow.length === 0 && (
                   <div className="px-2 py-1.5 text-xs text-muted-foreground animate-pulse">{t("loading")}</div>
                 )}
-                {poiToShow.length > 0 && (
-                  <div className="py-0.5">
+                {poiGroups.map((g) => (
+                  <div key={g.key} className="py-0.5">
                     <p className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                      {wpL(lang).poi}
+                      {g.label}
                     </p>
-                    {poiToShow.map((s, i) => {
+                    {g.items.map((s, i) => {
                       const sel = value === s.name;
                       return (
                         <button
                           type="button"
-                          key={`poi-${s.name}-${i}`}
+                          key={`poi-${g.key}-${s.name}-${i}`}
                           onMouseDown={(e) => { e.preventDefault(); onChange(s.name); setOpen(false); }}
                           className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
                         >
@@ -3080,7 +3135,7 @@ function HubCombobox({
                       );
                     })}
                   </div>
-                )}
+                ))}
               </div>
             )}
           </div>

@@ -1408,6 +1408,74 @@ export function TripMap({
     return out;
   }, [routeLines, routes, showRoutes, transitResolved, pathCache, railCache, cityKeySet]);
 
+  // ── Overlap offsetting for ground routes ─────────────────────────────────
+  // When two car/moto/taxi legs share the same stretch of road (identical
+  // OSRM-snapped points), drawing both directly on top of each other hides
+  // all but the last one. Detect points shared by more than one ground
+  // route and nudge each sharing route sideways — perpendicular to its
+  // local direction, by a small latitude-corrected distance — so an
+  // overlapping stretch renders as parallel lines instead of one hiding
+  // the other. Non-overlapping stretches (and pins, which stay anchored to
+  // the real address) are left untouched.
+  const drawnOffset = useMemo(() => {
+    const OFFSET_METERS = 3.5; // gap between parallel lines
+    const GRID = 5000; // ~0.0002° (~18–22m) cell — tight enough to catch true
+    // road-sharing without falsely merging separate, nearby streets.
+
+    const groundLines = drawn.filter((d) => GROUND_MODES.has(d.mode) && d.positions.length > 1);
+    if (groundLines.length < 2) return drawn;
+
+    const cellOf = (lat: number, lng: number) => `${Math.round(lat * GRID)}|${Math.round(lng * GRID)}`;
+
+    // Bucket every ground-route point by its rounded grid cell.
+    const buckets = new Map<string, string[]>();
+    groundLines.forEach((d) => {
+      d.positions.forEach(([lat, lng]) => {
+        const cell = cellOf(lat, lng);
+        let arr = buckets.get(cell);
+        if (!arr) { arr = []; buckets.set(cell, arr); }
+        if (!arr.includes(d.key)) arr.push(d.key);
+      });
+    });
+
+    // Stable rank so two overlapping lines are pushed to consistent,
+    // opposite sides rather than flip-flopping from render to render.
+    const rankByKey = new Map(groundLines.map((d, i) => [d.key, i]));
+
+    const offsetOne = (d: (typeof groundLines)[number]): LL[] =>
+      d.positions.map((p, i) => {
+        const [lat, lng] = p;
+        const sharers = buckets.get(cellOf(lat, lng)) ?? [];
+        if (sharers.length < 2) return p;
+        const ordered = [...sharers].sort((a, b) => (rankByKey.get(a)! - rankByKey.get(b)!));
+        const slot = ordered.indexOf(d.key);
+        const mid = (ordered.length - 1) / 2;
+        const shift = (slot - mid) * OFFSET_METERS;
+        if (!shift) return p;
+
+        // Local tangent from neighbouring points, rotated 90° for the
+        // perpendicular; falls back gracefully at the polyline's ends.
+        const prev = d.positions[i - 1] ?? p;
+        const next = d.positions[i + 1] ?? p;
+        const dLat = next[0] - prev[0];
+        const dLng = next[1] - prev[1];
+        const len = Math.hypot(dLat, dLng) || 1;
+        const perpLat = -dLng / len;
+        const perpLng = dLat / len;
+
+        const latRad = (lat * Math.PI) / 180;
+        const metersPerDegLat = 111320;
+        const metersPerDegLng = 111320 * Math.cos(latRad) || 1;
+        return [lat + (perpLat * shift) / metersPerDegLat, lng + (perpLng * shift) / metersPerDegLng] as LL;
+      });
+
+    const offsetByKey = new Map(groundLines.map((d) => [d.key, offsetOne(d)]));
+    return drawn.map((d) => {
+      const off = offsetByKey.get(d.key);
+      return off ? { ...d, positions: off } : d;
+    });
+  }, [drawn]);
+
   // Count transit legs whose line couldn't be resolved from OSM data, to warn.
   const missingTransit = useMemo(() => {
     if (!showRoutes || !routes) return 0;
@@ -1548,7 +1616,7 @@ export function TripMap({
       )}
 
       {showRoutes &&
-        drawn.map((d) => (
+        drawnOffset.map((d) => (
           <Polyline
             key={d.key}
             positions={d.positions}
