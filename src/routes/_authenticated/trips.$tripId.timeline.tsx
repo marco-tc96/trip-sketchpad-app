@@ -698,7 +698,7 @@ function TimelineView() {
                 <AddItemDialog
                   tripId={tripId}
                   tripCities={tripCities}
-                  tripCountries={tripCountries}
+                  tripCountries={hubCountries}
                   isWishlist={isWishlist}
                   maxDayIndex={maxDayIndex}
                   defaultDayIndex={g.dayIndex}
@@ -856,7 +856,7 @@ function TimelineView() {
           <AddItemDialog
             tripId={tripId}
             tripCities={tripCities}
-            tripCountries={tripCountries}
+            tripCountries={hubCountries}
             existing={editItem}
             isWishlist={isWishlist}
             maxDayIndex={maxDayIndex}
