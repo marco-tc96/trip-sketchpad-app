@@ -191,20 +191,24 @@ function MapPage() {
 
   return (
     <main className="flex h-[100svh] flex-col">
-      {/* Header bar */}
-      <div className="flex shrink-0 items-center gap-2 border-b border-border/60 bg-card/80 px-4 py-3 backdrop-blur">
-        <Globe2 className="h-4 w-4 text-primary" />
-        <h1 className="text-sm font-semibold">{t("map")}</h1>
-        <span className="text-xs text-muted-foreground/60">
-          · {visitedCountries.length} {t("countries")}
-        </span>
+      {/* Header — same title style/colors as the rest of the app (Viaggi,
+          Profilo, Notifiche): no card background/border/blur, just the page
+          background, a primary-coloured icon and a bold serif title. */}
+      <div className="mx-auto w-full max-w-6xl shrink-0 px-4 pb-2 pt-6 sm:pt-8">
+        <div className="flex items-center gap-2">
+          <Globe2 className="h-5 w-5 text-primary" />
+          <h1 className="font-serif text-2xl font-bold">{t("map")}</h1>
+          <span className="text-sm text-muted-foreground">
+            · {visitedCountries.length} {t("countries")}
+          </span>
 
-        <div className="ml-auto flex items-center gap-4">
-          <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
-            {showPins ? <Pin className="h-3.5 w-3.5" /> : <PinOff className="h-3.5 w-3.5" />}
-            <span className="hidden sm:inline">{t("show_pins")}</span>
-            <Switch checked={showPins} onCheckedChange={setShowPins} />
-          </label>
+          <div className="ml-auto flex items-center gap-4">
+            <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
+              {showPins ? <Pin className="h-3.5 w-3.5" /> : <PinOff className="h-3.5 w-3.5" />}
+              <span className="hidden sm:inline">{t("show_pins")}</span>
+              <Switch checked={showPins} onCheckedChange={setShowPins} />
+            </label>
+          </div>
         </div>
       </div>
 
