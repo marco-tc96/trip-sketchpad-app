@@ -2898,7 +2898,7 @@ function HubCombobox({
   // point) once it becomes available — but only while the user hasn't typed a
   // city yet, so it's a soft default, never an override of an explicit choice.
   useEffect(() => {
-    if (isCityMode && !cityQuery && cityHint) setCityQuery(cityHint.name);
+    if (isCityMode && !cityQuery && cityHint) { setCityQuery(cityHint.name); setOpen(true); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isCityMode, cityHint?.name]);
 
@@ -2991,6 +2991,9 @@ function HubCombobox({
                       setCityQuery(c.name);
                       onChange(c.name); // default point = city centre until a POI is picked
                       setCityOpen(false);
+                      // Immediately reveal that city's points of interest,
+                      // rather than requiring a separate tap on the point field.
+                      setOpen(true);
                     }}
                     className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
                   >

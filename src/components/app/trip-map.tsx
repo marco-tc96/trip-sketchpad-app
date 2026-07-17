@@ -1520,7 +1520,12 @@ export function TripMap({
   }
 
   return (
-    <div className={className} ref={wrapRef}>
+    // touch-action: none — a touch drag/pan gesture that starts on the map
+    // must be handled ENTIRELY by Leaflet (pan/zoom), never partially
+    // hijacked by the browser as a scroll of the page the map is embedded in.
+    // Without this, dragging down on the map on mobile scrolls the page
+    // instead of (or in addition to) panning the map.
+    <div className={`${className ?? ""} touch-none`} style={{ touchAction: "none" }} ref={wrapRef}>
     <MapContainer
       ref={ref}
       center={boundsPoints[0]}
@@ -1536,7 +1541,7 @@ export function TripMap({
       maxBounds={restrictBounds}
       maxBoundsViscosity={1.0}
       className="h-full w-full"
-      style={{ background: "transparent" }}
+      style={{ background: "transparent", touchAction: "none" }}
     >
       {!noTiles && (
         <TileLayer url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" />
