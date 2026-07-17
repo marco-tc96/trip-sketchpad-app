@@ -7,6 +7,13 @@ export const ITEM_KINDS = [
   "lodging","activity","zone","other","metro","tram",
 ] as const;
 
+// Item kinds that can carry transport legs (meta.legs / meta.mixed_legs) —
+// used by listTransportItems below to power the Profile page's transport
+// statistics (uses per vehicle, top line/route/station, km travelled).
+const TRANSPORT_KINDS = [
+  "outbound", "return", "flight", "train", "bus", "car", "taxi", "moto", "ferry", "transfer", "metro", "tram",
+] as const;
+
 const waypointSchema = z.object({
   name: z.string().max(160),
   enter: z.boolean().optional(),
@@ -107,4 +114,25 @@ export const deleteItem = createServerFn({ method: "POST" })
       .eq("id", data.id);
     if (error) throw new Error(error.message);
     return { ok: true };
+  });
+
+/**
+ * Returns every transport-carrying itinerary item (kind + meta + trip_id)
+ * for the current user, across ALL of their trips. Used by the Profile
+ * page to build cross-trip transport statistics (vehicle usage counts,
+ * top line/route/station, distance travelled per mode). Callers filter
+ * by trip_id client-side (e.g. to keep only past/ongoing trips, mirroring
+ * the rest of the Profile stats) since this function intentionally stays
+ * trip-agnostic to avoid an extra join here.
+ */
+export const listTransportItems = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { data, error } = await context.supabase
+      .from("itinerary_items")
+      .select("trip_id, kind, meta")
+      .eq("user_id", context.userId)
+      .in("kind", TRANSPORT_KINDS as unknown as string[]);
+    if (error) throw new Error(error.message);
+    return (data ?? []) as { trip_id: string; kind: string; meta: unknown }[];
   });

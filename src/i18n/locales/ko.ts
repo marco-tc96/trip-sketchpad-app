@@ -289,6 +289,11 @@ const translations: Record<string, string> = {
   southernmost: "최남단",
   easternmost: "최동단",
   westernmost: "최서단",
+  // ── Transport stats (Profile page) ──────────────────────────────────────
+  transport_stats: "교통 통계",
+  most_used_line: "가장 많이 이용한 노선",
+  most_used_route: "가장 많이 이용한 경로",
+  most_used_station: "가장 많이 이용한 역",
 };
 
 export default translations;

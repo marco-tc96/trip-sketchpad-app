@@ -289,6 +289,11 @@ const translations: Record<string, string> = {
   southernmost: "最南",
   easternmost: "最東",
   westernmost: "最西",
+  // ── Transport stats (Profile page) ──────────────────────────────────────
+  transport_stats: "交通統計",
+  most_used_line: "最も利用した路線",
+  most_used_route: "最も利用したルート",
+  most_used_station: "最も利用した駅",
 };
 
 export default translations;

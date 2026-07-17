@@ -289,6 +289,11 @@ const translations: Record<string, string> = {
   southernmost: "Más al sur",
   easternmost: "Más al este",
   westernmost: "Más al oeste",
+  // ── Transport stats (Profile page) ──────────────────────────────────────
+  transport_stats: "Estadísticas de transporte",
+  most_used_line: "Línea más usada",
+  most_used_route: "Ruta más usada",
+  most_used_station: "Estación más usada",
 };
 
 export default translations;

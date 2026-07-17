@@ -6,10 +6,12 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
   BarChart3, Globe2, MapPin, CalendarDays, Briefcase, Palmtree, Footprints, Settings as SettingsIcon,
-  Compass,
+  Compass, Route as RouteIcon, Plane, TrainFront, Train, Car, Bus, Ship, Bike, CarTaxiFront, TramFront,
 } from "lucide-react";
 import { getProfile, updateProfile } from "@/lib/profile.functions";
 import { listTrips } from "@/lib/trips.functions";
+import { listTransportItems } from "@/lib/itinerary.functions";
+import { aggregateTransport, useTransportKm } from "@/lib/transport-stats";
 import type { Lang } from "@/i18n/translations";
 import { setLanguage } from "@/i18n";
 import { flagOf, countryNameLocalized, cityNameLocalized, geocodeCity } from "@/lib/country-data";
@@ -61,6 +63,31 @@ const CONTINENT_EMOJI: Record<string, string> = {
   "Oceania": "🌏",
   "North America": "🌎",
   "South America": "🌎",
+};
+
+// ── Transport stats: icon + i18n-label lookup per leg mode ─────────────────
+const MODE_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
+  plane: Plane,
+  train: TrainFront,
+  car: Car,
+  taxi: CarTaxiFront,
+  moto: Bike,
+  ferry: Ship,
+  bus: Bus,
+  metro: Train,
+  tram: TramFront,
+};
+
+const MODE_LABEL_KEY: Record<string, string> = {
+  plane: "flight",
+  train: "train",
+  car: "car",
+  taxi: "taxi",
+  moto: "moto",
+  ferry: "ferry",
+  bus: "bus",
+  metro: "metro",
+  tram: "tram",
 };
 
 // ── Farthest-points compass: geocode every visited city (once, then cached —
@@ -212,8 +239,10 @@ function ProfilePage() {
   const profFn = useServerFn(getProfile);
   const updFn = useServerFn(updateProfile);
   const tripsFn = useServerFn(listTrips);
+  const transportItemsFn = useServerFn(listTransportItems);
   const prof = useQuery({ queryKey: ["profile"], queryFn: () => profFn() });
   const trips = useQuery({ queryKey: ["trips"], queryFn: () => tripsFn() });
+  const transportItems = useQuery({ queryKey: ["transport-items"], queryFn: () => transportItemsFn() });
   const lang = i18n.language || "it";
 
   const profData = prof.data as (typeof prof.data & ProfileData) | undefined;
@@ -325,6 +354,11 @@ function ProfilePage() {
 
     return {
       tripCount: forStats.length,
+      // Trip ids contributing to the stats above (past + ongoing, wishlist
+      // excluded) — used to filter the cross-trip transport-items query
+      // below so the transport section stays consistent with every other
+      // stat on this page.
+      forStatsIds: new Set(forStats.map((tr) => tr.id)),
       countries: [...countrySet].sort((a, b) =>
         countryNameLocalized(a, lang).localeCompare(countryNameLocalized(b, lang), lang),
       ),
@@ -333,6 +367,14 @@ function ProfilePage() {
       maxYear: Math.max(1, ...years.map((v) => v.total)),
     };
   }, [trips.data, prof.data, lang]);
+
+  // Cross-trip transport statistics — uses per vehicle, top line/route/
+  // station, and (progressively, via geocoding) km travelled per mode.
+  const transportAgg = useMemo(() => {
+    const rows = (transportItems.data ?? []).filter((r) => stats.forStatsIds.has(r.trip_id));
+    return aggregateTransport(rows);
+  }, [transportItems.data, stats.forStatsIds]);
+  const { kmByMode, resolving: kmResolving } = useTransportKm(transportAgg.legsByMode);
 
   // Every distinct visited city (name+country), used to resolve the
   // farthest-points compass below.
@@ -513,6 +555,92 @@ function ProfilePage() {
                 );
               })}
             </div>
+          </div>
+        )}
+
+        {transportAgg.vehicleCounts.length > 0 && (
+          <div className="mt-4 rounded-3xl border border-border bg-card p-5 shadow-soft">
+            <div className="flex items-center justify-center gap-2">
+              <RouteIcon className="h-4 w-4 text-primary" />
+              <h3 className="font-serif text-base font-semibold">{t("transport_stats")}</h3>
+            </div>
+
+            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+              {transportAgg.vehicleCounts.map((v) => {
+                const Icon = MODE_ICON[v.mode] ?? RouteIcon;
+                const km = kmByMode[v.mode];
+                return (
+                  <div key={v.mode} className="flex flex-col items-center rounded-2xl border border-border bg-secondary/30 p-4 text-center">
+                    <Icon className="h-4 w-4 text-primary" />
+                    <p className="mt-2 text-[10px] uppercase tracking-wider text-muted-foreground">{t(MODE_LABEL_KEY[v.mode] ?? v.mode)}</p>
+                    <p className="mt-0.5 font-serif text-xl font-semibold tabular-nums">{v.count}</p>
+                    <p className="text-[11px] text-muted-foreground tabular-nums">
+                      {km !== undefined && km > 0 ? `${km.toLocaleString(lang)} km` : (kmResolving ? "…" : "—")}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+
+            {transportAgg.topLines.length > 0 && (
+              <div className="mt-4">
+                <p className="text-center text-xs font-medium text-muted-foreground">{t("most_used_line")}</p>
+                <ul className="mt-2 space-y-1.5 text-sm">
+                  {transportAgg.topLines.map((r) => {
+                    const Icon = MODE_ICON[r.mode] ?? RouteIcon;
+                    return (
+                      <li key={r.mode} className="flex items-center justify-between gap-2">
+                        <span className="flex min-w-0 items-center gap-1.5 truncate">
+                          <Icon className="h-3.5 w-3.5 shrink-0 text-primary" />
+                          <span className="truncate">{r.name}</span>
+                        </span>
+                        <span className="shrink-0 tabular-nums font-medium">{r.count}×</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+
+            {transportAgg.topRoutes.length > 0 && (
+              <div className="mt-4">
+                <p className="text-center text-xs font-medium text-muted-foreground">{t("most_used_route")}</p>
+                <ul className="mt-2 space-y-1.5 text-sm">
+                  {transportAgg.topRoutes.map((r) => {
+                    const Icon = MODE_ICON[r.mode] ?? RouteIcon;
+                    return (
+                      <li key={r.mode} className="flex items-center justify-between gap-2">
+                        <span className="flex min-w-0 items-center gap-1.5 truncate">
+                          <Icon className="h-3.5 w-3.5 shrink-0 text-primary" />
+                          <span className="truncate">{r.a} ↔ {r.b}</span>
+                        </span>
+                        <span className="shrink-0 tabular-nums font-medium">{r.count}×</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+
+            {transportAgg.topStations.length > 0 && (
+              <div className="mt-4">
+                <p className="text-center text-xs font-medium text-muted-foreground">{t("most_used_station")}</p>
+                <ul className="mt-2 space-y-1.5 text-sm">
+                  {transportAgg.topStations.map((r) => {
+                    const Icon = MODE_ICON[r.mode] ?? RouteIcon;
+                    return (
+                      <li key={r.mode} className="flex items-center justify-between gap-2">
+                        <span className="flex min-w-0 items-center gap-1.5 truncate">
+                          <Icon className="h-3.5 w-3.5 shrink-0 text-primary" />
+                          <span className="truncate">{r.name}</span>
+                        </span>
+                        <span className="shrink-0 tabular-nums font-medium">{r.count}×</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
           </div>
         )}
       </section>
