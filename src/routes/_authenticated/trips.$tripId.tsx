@@ -37,18 +37,27 @@ export const Route = createFileRoute("/_authenticated/trips/$tripId")({
 // country hint — preferably the ISO country of the trip's own city that the
 // item's location matches (so a multi-country trip still biases each leg
 // toward the RIGHT one of its countries, not just whichever one happens to
-// be first), falling back to the trip's single declared country when there
-// is exactly one and the item's location doesn't match a known city. It's a
-// bias only — trip-map.tsx's geocoder gracefully falls back to its best
-// unbiased match when nothing in that country matches, so a country-
-// crossing leg (e.g. a Belfast–Dublin side trip on an otherwise Italy-only
-// trip) still resolves correctly. This is safe now that trip-map.tsx no
-// longer falls back to drawing a failed geocode at that country's
-// geometric centroid (see resolve() there) — the bias only ever helps
-// disambiguate an in-country name, it can no longer cause a wrong-country
-// pin. Road legs (meta.legs, below) still get no hint at all, since a road
-// trip's start/end are far more likely to genuinely span two of the trip's
-// own countries back-to-back.
+// be first), falling back to the trip's single declared country ONLY when
+// there is exactly one AND the item still names some (undeclared) location —
+// e.g. a small town near the trip's main cities that was never added as its
+// own city entry. It's a bias only — trip-map.tsx's geocoder gracefully
+// falls back to its best unbiased match when nothing in that country
+// matches, so a country-crossing leg (e.g. a Belfast–Dublin side trip on an
+// otherwise Italy-only trip) still resolves correctly. This is safe now that
+// trip-map.tsx no longer falls back to drawing a failed geocode at that
+// country's geometric centroid (see resolve() there) — the bias only ever
+// helps disambiguate an in-country name, it can no longer cause a wrong-
+// country pin.
+// A leg whose item has NO location at all (common for a connecting-transfer
+// item, e.g. a domestic train hop to/from the airport tacked onto an
+// otherwise Korea- or Hungary-titled trip) gets NO country bias at all —
+// exactly like meta.legs below — since there's nothing here to say that leg
+// is even IN one of the trip's own countries; a domestic Italian station
+// getting biased toward South Korea (because that happens to be the trip's
+// one declared country) actively misdirects the geocoder rather than merely
+// failing to help. Road legs (meta.legs, below) still get no hint at all for
+// the same reason, and because a road trip's start/end are far more likely
+// to genuinely span two of the trip's own countries back-to-back.
 function buildMapRoutes(
   items: Array<{ kind: string; location?: string | null; meta?: unknown }>,
   tripData: unknown,
@@ -78,7 +87,7 @@ function buildMapRoutes(
   const out: MapRoute[] = [];
   for (const it of items) {
     const city = it.location ?? undefined;
-    const legCountry = (city && countryByCity.get(city.trim().toLowerCase())) || singleCountry;
+    const legCountry = city ? (countryByCity.get(city.trim().toLowerCase()) || singleCountry) : undefined;
     const meta = (it.meta ?? {}) as {
       mode?: string;
       legs?: Array<{
@@ -766,7 +775,7 @@ function TripLayout() {
               <div className="flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 text-xs text-muted-foreground sm:justify-start sm:text-sm">
                 {cityGroups.map((g) => (
                   <span key={g.iso || "unknown"} className="inline-flex items-center gap-1.5">
-                    <span className="inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted-foreground/90">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 font-medium leading-none text-muted-foreground/90">
                       <span>{g.flag}</span>
                       {g.countryName && <span>{g.countryName}</span>}
                     </span>

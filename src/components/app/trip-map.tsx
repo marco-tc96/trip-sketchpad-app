@@ -732,19 +732,24 @@ function escapeHtml(s: string): string {
 }
 
 // Bigger endpoint pin for a leg's departure/arrival: mode-coloured badge with
-// the vehicle icon inside. For bus/tram/metro/plane (which carry a line ref or
-// flight number), the BOARDING pin shows the icon + that ref; the ALIGHTING
-// pin shows the icon + a down arrow instead, so the two ends of the same leg
-// read differently at a glance. Uses a zero-size icon + CSS centering so the
-// badge can be a plain circle OR a wider capsule without any anchor-offset math.
+// the vehicle icon inside. For bus/tram/metro/plane, the ALIGHTING pin always
+// shows the icon + a down arrow — that's just "you get off here", true
+// whether or not this specific leg happens to carry a known line ref/flight
+// number. The BOARDING pin shows the icon + that ref ONLY when one is known;
+// with no ref to show, it falls back to the plain icon (nothing to display
+// there), but the arrival end still gets its arrow either way, so the two
+// ends of the same leg always read differently at a glance. Uses a zero-size
+// icon + CSS centering so the badge can be a plain circle OR a wider capsule
+// without any anchor-offset math.
 function endpointIcon(mode: string, color: string, line: string | undefined | null, isBoarding: boolean): L.DivIcon {
   const glyph = MODE_GLYPH[mode] ?? `<circle cx="12" cy="12" r="5"/>`;
   const svg = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0">${glyph}</svg>`;
-  const hasLine = LINE_LABEL_MODES.has(mode) && !!(line ?? "").trim();
+  const isLineMode = LINE_LABEL_MODES.has(mode);
+  const hasLine = isLineMode && !!(line ?? "").trim();
   let html: string;
   if (hasLine && isBoarding) {
     html = `<span style="position:relative;transform:translate(-50%,-50%);display:inline-flex;align-items:center;gap:4px;height:26px;padding:0 8px 0 6px;border-radius:9999px;background:${color};border:2.5px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.35);white-space:nowrap">${svg}<span style="color:white;font:700 11px/1 -apple-system,BlinkMacSystemFont,sans-serif;letter-spacing:.2px">${escapeHtml((line ?? "").trim())}</span></span>`;
-  } else if (hasLine) {
+  } else if (isLineMode && !isBoarding) {
     html = `<span style="position:relative;transform:translate(-50%,-50%);display:inline-flex;align-items:center;gap:3px;height:26px;padding:0 7px 0 6px;border-radius:9999px;background:${color};border:2.5px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.35)">${svg}${DOWN_ARROW_SVG}</span>`;
   } else {
     html = `<span style="position:relative;transform:translate(-50%,-50%);display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:9999px;background:${color};border:2.5px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.35)">${svg}</span>`;
@@ -1361,7 +1366,7 @@ export function TripMap({
     [routeLines, pathCache],
   );
   const railPending = useMemo(
-    () => routeLines.filter((l) => l.mode === "train" && !l.line && l.a && l.b && !(l.key in railCache)).length,
+    () => routeLines.filter((l) => l.mode === "train" && !l.line && l.a && l.b && !(l.pathKey in railCache)).length,
     [routeLines, railCache],
   );
   const transitPending = useMemo(
@@ -1405,16 +1410,22 @@ export function TripMap({
   }, [routeLines, retryTick]);
 
   // Snap train legs (station→station, no line ref) to the real railway via BRouter
-  // so they follow the tracks instead of drawing a straight line.
+  // so they follow the tracks instead of drawing a straight line. Keyed by
+  // `pathKey` (which bakes in the resolved a/b coordinates), NOT the bare
+  // leg key (index+from+to text alone) — otherwise, if this same leg's
+  // endpoint geocode ever changes (a geocache invalidation, a fixed bias
+  // bug causing a re-resolve to a different, corrected point, …), the OLD
+  // rail path stays cached and keeps drawing tracks anchored to the stale
+  // coordinates even after the pins themselves have moved to the right spot.
   useEffect(() => {
-    const pending = routeLines.filter((l) => l.mode === "train" && !l.line && l.a && l.b && !(l.key in railCache));
+    const pending = routeLines.filter((l) => l.mode === "train" && !l.line && l.a && l.b && !(l.pathKey in railCache));
     if (pending.length === 0) return;
     let cancelled = false;
     (async () => {
       const updates: Record<string, [number, number][]> = {};
       for (const l of pending) {
         const path = await fetchRailPath(l.a!, l.b!);
-        if (path) updates[l.key] = path;
+        if (path) updates[l.pathKey] = path;
       }
       if (!cancelled && Object.keys(updates).length > 0) {
         for (const [k, v] of Object.entries(updates)) memRail.set(k, v);
@@ -1468,8 +1479,16 @@ export function TripMap({
   // line. Stops are matched to the relation purely by NAME (exact/accent-insensitive,
   // then a 1-edit tolerance for spelling variants). A leg whose line can't be found
   // is marked "failed" (→ notice), never drawn city-to-city.
-  type TPin = { ll: LL; name: string; big: boolean };
-  type TResolved = { state: "pending" | "failed" | "ok"; positions?: LL[]; pins?: TPin[]; color?: string };
+  type TPin = { ll: LL; name: string; big: boolean; board?: boolean };
+  // `noGeometry` marks an "ok" (verified stops) leg whose OSM route relation
+  // carried no linked way geometry at all (common for many bus relations that
+  // are tagged with stops but never linked to the actual road ways) — its
+  // `positions` is just a straight hop between the two matched stop
+  // coordinates, not a real path. Still a CONFIRMED stop pair (unlike
+  // "failed"), so it's not dotted, but it still needs road-snapping (see the
+  // dedicated fetch effect below) so it doesn't draw as a chord across
+  // buildings/blocks.
+  type TResolved = { state: "pending" | "failed" | "ok"; positions?: LL[]; pins?: TPin[]; color?: string; noGeometry?: boolean };
   const transitResolved = useMemo<Record<string, TResolved>>(() => {
     const map: Record<string, TResolved> = {};
     if (!showRoutes || !routes) return map;
@@ -1577,11 +1596,11 @@ export function TripMap({
       // Snap every pin onto the drawn line so stops sit exactly on the route
       // (OSM bus-stop nodes sit at the kerb, a few metres off the road centre).
       const pins: TPin[] = [
-        { ll: projectOnPath(positions, board.ll), name: board.name, big: true },
+        { ll: projectOnPath(positions, board.ll), name: board.name, big: true, board: true },
         ...mids.map((s) => ({ ll: projectOnPath(positions, s.ll), name: s.name, big: false })),
-        { ll: projectOnPath(positions, alight.ll), name: alight.name, big: true },
+        { ll: projectOnPath(positions, alight.ll), name: alight.name, big: true, board: false },
       ];
-      map[key] = { state: "ok", positions, pins, color: tl.color };
+      map[key] = { state: "ok", positions, pins, color: tl.color, noGeometry: !chosen };
     });
     return map;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1593,12 +1612,20 @@ export function TripMap({
   // (hence still dotted, see UNVERIFIED_DASH), but at least it doesn't cut
   // across buildings/water like a straight chord would. Reuses the same OSRM
   // driving-route fetch and `pathCache` as ground legs (keyed by `l.pathKey`).
+  // Also covers a bus/tram/metro leg that never had ANY line ref typed at
+  // all (`!l.line`) — that used to bypass `transitResolved` entirely
+  // (`if (!l.line) return;` there) and fall all the way to the plain
+  // straight-line, non-dashed generic path, since `unverified` was only ever
+  // set from a "failed" lookup, which never happens without a line to look
+  // up in the first place. Trains are excluded here: a line-less train leg
+  // already gets its own BRouter rail-snapped path (see `railCache`) rather
+  // than an OSRM road path.
   useEffect(() => {
     const pending = routeLines.filter(
       (l) =>
         TRANSIT_MODES.has(l.mode) &&
-        !!l.line &&
-        transitResolved[l.key]?.state === "failed" &&
+        l.mode !== "train" &&
+        (transitResolved[l.key]?.state === "failed" || !l.line) &&
         l.a && l.b &&
         !(l.pathKey in pathCache),
     );
@@ -1620,11 +1647,46 @@ export function TripMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeLines, transitResolved, retryTick]);
 
+  // A transit leg that DID resolve to a confirmed stop pair ("ok") can still
+  // have no usable track geometry at all — many OSM bus route relations are
+  // tagged with their stops but were never linked to the actual road ways, so
+  // `positions` there is nothing but a straight hop between the two matched
+  // stops (see `noGeometry` above). That's a real, verified route — so unlike
+  // the "failed"/unverified case it must stay SOLID, not dotted — but it
+  // still needs the road-snap treatment so it doesn't cut a straight chord
+  // across buildings. Reuses the same OSRM fetch + `pathCache` as ground legs
+  // and unverified transit legs, keyed by `l.pathKey`.
+  useEffect(() => {
+    const pending = routeLines.filter((l) => {
+      if (!TRANSIT_MODES.has(l.mode) || !l.line) return false;
+      const res = transitResolved[l.key];
+      return !!(res?.state === "ok" && res.noGeometry && res.positions && res.positions.length >= 2 && !(l.pathKey in pathCache));
+    });
+    if (pending.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const updates: Record<string, [number, number][]> = {};
+      for (const l of pending) {
+        const pts = transitResolved[l.key]?.positions;
+        if (!pts || pts.length < 2) continue;
+        const path = await fetchRoadPathVia([pts[0], pts[pts.length - 1]]);
+        if (path) updates[l.pathKey] = path;
+      }
+      if (!cancelled && Object.keys(updates).length > 0) {
+        for (const [k, v] of Object.entries(updates)) memRoad.set(k, v);
+        capMap(memRoad, 120);
+        setPathCache((prev) => ({ ...prev, ...updates }));
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeLines, transitResolved, retryTick]);
+
   // Assemble the drawn geometry + coloured pins for every leg. Transit legs come
   // from transitResolved (relation stops); ground legs use the OSRM road path;
   // everything else is a straight line between geocoded endpoints.
   const drawn = useMemo(() => {
-    type Pin = { ll: LL; name: string; big: boolean; hollow?: boolean };
+    type Pin = { ll: LL; name: string; big: boolean; hollow?: boolean; board?: boolean };
     type Drawn = { key: string; color: string; dash?: string; positions: LL[]; pins: Pin[]; mode: string; line?: string };
     if (!showRoutes || !routes) return [] as Drawn[];
     const out: Drawn[] = [];
@@ -1655,11 +1717,31 @@ export function TripMap({
             // when the line's real colour is unknown.
             const usesRealColor = l.mode === "metro" || l.mode === "tram";
             const lineColor = usesRealColor && res.color ? res.color : color;
-            out.push({ key, color: lineColor, dash, positions: res.positions, pins: res.pins, mode: l.mode, line: l.line });
+            // No real track geometry from OSM (see `noGeometry`) → use the
+            // OSRM-snapped road path fetched above instead of the raw
+            // straight board→alight hop, once it's ready; stays solid (not
+            // dashed) since the stops are confirmed real, just re-drawn onto
+            // an actual street.
+            let positions = res.positions;
+            let pins = res.pins;
+            if (res.noGeometry && pathCache[l.pathKey]) {
+              const snapped = pathCache[l.pathKey];
+              positions = snapped;
+              pins = res.pins.map((p) => ({ ...p, ll: projectOnPath(snapped, p.ll) }));
+            }
+            out.push({ key, color: lineColor, dash, positions, pins, mode: l.mode, line: l.line });
             return;
           }
           if (res.state === "pending") return;
           unverified = true; // state === "failed"
+        } else if (l.mode !== "train") {
+          // No line ref was ever typed for this leg, so it never entered
+          // transitResolved at all (`if (!l.line) return;` there) — treat it
+          // the same as an unverified/failed line: still drawn, dotted, and
+          // road-snapped once the fetch effect above resolves it, instead of
+          // a plain straight, solid chord. Trains are excluded — a line-less
+          // train leg gets BRouter rail-snapping instead (see railCache below).
+          unverified = true;
         }
       }
 
@@ -1673,7 +1755,7 @@ export function TripMap({
       // legs (see the fetch effect above) — falls back to the straight [a, b]
       // above until that finishes, then upgrades to the real road, still dotted.
       if ((GROUND_MODES.has(l.mode) || unverified) && pathCache[l.pathKey]) positions = pathCache[l.pathKey];
-      else if (l.mode === "train" && railCache[key]) positions = railCache[key];
+      else if (l.mode === "train" && railCache[l.pathKey]) positions = railCache[l.pathKey];
       // Endpoints (departure/arrival) are FILLED pins. City stops are HOLLOW pins
       // (filled ones stay reserved for the trip's own cities + start/end). Highway
       // shaping points carry no pin.
@@ -1686,10 +1768,17 @@ export function TripMap({
       // off the line when the route geometry diverges slightly from the geocode.
       const startPt = positions[0] ?? a;
       const endPt = positions[positions.length - 1] ?? b;
+      // Departure/arrival are tagged with an explicit `board` flag rather than
+      // relying on array position — when the departure pin is omitted here
+      // (isCity(a), the trip's own city pin stands in for it), the arrival pin
+      // would otherwise become index 0 among the "big" pins and be wrongly
+      // rendered as boarding (line-number badge) instead of alighting (down
+      // arrow). The flag keeps the two ends semantically correct no matter
+      // which pins end up omitted.
       const pins: Pin[] = [];
-      if (!isCity(a)) pins.push({ ll: startPt, name: cleanPlace(l.from), big: true });
+      if (!isCity(a)) pins.push({ ll: startPt, name: cleanPlace(l.from), big: true, board: true });
       for (const v of l.vias) if (v.pin) pins.push({ ll: projectOnPath(positions, v.ll), name: v.label, big: true, hollow: true });
-      if (!isCity(b)) pins.push({ ll: endPt, name: cleanPlace(l.to), big: true });
+      if (!isCity(b)) pins.push({ ll: endPt, name: cleanPlace(l.to), big: true, board: false });
       out.push({ key, color, dash: unverified ? UNVERIFIED_DASH : dash, positions, pins, mode: l.mode, line: l.line });
     });
     return out;
@@ -1956,11 +2045,18 @@ export function TripMap({
           waypoints) and small mid-route stops keep the plain coloured dot. */}
       {showRoutes &&
         drawn.flatMap((d) => {
-          const bigIdxs = d.pins.reduce<number[]>((acc, p, i) => { if (p.big && !p.hollow) acc.push(i); return acc; }, []);
-          const boardIdx = bigIdxs[0];
+          // Boarding/alighting is decided by each pin's own explicit `board`
+          // flag (set where the pin is constructed), NOT by array position —
+          // a leg's departure pin can be omitted entirely when it coincides
+          // with the trip's own city pin, which would otherwise shift the
+          // arrival pin into index 0 and mislabel it as boarding. Falls back
+          // to "first big, non-hollow pin" only for a pin with no flag set at
+          // all (defensive default; every current pin-construction site sets
+          // it explicitly).
+          const firstBigIdx = d.pins.findIndex((p) => p.big && !p.hollow);
           return d.pins.map((p, idx) =>
             p.big && !p.hollow ? (
-              <Marker key={`${d.key}-p${idx}`} position={p.ll} icon={endpointIcon(d.mode, d.color, d.line, idx === boardIdx)}>
+              <Marker key={`${d.key}-p${idx}`} position={p.ll} icon={endpointIcon(d.mode, d.color, d.line, p.board !== undefined ? p.board : idx === firstBigIdx)}>
                 {p.name && (
                   <>
                     <Popup><strong>{withRomanization(p.name, lang)}</strong></Popup>
