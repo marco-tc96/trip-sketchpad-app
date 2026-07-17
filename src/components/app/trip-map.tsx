@@ -3,7 +3,7 @@ import { MapContainer, TileLayer, Marker, Popup, Tooltip, Polyline, CircleMarker
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { geocodeCity } from "@/lib/country-data";
-import { withRomanization, registerEnName } from "@/lib/romanize";
+import { withRomanization, registerEnName, useTranslationTick } from "@/lib/romanize";
 import { airportCoordsByIata, airportCoordsByPlaceName } from "@/hooks/use-airports";
 
 export type MapCity = { name: string; country: string; lat?: number; lng?: number };
@@ -1238,6 +1238,11 @@ export function TripMap({
   compact?: boolean;
   lang?: string;
 }) {
+  // Subscribes this component to re-render once a background translation of
+  // a non-Latin pin/stop label resolves (see withRomanization) — otherwise a
+  // label fetched after this component's initial render would never appear
+  // until something else happened to trigger a re-render.
+  useTranslationTick();
   // All caches below are seeded from the module-level maps, so navigating away and
   // back (or between map/trip/home) reuses earlier results instead of refetching.
   // Async geocoding cache for cities without stored coords.

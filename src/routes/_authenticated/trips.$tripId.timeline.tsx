@@ -23,7 +23,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { citiesOfCountry, flagOf, cityNameLocalized, countryNameLocalized } from "@/lib/country-data";
 import { cn } from "@/lib/utils";
-import { withRomanization, registerEnName } from "@/lib/romanize";
+import { withRomanization, registerEnName, useTranslationTick } from "@/lib/romanize";
 import { useCityPhoto } from "@/hooks/use-city-photo";
 import { hubsForMode, formatHub, type Hub, HUBS } from "@/lib/transport-hubs";
 import { useRemoteHubs, modeToKind } from "@/hooks/use-remote-hubs";
@@ -886,6 +886,9 @@ function TimelineView() {
   const { tripId } = Route.useParams();
   const { t, i18n } = useTranslation();
   const lang = i18n.language || "it";
+  // Re-renders this view once a background translation of a non-Latin stop
+  // name resolves (see withRomanization/useTranslationTick in romanize.ts).
+  useTranslationTick();
   const qc = useQueryClient();
   const tripFn = useServerFn(getTrip);
   const itemFn = useServerFn(listItems);
@@ -3018,6 +3021,7 @@ function StopCombobox({
 }) {
   const { t, i18n } = useTranslation();
   const lang = i18n.language || "it";
+  useTranslationTick();
   const [open, setOpen] = useState(false);
   // When value is empty, seed the remote search with the city name so that
   // results appear immediately on focus (e.g. all Budapest metro stations)
@@ -3197,6 +3201,7 @@ function FerryDestinationCombobox({
 }) {
   const { t, i18n } = useTranslation();
   const lang = i18n.language || "it";
+  useTranslationTick();
   const [open, setOpen] = useState(false);
   const [destinations, setDestinations] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -3358,6 +3363,7 @@ function LineCombobox({
 }) {
   const { t, i18n } = useTranslation();
   const lang = i18n.language || "it";
+  useTranslationTick();
   const [open, setOpen] = useState(false);
   const [lines, setLines] = useState<Array<{ ref: string; name: string; intercity?: boolean; express?: boolean }>>([]);
   const [loading, setLoading] = useState(false);
