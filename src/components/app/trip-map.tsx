@@ -613,6 +613,28 @@ async function fetchAirportByIata(code: string): Promise<{ lat: number; lng: num
   return null;
 }
 
+// Hub-style leg labels (train/bus/ferry/metro/tram stops picked from the
+// station combobox) are saved as "City – Station Name" (e.g. "Belfast –
+// Belfast Lanyon Place"), which is great for display but a poor GEOCODING
+// query: the redundant city prefix dilutes the search and can make a general
+// geocoder (Photon/Nominatim) return a wrong or no match — and a failed
+// match falls all the way back to the whole COUNTRY's geometric centroid, a
+// point nowhere near any real station that reads as "randomly placed" (and,
+// worse, several failed stops in the same country all land on that exact
+// same centroid, looking like they got swapped with each other). Stripping
+// the city prefix before geocoding — but ONLY when the remainder already
+// repeats the city name, the tell-tale sign of this specific label pattern —
+// gives the geocoder just the real station name to search for, which
+// resolves far more precisely. The pin's displayed name is unaffected; this
+// is used solely for the geocoding query.
+function stripHubCityPrefix(s: string): string {
+  const m = /^(.+?)\s*[–—-]\s*(.+)$/.exec((s ?? "").trim());
+  if (!m) return s;
+  const city = m[1].trim().toLowerCase();
+  const rest = m[2].trim();
+  return city && rest.toLowerCase().includes(city) ? rest : s;
+}
+
 async function geocodePlace(query: string, country?: string, airportHint = false, iata?: string | null): Promise<{ lat: number; lng: number } | null> {
   const q = (query ?? "").trim();
   if (!q) return null;
@@ -1102,7 +1124,14 @@ export function TripMap({
       for (const e of missing) {
         const key = `${e.country ?? ""}|${e.name}`;
         if (key in routeGeo || key in updates) continue;
-        updates[key] = await geocodePlace(e.name, e.country, e.airport, e.iata);
+        const stripped = stripHubCityPrefix(e.name);
+        // Try the precise, city-prefix-stripped query first (e.g. just
+        // "Belfast Lanyon Place" rather than "Belfast – Belfast Lanyon
+        // Place") — falls back to the original full label if that finds
+        // nothing, so this can only ever do as well as before, never worse.
+        updates[key] =
+          (stripped !== e.name ? await geocodePlace(stripped, e.country, e.airport, e.iata) : null) ??
+          (await geocodePlace(e.name, e.country, e.airport, e.iata));
       }
       if (!cancelled && Object.keys(updates).length > 0) {
         rememberGeo(memGeoRoute, updates);
@@ -1193,10 +1222,14 @@ export function TripMap({
       const key = `${country ?? ""}|${name}`;
       const cached = routeGeo[key];
       if (cached) return [cached.lat, cached.lng];
-      if (key in routeGeo && routeGeo[key] === null && country) {
-        const centroid = COUNTRY_CENTROIDS[country.toUpperCase()];
-        if (centroid) return centroid;
-      }
+      // No country-centroid fallback on a failed geocode: a whole country's
+      // geometric centre is nowhere near any real place, so it read as a
+      // "random" pin rather than a legible failure — and if two different
+      // legs' geocodes both failed under the same country, they'd land on
+      // the exact same point, looking like one station's pin showing at
+      // another's spot. Returning null instead leaves that one leg's
+      // endpoint/pin simply undrawn, which is a far more honest failure mode
+      // than a specific-looking but wrong location.
       return null;
     };
   }, [routeGeo, cityByName]);

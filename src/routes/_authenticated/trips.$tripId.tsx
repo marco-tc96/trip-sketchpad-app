@@ -33,16 +33,13 @@ export const Route = createFileRoute("/_authenticated/trips/$tripId")({
 //  • outbound/return (and any transport with meta.legs) → each leg from→to
 //  • multi-modal transfers (meta.mixed_legs) → each leg from_stop→to_stop
 //  • single stop-based transit (meta.from_stop/to_stop)
-// Intra-city legs get the trip country as a geocoding hint; inter-city legs
-// (flights, etc.) are geocoded by place name only.
+// No trip-country geocoding hint is applied to any of these — every leg is
+// geocoded free-form (see the inline comments below for why: any leg here
+// can legitimately cross a border the trip's own declared countries don't
+// cover, and biasing toward the wrong country was actively harmful).
 function buildMapRoutes(
   items: Array<{ kind: string; location?: string | null; meta?: unknown }>,
-  tripData: unknown,
 ): MapRoute[] {
-  const countries = Array.isArray((tripData as { countries?: string[] } | undefined)?.countries)
-    ? (tripData as { countries: string[] }).countries
-    : [];
-  const singleCountry = countries.length === 1 ? countries[0] : undefined;
   const out: MapRoute[] = [];
   for (const it of items) {
     const city = it.location ?? undefined;
@@ -85,7 +82,17 @@ function buildMapRoutes(
             from: l.from_stop,
             to: l.to_stop,
             mode: l.mode ?? it.kind,
-            country: singleCountry,
+            // NB: no country restriction here either (see the road-leg comment
+            // above) — a train/bus/ferry leg can just as easily cross a border
+            // (e.g. a Belfast–Dublin side trip on an otherwise Italy-only trip).
+            // Forcing the trip's single declared country used to do two things
+            // wrong: bias the geocoder toward the wrong country for any leg
+            // outside it, and — worse — if that mis-biased geocode ever failed,
+            // the map fell back to drawing the pin at that WRONG country's
+            // geometric centroid, a point nowhere near the real station (and
+            // if two such legs failed in the same country, they'd coincide,
+            // looking like one station's pin showing at another's spot).
+            // Geocoding is left free-form, matching the road legs above.
             line: l.vehicle,
             city,
             // Bus only: found via the wide intercity/airport search rather than
@@ -97,7 +104,7 @@ function buildMapRoutes(
       continue;
     }
     if (meta.from_stop && meta.to_stop) {
-      out.push({ from: meta.from_stop, to: meta.to_stop, mode: it.kind, country: singleCountry, city });
+      out.push({ from: meta.from_stop, to: meta.to_stop, mode: it.kind, city });
     }
   }
   return out;
@@ -127,7 +134,7 @@ function TripLayout() {
     setMapMode(m);
     try { localStorage.setItem("trip_map_mode", m); } catch { /* ignore */ }
   };
-  const mapRoutes = useMemo(() => buildMapRoutes(items.data ?? [], trip.data), [items.data, trip.data]);
+  const mapRoutes = useMemo(() => buildMapRoutes(items.data ?? []), [items.data]);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = useState(false);
   const [signedPhoto, setSignedPhoto] = useState<string | null>(null);

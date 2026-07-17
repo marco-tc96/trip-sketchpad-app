@@ -2771,6 +2771,33 @@ async function geocodePlaceName(q: string): Promise<{ lat: number; lng: number }
   }
 }
 
+// Determine which country an existing free-text station name actually
+// belongs to — used to correctly re-seed the train leg editor's country step
+// (see HubCombobox's isTrainMode branch) for a station that ISN'T in the
+// curated static hub list for any trip country (e.g. a side leg like
+// Belfast–Dublin on a trip whose declared countries are elsewhere). An
+// unscoped Nominatim lookup (no countrycodes filter) finds the real place
+// anywhere in the world and reads its country straight off the result.
+const _stationCountryCache = new Map<string, string | null>();
+async function geocodeStationCountry(q: string): Promise<string | null> {
+  const key = q.trim().toLowerCase();
+  if (!key) return null;
+  if (_stationCountryCache.has(key)) return _stationCountryCache.get(key)!;
+  try {
+    const r = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1&addressdetails=1`,
+      { headers: { Accept: "application/json" } },
+    );
+    const hits = (await r.json()) as Array<{ address?: { country_code?: string } }>;
+    const iso = hits?.[0]?.address?.country_code ? hits[0].address.country_code.toUpperCase() : null;
+    _stationCountryCache.set(key, iso);
+    return iso;
+  } catch {
+    _stationCountryCache.set(key, null);
+    return null;
+  }
+}
+
 type CorridorBox = { minLat: number; minLng: number; maxLat: number; maxLng: number };
 // `category` groups a POI result in the road-mode picker's dropdown
 // (touristic sights vs. transport hubs vs. everything else); left undefined
@@ -3067,10 +3094,26 @@ function HubCombobox({
   // the country only ever changes via the user's own explicit pick below.
   useEffect(() => {
     if (!isTrainMode || trainCountry) return;
-    const q = value.trim().toLowerCase();
+    const raw = value.trim();
+    const q = raw.toLowerCase();
     if (q) {
-      const hit = countries.find((iso) => hubsForMode("train", [iso], true).some((h) => formatHub(h).toLowerCase() === q));
+      // Search EVERY known country, not just the trip's own — a saved
+      // station can legitimately sit in a country the trip itself was never
+      // tagged with (e.g. a Belfast–Dublin side leg on a trip whose declared
+      // countries are just Italy). Restricting this lookup to `countries`
+      // meant it could never find such a station and always fell back to
+      // the trip's first/departure country instead.
+      const hit = Object.keys(HUBS).find((iso) => hubsForMode("train", [iso], true).some((h) => formatHub(h).toLowerCase() === q));
       if (hit) { setTrainCountry(hit); return; }
+      // Not in the curated static list for ANY country (e.g. a smaller
+      // station only ever found via the live/global search when it was first
+      // added) — fall back to an unscoped geocode lookup of the saved text
+      // itself, which finds the real place anywhere and reports its country.
+      let alive = true;
+      geocodeStationCountry(raw).then((iso) => {
+        if (alive) setTrainCountry(iso || countries[0] || "");
+      });
+      return () => { alive = false; };
     }
     if (countries[0]) setTrainCountry(countries[0]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3355,6 +3398,14 @@ function HubCombobox({
   if (isTrainMode) {
     const countryLabel = (iso: string) => `${flagOf(iso)} ${countryNameLocalized(iso, lang)}`;
     const activeCountry = trainCountry || countries[0] || "";
+    // The dropdown must always include whichever country is actually active —
+    // even one outside the trip's own declared countries (see the seeding
+    // effect above) — otherwise the button would correctly LABEL the right
+    // country but the list wouldn't contain it as a selectable/checkable
+    // entry when opened.
+    const trainCountryOptions = countries.includes(activeCountry) || !activeCountry
+      ? countries
+      : [...countries, activeCountry];
     const stationsAll: Hub[] = activeCountry ? hubsForMode("train", [activeCountry], true) : [];
     const stationsMajor: Hub[] = activeCountry ? hubsForMode("train", [activeCountry], false) : [];
     const list: Hub[] = showAll ? stationsAll : stationsMajor;
@@ -3388,9 +3439,9 @@ function HubCombobox({
             <span className="truncate">{activeCountry ? countryLabel(activeCountry) : wpL(lang).selectCountry}</span>
             <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
           </button>
-          {trainCountryOpen && countries.length > 0 && (
+          {trainCountryOpen && trainCountryOptions.length > 0 && (
             <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-56 overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
-              {countries.map((iso) => {
+              {trainCountryOptions.map((iso) => {
                 const sel = iso === activeCountry;
                 return (
                   <button
