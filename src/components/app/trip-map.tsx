@@ -508,14 +508,26 @@ function _approxDistM(a: LL, b: LL): number {
 // Real ferry route geometry from OSM: unlike bus/metro/tram/train, a ferry
 // route has no numbered "line ref" to search by (see fetchTransitGeometry) —
 // it's identified by the pair of ports it actually connects. Searches for
-// route=ferry relations near the midpoint of the two ports, keeps only the
-// ones whose own stop members include BOTH port names, and stitches that
+// route=ferry relations near the midpoint of the two ports and keeps only
+// the ones with a stop member close to BOTH points, then stitches that
 // relation's way geometry into one ordered polyline (oriented a→b) — so a
 // ferry leg traces the real sea route (which often curves around headlands/
 // islands) instead of cutting a straight dashed line across land and sea.
+// Matching is done by COORDINATE PROXIMITY, not by comparing the picked
+// port's label text against the relation's own stop names — the first
+// version tried the latter and it silently never matched anything, since a
+// port picked from the app's own list ("Port d'Eivissa", a curated/geocoded
+// label) rarely matches OSM's own stop-node name for the exact same
+// terminal ("Estació Marítima d'Eivissa", etc.) closely enough for a
+// substring/near-miss text comparison to catch — so the real-geometry fetch
+// always fell back to the straight line, invisibly. A stop node within a
+// few km of the already-resolved a/b coordinate is what "this relation
+// serves this port" actually means, regardless of what either side calls it.
 // Returns null when no matching mapped relation exists — the caller falls
-// back to the existing straight-line rendering, exactly as before.
-async function fetchFerryGeometry(a: LL, b: LL, fromName: string, toName: string): Promise<LL[] | null> {
+// back to the existing straight-line rendering, exactly as before (many
+// short/less-travelled crossings genuinely aren't mapped with a real path).
+const FERRY_STOP_MATCH_M = 12000;
+async function fetchFerryGeometry(a: LL, b: LL): Promise<LL[] | null> {
   try {
     const mid: LL = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
     // Radius must comfortably cover both ports plus room for the route's own
@@ -525,27 +537,27 @@ async function fetchFerryGeometry(a: LL, b: LL, fromName: string, toName: string
     const around = `(around:${Math.round(radius)},${mid[0]},${mid[1]})`;
     const q = `[out:json][timeout:60];(relation["type"="route"]["route"="ferry"]${around};)->.r;.r out geom;node(r.r);out body;`;
     const data = (await overpassFetch(q)) as { elements: OverpassEl[] };
-    const nodeInfo = new Map<number, { name: string; ll: LL }>();
+    const nodeCoord = new Map<number, LL>();
     for (const el of data.elements) {
-      if (el.type === "node" && typeof el.id === "number" && el.tags?.name && typeof el.lat === "number" && typeof el.lon === "number") {
-        nodeInfo.set(el.id, { name: el.tags.name, ll: [el.lat, el.lon] });
+      if (el.type === "node" && typeof el.id === "number" && typeof el.lat === "number" && typeof el.lon === "number") {
+        nodeCoord.set(el.id, [el.lat, el.lon]);
       }
     }
     let best: LL[] | null = null;
     let bestLen = -1;
     for (const el of data.elements) {
       if (el.type !== "relation" || !el.members) continue;
-      const stopNames: string[] = [];
+      let nearA = false, nearB = false;
       for (const m of el.members) {
         const role = m.role ?? "";
         if (!(role.startsWith("stop") || role.startsWith("platform"))) continue;
         if (m.type !== "node" || typeof m.ref !== "number") continue;
-        const info = nodeInfo.get(m.ref);
-        if (info) stopNames.push(info.name);
+        const c = nodeCoord.get(m.ref);
+        if (!c) continue;
+        if (_approxDistM(c, a) <= FERRY_STOP_MATCH_M) nearA = true;
+        if (_approxDistM(c, b) <= FERRY_STOP_MATCH_M) nearB = true;
       }
-      const hasFrom = stopNames.some((n) => sameStop(n, fromName) || similarStop(n, fromName));
-      const hasTo = stopNames.some((n) => sameStop(n, toName) || similarStop(n, toName));
-      if (!hasFrom || !hasTo) continue;
+      if (!nearA || !nearB) continue;
       const ways = el.members
         .filter((m) => m.type === "way" && Array.isArray(m.geometry))
         .map((m) => (m.geometry as Array<{ lat: number; lon: number }>).map((g) => [g.lat, g.lon] as LL));
@@ -1639,7 +1651,7 @@ export function TripMap({
     (async () => {
       const updates: Record<string, [number, number][]> = {};
       for (const l of pending) {
-        const path = await fetchFerryGeometry(l.a!, l.b!, l.from, l.to);
+        const path = await fetchFerryGeometry(l.a!, l.b!);
         if (path) updates[l.pathKey] = path;
       }
       if (!cancelled && Object.keys(updates).length > 0) {

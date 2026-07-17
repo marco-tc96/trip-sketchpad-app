@@ -230,6 +230,23 @@ const ROAD_KINDS = new Set(["car", "moto", "taxi"]);
 // call site below.
 const PT_TRANSIT_KINDS = new Set(["bus", "metro", "tram"]);
 const OSM_ROUTE_MODE: Record<string, string> = { bus: "bus", metro: "subway", tram: "tram", train: "train" };
+// Every real OSM route=* tag that can carry a given app mode — mirrors
+// trip-map.tsx's own OSM_ROUTE_MODES, which already needs this breadth to
+// DRAW a line's real geometry on the map. This picker used to only ever
+// query the single "primary" tag above (e.g. metro → "subway" alone), so a
+// line the map could render just fine (once a ref was saved) never showed up
+// as a pickable suggestion here in the first place — e.g. Bologna's Marconi
+// Express airport people-mover, mapped as route=monorail, was findable
+// nowhere in this app even though "Metro" is exactly the mode meant to cover
+// it. Metro also picks up "light_rail" (some networks, e.g. parts of
+// Valencia's metro, are tagged that way) and tram/train likewise gain
+// light_rail as an alternate tag.
+const OSM_ROUTE_TAGS: Record<string, string[]> = {
+  bus: ["bus", "coach"],
+  subway: ["subway", "metro", "monorail", "light_rail"],
+  tram: ["tram", "light_rail"],
+  train: ["train", "light_rail"],
+};
 // True when this leg should use the city+line picker (bus/metro/tram always;
 // train only when its own trainScope is explicitly "local").
 const usesLocalLinePicker = (leg: MixedLeg) =>
@@ -421,7 +438,11 @@ async function getAreaQuery(city: string): Promise<string> {
 // Radius (m) for the intercity/airport bus search around a city's centre —
 // wide enough to catch an airport limousine bus (e.g. Seoul ↔ Incheon) while
 // still being "buses that pass through this city", not a whole country.
-const INTERCITY_BUS_RADIUS_M = 45000;
+// Widened from 45km: several real "budget airport" shuttle routes sit well
+// outside that (Girona ↔ Barcelona ~95km, Beauvais ↔ Paris ~85km, Hahn ↔
+// Frankfurt ~120km), so the old radius silently missed the shuttle bus line
+// entirely for exactly the airports most likely to need one.
+const INTERCITY_BUS_RADIUS_M = 130000;
 
 // Radius (m) for the ferry-destinations search around a departure port — much
 // wider than the bus one, since ferry routes commonly link a port to another
@@ -457,11 +478,11 @@ async function fetchTransitLines(city: string, osmMode: string): Promise<Array<{
   const key = `${city}|${osmMode}`;
   if (_lineCache.has(key)) return _lineCache.get(key)!;
   const areaQ = await getAreaQuery(city);
-  // Metro: OSM uses both "subway" (international) and "metro" (some countries
-  // like Hungary, France). Bus: OSM tags long-distance/intercity services as
-  // "coach" rather than "bus" — query both, or express/intercity coach lines
-  // are silently missed entirely rather than just left unlabelled.
-  const modes = osmMode === "subway" ? ["subway", "metro"] : osmMode === "bus" ? ["bus", "coach"] : [osmMode];
+  // See OSM_ROUTE_TAGS: expands to every real OSM route=* tag that can carry
+  // this app mode (e.g. metro also matches monorail/light_rail), not just
+  // the one "primary" tag — otherwise a line the map can already draw once
+  // saved (see trip-map.tsx) never even shows up as a pickable suggestion.
+  const modes = OSM_ROUTE_TAGS[osmMode] ?? [osmMode];
   const clauses = modes.flatMap(m => [
     `relation["type"="route_master"]["route_master"="${m}"](area.c)`,
     `relation["type"="route"]["route"="${m}"](area.c)`,
@@ -567,9 +588,10 @@ async function fetchLineStops(city: string, osmMode: string, lineRef: string): P
   const key = `${city}|${osmMode}|${lineRef}`;
   if (_stopCache.has(key)) return _stopCache.get(key)!;
   const areaQ = await getAreaQuery(city);
-  // Same dual-mode handling as fetchTransitLines for consistency — a line
-  // picked from the list may be tagged "coach" rather than "bus".
-  const modes = osmMode === "subway" ? ["subway", "metro"] : osmMode === "bus" ? ["bus", "coach"] : [osmMode];
+  // Same OSM_ROUTE_TAGS expansion as fetchTransitLines for consistency — a
+  // line picked from the list may be tagged "coach" instead of "bus", or
+  // "monorail"/"light_rail" instead of "subway".
+  const modes = OSM_ROUTE_TAGS[osmMode] ?? [osmMode];
   const runQuery = (locator: string, prelude: string) => {
     // `lineRef` may be a real `ref` tag OR a `name`-fallback key (see
     // fetchTransitLines, for lines that were only tagged with a name) — match
@@ -688,35 +710,44 @@ async function fetchFerryDestinations(port: string): Promise<string[]> {
 
 const _portCache = new Map<string, Array<{ name: string; city?: string }>>();
 
-// Regional ferry-port search: the curated per-country hub list only carries a
-// handful of "main" ports, and the live Nominatim search only kicks in once
-// the user has typed 3+ characters (see useRemoteHubs) — so opening the
-// departure-port field blank showed almost nothing beyond the biggest ports,
-// missing e.g. the smaller mainland ports that actually connect to a
-// specific island. This queries Overpass for EVERY mapped ferry terminal
-// within a whole trip country's administrative boundary at once (same
-// area-boundary technique already used for transit lines/stops), giving a
-// much richer, immediately browsable list that covers the entire region.
-async function fetchRegionalPorts(country: string): Promise<Array<{ name: string; city?: string }>> {
-  const key = country.trim().toLowerCase();
+// Regional ferry-port search, scoped to a TRIP CITY (not the whole country):
+// the curated per-country hub list only carries a handful of "main" ports,
+// and the live Nominatim search only kicks in once the user has typed 3+
+// characters (see useRemoteHubs) — so opening the departure-port field blank
+// showed almost nothing beyond the biggest ports. A first version of this
+// scoped the search to the trip's WHOLE country via its admin-boundary area
+// (same technique as the transit-line search) — but for anything bigger than
+// a small country that area is enormous, and the query silently failed/timed
+// out under Overpass's [timeout], returning nothing at all — which is why an
+// island trip (e.g. Ibiza ↔ Formentera, both trip cities in the same
+// country) still showed no port for either city. Scoping to a radius AROUND
+// EACH TRIP CITY instead (same technique as fetchFerryDestinations, just
+// centred on a city rather than an already-picked port) keeps the query
+// small and reliable while still covering exactly the places the trip is
+// actually about.
+const PORT_RADIUS_M = 60000;
+async function fetchPortsNearCity(city: string): Promise<Array<{ name: string; city?: string }>> {
+  const key = city.trim().toLowerCase();
   if (!key) return [];
   if (_portCache.has(key)) return _portCache.get(key)!;
   let result: Array<{ name: string; city?: string }> = [];
   try {
-    const countryName = countryNameLocalized(country, "en") || country;
-    const areaQ = await getAreaQuery(countryName);
-    const q = `[out:json][timeout:40];${areaQ};(node["amenity"="ferry_terminal"](area.c);way["amenity"="ferry_terminal"](area.c);relation["amenity"="ferry_terminal"](area.c);node["amenity"="ferry_terminal"]["name"](area.c););out tags center;`;
-    const data = await overpassFetch(q) as { elements: Array<{ tags?: Record<string, string> }> };
-    const seen = new Set<string>();
-    for (const el of data.elements) {
-      const name = el.tags?.name;
-      if (!name) continue;
-      const k = name.toLowerCase();
-      if (seen.has(k)) continue;
-      seen.add(k);
-      result.push({ name, city: el.tags?.["addr:city"] });
+    const center = await geocodePlaceName(city);
+    if (center) {
+      const around = `(around:${PORT_RADIUS_M},${center.lat},${center.lng})`;
+      const q = `[out:json][timeout:40];(node["amenity"="ferry_terminal"]${around};way["amenity"="ferry_terminal"]${around};relation["amenity"="ferry_terminal"]${around};);out tags center;`;
+      const data = await overpassFetch(q) as { elements: Array<{ tags?: Record<string, string> }> };
+      const seen = new Set<string>();
+      for (const el of data.elements) {
+        const name = el.tags?.name;
+        if (!name) continue;
+        const k = name.toLowerCase();
+        if (seen.has(k)) continue;
+        seen.add(k);
+        result.push({ name, city: el.tags?.["addr:city"] });
+      }
+      result.sort((a, b) => a.name.localeCompare(b.name));
     }
-    result.sort((a, b) => a.name.localeCompare(b.name));
   } catch { /* leave empty — the curated list + live search still work */ }
   _portCache.set(key, result);
   return result;
@@ -2553,6 +2584,7 @@ function AddItemDialog({
                       <HubCombobox
                         mode="ferry"
                         countries={tripCountries}
+                        cities={tripCities}
                         value={leg.from_stop}
                         onChange={(v) => updateMixedLeg(i, { from_stop: v, to_stop: "" })}
                         placeholder={t("from_port")}
@@ -2564,6 +2596,7 @@ function AddItemDialog({
                         onChange={(v) => updateMixedLeg(i, { to_stop: v })}
                         placeholder={t("to_port")}
                         countries={tripCountries}
+                        cities={tripCities}
                         usedPlaces={usedPlaces}
                       />
                     </div>
@@ -3143,18 +3176,23 @@ function StopCombobox({
 // Free text is still allowed (the input is a plain controlled value) for a
 // route OSM doesn't have mapped.
 function FerryDestinationCombobox({
-  fromPort, value, onChange, placeholder, countries, usedPlaces,
+  fromPort, value, onChange, placeholder, countries, cities, usedPlaces,
 }: {
   fromPort: string;
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
   // Every country the trip touches — used ONLY for the "other options"
-  // fallback below (the curated/regional port list + live search), never to
-  // scope the Overpass destinations lookup itself: a real ferry destination
-  // from the picked port can legitimately be in a country the trip never
-  // declared (an island reached from a mainland port, say).
+  // fallback below (the curated port list), never to scope the Overpass
+  // destinations lookup itself: a real ferry destination from the picked
+  // port can legitimately be in a country the trip never declared (an
+  // island reached from a mainland port, say).
   countries?: string[];
+  // The trip's own cities — used to scope the REGIONAL port search (see
+  // fetchPortsNearCity) around each one, same reasoning as HubCombobox's own
+  // ferry branch: a whole-country area search is unreliable/too slow, while
+  // per-city coverage directly matches the places the trip is about.
+  cities?: Array<{ name: string; country: string }>;
   usedPlaces?: string[];
 }) {
   const { t, i18n } = useTranslation();
@@ -3183,16 +3221,17 @@ function FerryDestinationCombobox({
   // OSM simply hasn't tagged yet) — recommended must never be the ONLY thing
   // shown, so every other known port is still reachable here too.
   const tripCountries = countries ?? [];
+  const portCities = (cities ?? []).map((c) => c.name);
   const [regionalPorts, setRegionalPorts] = useState<Array<{ name: string; city?: string }>>([]);
   useEffect(() => {
-    if (tripCountries.length === 0) { setRegionalPorts([]); return; }
+    if (portCities.length === 0) { setRegionalPorts([]); return; }
     let alive = true;
-    Promise.all(tripCountries.map((iso) => fetchRegionalPorts(iso)))
+    Promise.all(portCities.map((c) => fetchPortsNearCity(c)))
       .then((lists) => { if (alive) setRegionalPorts(lists.flat()); })
       .catch(() => {});
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tripCountries.join(",")]);
+  }, [portCities.join(",")]);
   const curatedPorts = useMemo(() => hubsForMode("ferry", tripCountries, true), [tripCountries]);
   const remote = useRemoteHubs("ferry", value);
 
@@ -3769,13 +3808,20 @@ function WaypointCombobox({
 
 
 function HubCombobox({
-  mode, countries, value, onChange, placeholder, suggested, cityHint, usedPlaces, journeyMode,
+  mode, countries, value, onChange, placeholder, suggested, cityHint, usedPlaces, journeyMode, cities,
 }: {
   mode: TransportMode;
   countries: string[];
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
+  // Ferry only: the trip's own cities — used to scope the regional port
+  // search around each one (see fetchPortsNearCity) rather than the whole
+  // country, which is both far more reliable (a country-wide Overpass area
+  // query can time out and silently return nothing) and directly covers the
+  // actual places the trip is about, e.g. a same-country island pair like
+  // Ibiza/Formentera that a country-wide search still failed to surface.
+  cities?: Array<{ name: string; country: string }>;
   // Endpoint of an adjacent leg (e.g. the train station or airport used just
   // before/after this car/moto/taxi leg), offered as the recommended first
   // option — so a multi-modal journey's road leg can pick up exactly where the
@@ -3823,19 +3869,21 @@ function HubCombobox({
 
   // Ferry only: the curated per-country port list only has a handful of
   // "main" ports, missing most of the smaller ports that actually connect to
-  // a given island — fetch the FULL Overpass-derived regional list for every
-  // country the trip touches, so it's there even before the user types
-  // anything (see fetchRegionalPorts).
+  // a given island — fetch the Overpass-derived port list around EACH of the
+  // trip's own cities (see fetchPortsNearCity), so it's there even before the
+  // user types anything. Scoped per-city rather than per-country: a whole-
+  // country Overpass area query can be too large and time out silently.
   const [regionalPorts, setRegionalPorts] = useState<Array<{ name: string; city?: string }>>([]);
+  const portCities = (cities ?? []).map((c) => c.name);
   useEffect(() => {
-    if (mode !== "ferry" || countries.length === 0) { setRegionalPorts([]); return; }
+    if (mode !== "ferry" || portCities.length === 0) { setRegionalPorts([]); return; }
     let alive = true;
-    Promise.all(countries.map((iso) => fetchRegionalPorts(iso)))
+    Promise.all(portCities.map((c) => fetchPortsNearCity(c)))
       .then((lists) => { if (alive) setRegionalPorts(lists.flat()); })
       .catch(() => {});
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, countries.join(",")]);
+  }, [mode, portCities.join(",")]);
 
   // ── Train-mode: pick the country first, then see (and search) exactly that
   // country's stations — trains connect cities on a national network, not a
