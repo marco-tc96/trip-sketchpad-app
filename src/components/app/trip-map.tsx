@@ -492,6 +492,70 @@ function nearestIdx(path: LL[], pt: LL): number {
   }
   return bi;
 }
+
+// Rough great-circle distance in metres (equirectangular approximation —
+// plenty accurate at the scale of sizing an Overpass search radius, no need
+// for a full haversine).
+function _approxDistM(a: LL, b: LL): number {
+  const R = 6371000;
+  const lat1 = (a[0] * Math.PI) / 180, lat2 = (b[0] * Math.PI) / 180;
+  const dLat = lat2 - lat1;
+  const dLng = ((b[1] - a[1]) * Math.PI) / 180;
+  const x = dLng * Math.cos((lat1 + lat2) / 2);
+  return Math.sqrt(x * x + dLat * dLat) * R;
+}
+
+// Real ferry route geometry from OSM: unlike bus/metro/tram/train, a ferry
+// route has no numbered "line ref" to search by (see fetchTransitGeometry) —
+// it's identified by the pair of ports it actually connects. Searches for
+// route=ferry relations near the midpoint of the two ports, keeps only the
+// ones whose own stop members include BOTH port names, and stitches that
+// relation's way geometry into one ordered polyline (oriented a→b) — so a
+// ferry leg traces the real sea route (which often curves around headlands/
+// islands) instead of cutting a straight dashed line across land and sea.
+// Returns null when no matching mapped relation exists — the caller falls
+// back to the existing straight-line rendering, exactly as before.
+async function fetchFerryGeometry(a: LL, b: LL, fromName: string, toName: string): Promise<LL[] | null> {
+  try {
+    const mid: LL = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    // Radius must comfortably cover both ports plus room for the route's own
+    // detour — a straight-line-based radius is a reasonable floor/ceiling.
+    const straight = _approxDistM(a, b);
+    const radius = Math.min(Math.max(straight * 0.75, 40000), 400000);
+    const around = `(around:${Math.round(radius)},${mid[0]},${mid[1]})`;
+    const q = `[out:json][timeout:60];(relation["type"="route"]["route"="ferry"]${around};)->.r;.r out geom;node(r.r);out body;`;
+    const data = (await overpassFetch(q)) as { elements: OverpassEl[] };
+    const nodeInfo = new Map<number, { name: string; ll: LL }>();
+    for (const el of data.elements) {
+      if (el.type === "node" && typeof el.id === "number" && el.tags?.name && typeof el.lat === "number" && typeof el.lon === "number") {
+        nodeInfo.set(el.id, { name: el.tags.name, ll: [el.lat, el.lon] });
+      }
+    }
+    let best: LL[] | null = null;
+    let bestLen = -1;
+    for (const el of data.elements) {
+      if (el.type !== "relation" || !el.members) continue;
+      const stopNames: string[] = [];
+      for (const m of el.members) {
+        const role = m.role ?? "";
+        if (!(role.startsWith("stop") || role.startsWith("platform"))) continue;
+        if (m.type !== "node" || typeof m.ref !== "number") continue;
+        const info = nodeInfo.get(m.ref);
+        if (info) stopNames.push(info.name);
+      }
+      const hasFrom = stopNames.some((n) => sameStop(n, fromName) || similarStop(n, fromName));
+      const hasTo = stopNames.some((n) => sameStop(n, toName) || similarStop(n, toName));
+      if (!hasFrom || !hasTo) continue;
+      const ways = el.members
+        .filter((m) => m.type === "way" && Array.isArray(m.geometry))
+        .map((m) => (m.geometry as Array<{ lat: number; lon: number }>).map((g) => [g.lat, g.lon] as LL));
+      const path = stitchWays(ways);
+      if (path.length >= 2 && path.length > bestLen) { best = path; bestLen = path.length; }
+    }
+    if (best) return orientPath(best, a, b);
+  } catch { /* ignore — caller keeps the straight-line fallback */ }
+  return null;
+}
 // Index of the relation stop whose coordinates are nearest a given point.
 function nearestStopIdx(stops: TransitStop[], pt: LL): number {
   let bi = 0, bd = Infinity;
@@ -896,6 +960,7 @@ const memGeoCtr = new Map<string, Coord>();    // transit centres   (cityGeo)
 const memTransit = new Map<string, TransitLine>();
 const memRoad = new Map<string, LL[]>();
 const memRail = new Map<string, LL[]>();
+const memFerryPath = new Map<string, LL[]>(); // real ferry-route geometry, keyed by leg (see fetchFerryGeometry)
 
 // v3: bumped from v2 because v2 could contain entries written by the OLD
 // `resolve()`, which used to fall back to drawing a failed geocode at its
@@ -1103,10 +1168,12 @@ function lastEntries<T>(m: Map<string, T>, n: number): Array<[string, T]> {
       road?: Record<string, LL[]>;
       rail?: Record<string, LL[]>;
       transit?: Record<string, TransitLine>;
+      ferry?: Record<string, LL[]>;
     };
     for (const [k, v] of Object.entries(o.road ?? {})) memRoad.set(k, v);
     for (const [k, v] of Object.entries(o.rail ?? {})) memRail.set(k, v);
     for (const [k, v] of Object.entries(o.transit ?? {})) memTransit.set(k, v);
+    for (const [k, v] of Object.entries(o.ferry ?? {})) memFerryPath.set(k, v);
   } catch { /* ignore corrupt/unavailable storage */ }
 })();
 
@@ -1130,7 +1197,9 @@ function flushRouteCache() {
           .map((variant) => ({ path: simplifyLL(variant.path), stops: variant.stops })),
       };
     }
-    localStorage.setItem(ROUTE_LS_KEY, JSON.stringify({ road, rail, transit }));
+    const ferry: Record<string, LL[]> = {};
+    for (const [k, v] of lastEntries(memFerryPath, ROUTE_PERSIST_CAP)) ferry[k] = simplifyLL(v);
+    localStorage.setItem(ROUTE_LS_KEY, JSON.stringify({ road, rail, transit, ferry }));
   } catch { /* ignore quota errors — the in-memory cache still speeds up this session */ }
 }
 function rememberRoute() {
@@ -1170,6 +1239,11 @@ export function TripMap({
   const [railCache, setRailCache] = useState<Record<string, [number, number][]>>(() => Object.fromEntries(memRail));
   // Real transit-line geometries keyed by `mode|ref|center`, from OSM/Overpass.
   const [transitPathCache, setTransitPathCache] = useState<Record<string, TransitLine>>(() => Object.fromEntries(memTransit));
+  // Real ferry-route geometries per leg (keyed by the leg key), from the
+  // route=ferry relation's own OSM way geometry (see fetchFerryGeometry) —
+  // there's no routing-engine equivalent of OSRM/BRouter for sea routes, so
+  // this reads the actual mapped shape directly instead of calling a service.
+  const [ferryPathCache, setFerryPathCache] = useState<Record<string, [number, number][]>>(() => Object.fromEntries(memFerryPath));
   // Geocoded city centres for transit-line searches, keyed by `${country}|${city}`.
   const [cityGeo, setCityGeo] = useState<Record<string, { lat: number; lng: number } | null>>(() => Object.fromEntries(memGeoCtr));
 
@@ -1484,7 +1558,11 @@ export function TripMap({
     () => routeLines.filter((l) => TRANSIT_MODES.has(l.mode) && l.line && l.center && !(l.cacheKey in transitPathCache)).length,
     [routeLines, transitPathCache],
   );
-  const hasUnresolved = !!showRoutes && (roadPending > 0 || railPending > 0 || transitPending > 0);
+  const ferryPending = useMemo(
+    () => routeLines.filter((l) => l.mode === "ferry" && l.a && l.b && !(l.pathKey in ferryPathCache)).length,
+    [routeLines, ferryPathCache],
+  );
+  const hasUnresolved = !!showRoutes && (roadPending > 0 || railPending > 0 || transitPending > 0 || ferryPending > 0);
 
   useEffect(() => {
     if (!hasUnresolved) return;
@@ -1542,6 +1620,32 @@ export function TripMap({
         for (const [k, v] of Object.entries(updates)) memRail.set(k, v);
         capMap(memRail, 120);
         setRailCache((prev) => ({ ...prev, ...updates }));
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeLines, retryTick]);
+
+  // Trace ferry legs along the real sea route (see fetchFerryGeometry) instead
+  // of the straight dashed line — same pathKey-based caching as the rail
+  // snapping above (bakes in the resolved a/b coordinates, so a later geocode
+  // fix doesn't leave a stale path anchored to the old point). Falls back to
+  // the existing straight-line rendering when no matching mapped ferry route
+  // is found (short/rarely-mapped crossings, or a typo'd port name).
+  useEffect(() => {
+    const pending = routeLines.filter((l) => l.mode === "ferry" && l.a && l.b && !(l.pathKey in ferryPathCache));
+    if (pending.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const updates: Record<string, [number, number][]> = {};
+      for (const l of pending) {
+        const path = await fetchFerryGeometry(l.a!, l.b!, l.from, l.to);
+        if (path) updates[l.pathKey] = path;
+      }
+      if (!cancelled && Object.keys(updates).length > 0) {
+        for (const [k, v] of Object.entries(updates)) memFerryPath.set(k, v);
+        capMap(memFerryPath, 120);
+        setFerryPathCache((prev) => ({ ...prev, ...updates }));
       }
     })();
     return () => { cancelled = true; };
@@ -1868,6 +1972,7 @@ export function TripMap({
       // above until that finishes, then upgrades to the real road, still dotted.
       if ((GROUND_MODES.has(l.mode) || unverified) && pathCache[l.pathKey]) positions = pathCache[l.pathKey];
       else if (l.mode === "train" && railCache[l.pathKey]) positions = railCache[l.pathKey];
+      else if (l.mode === "ferry" && ferryPathCache[l.pathKey]) positions = ferryPathCache[l.pathKey];
       // Endpoints (departure/arrival) are FILLED pins. City stops are HOLLOW pins
       // (filled ones stay reserved for the trip's own cities + start/end). Highway
       // shaping points carry no pin.
@@ -1894,7 +1999,7 @@ export function TripMap({
       out.push({ key, color, dash: unverified ? UNVERIFIED_DASH : dash, positions, pins, mode: l.mode, line: l.line });
     });
     return out;
-  }, [routeLines, routes, showRoutes, transitResolved, pathCache, railCache, cityKeySet]);
+  }, [routeLines, routes, showRoutes, transitResolved, pathCache, railCache, ferryPathCache, cityKeySet]);
 
   // ── Overlap offsetting for ground routes ─────────────────────────────────
   // When two car/moto/taxi legs share the same stretch of road (identical
@@ -1988,7 +2093,7 @@ export function TripMap({
   useEffect(() => {
     if (!showRoutes || !routes || routes.length === 0) return;
     rememberRoute();
-  }, [showRoutes, routes, pathCache, railCache, transitPathCache]);
+  }, [showRoutes, routes, pathCache, railCache, transitPathCache, ferryPathCache]);
 
   // Country centroid fallback when ALL cities have no coordinates.
   const fallbackPoints = useMemo<[number, number][]>(() => {
