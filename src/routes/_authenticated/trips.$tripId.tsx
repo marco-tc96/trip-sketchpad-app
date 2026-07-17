@@ -295,6 +295,13 @@ function TripLayout() {
   const cities = Array.isArray(tripRow.cities) ? tripRow.cities : [];
   const countries = Array.isArray(tripRow.countries) ? tripRow.countries : [];
   const isWishlist = trip.data.start_date >= "2099-01-01";
+  // A trip added retroactively (its start date already lay in the past at the
+  // moment it was logged) has no use for "things to pack" or expense
+  // tracking — both exist to help prepare for/monitor a trip that's still
+  // ahead, not to document one after the fact. Compare against the trip's
+  // OWN insertion date (created_at), not "today", so the answer doesn't
+  // silently flip once a genuinely future trip's start date arrives.
+  const isRetroactiveTrip = !isWishlist && trip.data.start_date < trip.data.created_at.slice(0, 10);
   const todayISO = new Date().toISOString().slice(0, 10);
   const tripCurrencies: string[] = [...new Set(
     countries
@@ -367,8 +374,12 @@ function TripLayout() {
 
   const tabs: { to: "/trips/$tripId/timeline" | "/trips/$tripId/expenses"; label: string; icon: React.ComponentType<{ className?: string }>; exact?: boolean }[] = [
     { to: "/trips/$tripId/timeline", label: t("timeline"), icon: CalendarDays },
-    { to: "/trips/$tripId/expenses", label: t("expenses"), icon: Wallet },
   ];
+  // Expense tracking only makes sense while a trip is still ahead of you —
+  // hide the tab entirely for a trip logged after it already happened.
+  if (!isRetroactiveTrip) {
+    tabs.push({ to: "/trips/$tripId/expenses", label: t("expenses"), icon: Wallet });
+  }
 
   const isPhoto = coverType === "photo";
   async function saveFocalAndZoom(nextFocal: string, nextZoom: number) {

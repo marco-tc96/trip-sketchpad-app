@@ -982,7 +982,7 @@ function TripStats({
   isWishlist,
   wishlistDays,
 }: {
-  trip: { start_date: string; end_date: string };
+  trip: { start_date: string; end_date: string; created_at: string };
   tripId: string;
   isWishlist?: boolean;
   wishlistDays?: number;
@@ -994,8 +994,14 @@ function TripStats({
         1,
         Math.round((new Date(trip.end_date).getTime() - new Date(trip.start_date).getTime()) / 86400000) + 1,
       );
+  // A trip added retroactively (already underway/past by the time it was
+  // logged) has no use for a packing checklist — that only helps you prepare
+  // for a trip still ahead of you. Compare the trip's own start date against
+  // its insertion date (created_at), not "today", so a genuinely future trip
+  // keeps its packing card even once its start date arrives.
+  const isRetroactiveTrip = !isWishlist && trip.start_date < trip.created_at.slice(0, 10);
   return (
-    <div className="mb-4 grid gap-3 sm:grid-cols-2">
+    <div className={cn("mb-4 grid gap-3", !isRetroactiveTrip && "sm:grid-cols-2")}>
       <div className="rounded-2xl border border-border bg-card p-4 shadow-soft">
         <CalendarDays className="h-5 w-5 text-primary" />
         <p className="mt-2 text-[10px] uppercase tracking-wider text-muted-foreground">{isWishlist ? t("planned_label") : t("duration")}</p>
@@ -1003,7 +1009,7 @@ function TripStats({
           {isWishlist ? (days > 0 ? `${days} ${t("nights")}` : "—") : `${days} ${t("nights")}`}
         </p>
       </div>
-      <PackingListCard tripId={tripId} />
+      {!isRetroactiveTrip && <PackingListCard tripId={tripId} />}
     </div>
   );
 }

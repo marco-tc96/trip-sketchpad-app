@@ -1,8 +1,8 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Plus, Trash2, Wallet, Bus, Hotel, Utensils, Gift, Sparkles, MoreHorizontal } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
@@ -49,6 +49,7 @@ export const Route = createFileRoute("/_authenticated/trips/$tripId/expenses")({
 function ExpensesView() {
   const { tripId } = Route.useParams();
   const { t } = useTranslation();
+  const nav = useNavigate();
   const qc = useQueryClient();
   const fn = useServerFn(listExpenses);
   const tripFn = useServerFn(getTrip);
@@ -58,7 +59,17 @@ function ExpensesView() {
   const profile = useQuery({ queryKey: ["profile"], queryFn: () => profFn() });
   const list = useQuery({ queryKey: ["expenses", tripId], queryFn: () => fn({ data: { trip_id: tripId } }) });
 
-  if (!trip.data || !profile.data) return <p className="text-sm text-muted-foreground">{t("loading")}</p>;
+  // Retroactively-added trip (already underway/past when logged) — expense
+  // tracking doesn't apply here (see the trip page's tab list, which already
+  // hides the link to this route). Bounce back to the timeline in case this
+  // URL is reached another way (bookmark, browser back/forward, ...).
+  const isWishlist = (trip.data?.start_date ?? "") >= "2099-01-01";
+  const isRetroactiveTrip = !!trip.data && !isWishlist && trip.data.start_date < trip.data.created_at.slice(0, 10);
+  useEffect(() => {
+    if (isRetroactiveTrip) nav({ to: "/trips/$tripId/timeline", params: { tripId } });
+  }, [isRetroactiveTrip, tripId]);
+
+  if (!trip.data || !profile.data || isRetroactiveTrip) return <p className="text-sm text-muted-foreground">{t("loading")}</p>;
   const homeCcy = profile.data.home_currency;
   const expenses = list.data ?? [];
   const toHome = (e: { amount: number | string; amount_home?: number | string | null; currency: string }) =>
