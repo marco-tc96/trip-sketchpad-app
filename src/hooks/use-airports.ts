@@ -19,11 +19,15 @@ type Airport = {
   // OurAirports' own precise reference-point coordinates for the airport —
   // present in the raw dataset (it's the standard OurAirports CSV schema)
   // but not previously declared here since nothing in this module needed
-  // them. Now used by `airportCoordsByIata`/`airportCoordsByCity` (see
+  // them. Now used by `airportCoordsByIata`/`airportCoordsByPlaceName` (see
   // below) as an exact, offline, rate-limit-free source of truth for a
-  // leg's airport pin — no live geocoder round-trip needed at all.
-  latitude_deg?: number;
-  longitude_deg?: number;
+  // leg's airport pin — no live geocoder round-trip needed at all. Typed as
+  // `number | string` (not just `number`): the dataset is generated from a
+  // CSV export, and CSV-to-JSON conversion commonly leaves every field as a
+  // string regardless of the source column's real type — see
+  // `toFiniteCoord`, which coerces either shape safely.
+  latitude_deg?: number | string;
+  longitude_deg?: number | string;
 };
 
 export type AirportHub = Hub & {
@@ -211,13 +215,29 @@ export function formatAirport(a: AirportHub): string {
 // so the map can use those directly — no network round-trip, no rate limit,
 // no ambiguity — and only fall back to live geocoding if a code truly isn't
 // in the dataset (extremely rare for any airport with scheduled service).
+// The underlying dataset is generated from an OurAirports CSV export (see
+// airports-json's own generate script) — CSV parsing commonly yields every
+// field as a STRING regardless of the source column's real type, so
+// latitude_deg/longitude_deg aren't safely assumed to already be numbers.
+// `Number(...)` + `Number.isFinite` accepts either a real number or a
+// numeric string and rejects anything else (missing field, empty string,
+// garbage), instead of a `typeof x === "number"` check that would silently
+// reject perfectly good coordinates just because they arrived as "41.2971".
+function toFiniteCoord(v: unknown): number | null {
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 export async function airportCoordsByIata(code: string): Promise<{ lat: number; lng: number } | null> {
   const iata = (code ?? "").trim().toUpperCase();
   if (!IATA_RE.test(iata)) return null;
   const all = await loadAirports();
   const a = all.find((x) => (x.iata_code ?? "").toUpperCase() === iata);
-  if (!a || typeof a.latitude_deg !== "number" || typeof a.longitude_deg !== "number") return null;
-  return { lat: a.latitude_deg, lng: a.longitude_deg };
+  if (!a) return null;
+  const lat = toFiniteCoord(a.latitude_deg);
+  const lng = toFiniteCoord(a.longitude_deg);
+  if (lat === null || lng === null) return null;
+  return { lat, lng };
 }
 
 // Fallback for a plane leg whose saved label has no parseable IATA code at
@@ -242,7 +262,7 @@ export async function airportCoordsByPlaceName(query: string, countryIso?: strin
   const all = await loadAirports();
   const candidates = (pool: Airport[]) => pool.filter((a) => {
     if (!isUsable(a)) return false;
-    if (typeof a.latitude_deg !== "number" || typeof a.longitude_deg !== "number") return false;
+    if (toFiniteCoord(a.latitude_deg) === null || toFiniteCoord(a.longitude_deg) === null) return false;
     const hay = `${a.name} ${a.municipality ?? ""}`.toLowerCase();
     return hay.includes(q) || q.includes((a.municipality ?? "").toLowerCase().trim() || "\0");
   });
@@ -250,5 +270,8 @@ export async function airportCoordsByPlaceName(query: string, countryIso?: strin
   let matches = iso ? candidates(all.filter((a) => (a.iso_country ?? "").toUpperCase() === iso)) : [];
   if (matches.length !== 1) matches = candidates(all);
   if (matches.length !== 1) return null;
-  return { lat: matches[0].latitude_deg as number, lng: matches[0].longitude_deg as number };
+  const lat = toFiniteCoord(matches[0].latitude_deg);
+  const lng = toFiniteCoord(matches[0].longitude_deg);
+  if (lat === null || lng === null) return null;
+  return { lat, lng };
 }

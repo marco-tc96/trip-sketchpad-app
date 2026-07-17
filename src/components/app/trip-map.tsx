@@ -938,7 +938,18 @@ const memRail = new Map<string, LL[]>();
 // fall through to the fuzzier live search after all. Now scoped by the leg's
 // own country first. Bumping discards any pin resolved under the old,
 // unscoped version of that fallback.
-const GEO_LS_KEY = "voyager_geocache_v7";
+// v8: bumped from v7 because the offline airports-json coordinate lookup
+// (airportCoordsByIata/airportCoordsByPlaceName) checked `typeof x ===
+// "number"` on latitude_deg/longitude_deg — but that dataset is generated
+// from a CSV export, where every field commonly comes through as a STRING
+// regardless of its real type. If that was happening here, the check would
+// silently fail for EVERY airport, meaning the reliable offline path never
+// actually ran and every plane leg quietly fell back to the old live
+// Overpass/Nominatim search this was supposed to replace — which is exactly
+// the kind of failure that reads as "still wrong" after the fix. Coordinates
+// are now coerced with Number(...) so a numeric string resolves correctly.
+// Bumping discards any pin resolved while that silent fallback was in play.
+const GEO_LS_KEY = "voyager_geocache_v8";
 const GEO_CAP = 800; // max total geocoding entries kept (keeps storage tiny)
 (function loadGeoCache() {
   try {
