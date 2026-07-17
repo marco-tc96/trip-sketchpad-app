@@ -65,16 +65,16 @@ const isRoadMode = (m: TransportMode) => m === "car" || m === "moto" || m === "t
 
 // Small localized labels for the road-leg editor (kept local so we don't have to
 // touch the global i18n bundle for these few strings).
-const WP_LABELS: Record<string, { cities: string; place: string; addCity: string; via: string; recommended: string; intercity: string; poi: string }> = {
-  it: { cities: "Tappe di stop (città)", place: "Città o luogo", addCity: "Aggiungi città", via: "via", recommended: "Consigliato", intercity: "Extraurbano", poi: "Punti di interesse" },
-  en: { cities: "Stops (cities)", place: "City or place", addCity: "Add city", via: "via", recommended: "Recommended", intercity: "Intercity", poi: "Points of interest" },
-  es: { cities: "Paradas (ciudades)", place: "Ciudad o lugar", addCity: "Añadir ciudad", via: "vía", recommended: "Recomendado", intercity: "Interurbano", poi: "Puntos de interés" },
-  fr: { cities: "Étapes (villes)", place: "Ville ou lieu", addCity: "Ajouter une ville", via: "via", recommended: "Recommandé", intercity: "Interurbain", poi: "Points d'intérêt" },
-  de: { cities: "Stopps (Städte)", place: "Stadt oder Ort", addCity: "Stadt hinzufügen", via: "über", recommended: "Empfohlen", intercity: "Überland", poi: "Sehenswürdigkeiten" },
-  pt: { cities: "Paradas (cidades)", place: "Cidade ou lugar", addCity: "Adicionar cidade", via: "via", recommended: "Recomendado", intercity: "Interurbano", poi: "Pontos de interesse" },
-  ja: { cities: "立ち寄り（都市）", place: "都市または場所", addCity: "都市を追加", via: "経由", recommended: "おすすめ", intercity: "郊外路線", poi: "観光スポット" },
-  ko: { cities: "경유(도시)", place: "도시 또는 장소", addCity: "도시 추가", via: "경유", recommended: "추천", intercity: "시외", poi: "관심 지점" },
-  zh: { cities: "停靠（城市）", place: "城市或地点", addCity: "添加城市", via: "途经", recommended: "推荐", intercity: "城际", poi: "兴趣点" },
+const WP_LABELS: Record<string, { cities: string; place: string; addCity: string; via: string; recommended: string; intercity: string; poi: string; city: string; useCity: string }> = {
+  it: { cities: "Tappe di stop (città)", place: "Città o luogo", addCity: "Aggiungi città", via: "via", recommended: "Consigliato", intercity: "Extraurbano", poi: "Punti di interesse", city: "Città", useCity: "Usa {{city}} (centro città)" },
+  en: { cities: "Stops (cities)", place: "City or place", addCity: "Add city", via: "via", recommended: "Recommended", intercity: "Intercity", poi: "Points of interest", city: "City", useCity: "Use {{city}} (city centre)" },
+  es: { cities: "Paradas (ciudades)", place: "Ciudad o lugar", addCity: "Añadir ciudad", via: "vía", recommended: "Recomendado", intercity: "Interurbano", poi: "Puntos de interés", city: "Ciudad", useCity: "Usar {{city}} (centro)" },
+  fr: { cities: "Étapes (villes)", place: "Ville ou lieu", addCity: "Ajouter une ville", via: "via", recommended: "Recommandé", intercity: "Interurbain", poi: "Points d'intérêt", city: "Ville", useCity: "Utiliser {{city}} (centre-ville)" },
+  de: { cities: "Stopps (Städte)", place: "Stadt oder Ort", addCity: "Stadt hinzufügen", via: "über", recommended: "Empfohlen", intercity: "Überland", poi: "Sehenswürdigkeiten", city: "Stadt", useCity: "{{city}} verwenden (Stadtzentrum)" },
+  pt: { cities: "Paradas (cidades)", place: "Cidade ou lugar", addCity: "Adicionar cidade", via: "via", recommended: "Recomendado", intercity: "Interurbano", poi: "Pontos de interesse", city: "Cidade", useCity: "Usar {{city}} (centro)" },
+  ja: { cities: "立ち寄り（都市）", place: "都市または場所", addCity: "都市を追加", via: "経由", recommended: "おすすめ", intercity: "郊外路線", poi: "観光スポット", city: "都市", useCity: "{{city}}を使用（市の中心部）" },
+  ko: { cities: "경유(도시)", place: "도시 또는 장소", addCity: "도시 추가", via: "경유", recommended: "추천", intercity: "시외", poi: "관심 지점", city: "도시", useCity: "{{city}} 사용(시내 중심)" },
+  zh: { cities: "停靠（城市）", place: "城市或地点", addCity: "添加城市", via: "途经", recommended: "推荐", intercity: "城际", poi: "兴趣点", city: "城市", useCity: "使用{{city}}（市中心）" },
 };
 const wpL = (lang: string | undefined) => WP_LABELS[(lang || "it").slice(0, 2)] ?? WP_LABELS.it;
 type MixedLeg = {
@@ -1486,10 +1486,10 @@ function TransportDialog({
   const roadFrom = roadLeg?.from ?? "";
   const roadTo = roadLeg?.to ?? "";
 
-  // City hint for the road-leg from/to point-of-interest search: resolves a
-  // leg's OTHER endpoint (when it's a known city) first, then the adjacent
-  // leg's handoff point, then the trip's first known city — so POI/address
-  // suggestions are always anchored somewhere sensible even before typing.
+  // Soft default for the road-leg city step: the adjacent leg's handoff point,
+  // else the trip's first known city — just a starting suggestion the user can
+  // freely change, NOT an assumption that departure and arrival share a city
+  // (a car/moto/taxi leg may well start and end in two different cities).
   const countryCities = tripCountries.flatMap((iso) => citiesOfCountry(iso));
   const matchCity = (raw?: string): { name: string; country: string } | null => {
     const q = (raw ?? "").trim().toLowerCase();
@@ -1498,8 +1498,8 @@ function TransportDialog({
     return hit ? { name: hit.name, country: hit.country } : null;
   };
   const firstTripCity = countryCities[0] ? { name: countryCities[0].name, country: countryCities[0].country } : null;
-  const cityHintFor = (leg: Leg, field: "from" | "to", suggested?: string): { name: string; country: string } | null =>
-    matchCity(field === "from" ? leg.to : leg.from) ?? matchCity(suggested) ?? firstTripCity;
+  const cityHintFor = (suggested?: string): { name: string; country: string } | null =>
+    matchCity(suggested) ?? firstTripCity;
   const [corridorBox, setCorridorBox] = useState<CorridorBox | null>(null);
   useEffect(() => {
     const from = roadFrom.trim(), to = roadTo.trim();
@@ -1615,7 +1615,7 @@ function TransportDialog({
                       onChange={(v) => updateLeg(i, { from: v })}
                       placeholder={fromLabelOf(leg.mode)}
                       suggested={legs[i - 1]?.to?.trim() || undefined}
-                      cityHint={cityHintFor(leg, "from", legs[i - 1]?.to?.trim() || undefined)}
+                      cityHint={cityHintFor(legs[i - 1]?.to?.trim() || undefined)}
                     />
                   </div>
                   <div className="space-y-1">
@@ -1627,7 +1627,7 @@ function TransportDialog({
                       onChange={(v) => updateLeg(i, { to: v })}
                       placeholder={toLabelOf(leg.mode)}
                       suggested={legs[i + 1]?.from?.trim() || undefined}
-                      cityHint={cityHintFor(leg, "to", legs[i + 1]?.from?.trim() || undefined)}
+                      cityHint={cityHintFor(legs[i + 1]?.from?.trim() || undefined)}
                     />
                   </div>
                   <div className="space-y-1">
@@ -2886,133 +2886,194 @@ function HubCombobox({
   const airportsData = useAirports(true);
   const remote = useRemoteHubs(isHub ? modeToKind(mode) : null, isHub ? value : "");
 
-  // Points of interest for the hinted city (up to 50), shown when the field is
-  // empty/short — and a live Photon search (POIs + street addresses + cities,
-  // typo-tolerant) once the user has typed something, so a road leg's start/
-  // end can be a specific landmark or address, not only a whole city.
+  // ── Road-mode: an explicit "which city" step, then POIs/addresses scoped to
+  // EXACTLY that city — departure and arrival are edited independently, since
+  // a car/moto/taxi leg may well start and end in two different cities.
+  const cityList = countries.flatMap((iso) =>
+    citiesOfCountry(iso).map((c) => ({ name: c.name, country: c.country })),
+  );
+  const [cityQuery, setCityQuery] = useState("");
+  const [cityOpen, setCityOpen] = useState(false);
+  // Seed the city step from the caller's hint (e.g. the adjacent leg's handoff
+  // point) once it becomes available — but only while the user hasn't typed a
+  // city yet, so it's a soft default, never an override of an explicit choice.
+  useEffect(() => {
+    if (isCityMode && !cityQuery && cityHint) setCityQuery(cityHint.name);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isCityMode, cityHint?.name]);
+
+  const cityMatch = cityList.find((c) => c.name.toLowerCase() === cityQuery.trim().toLowerCase());
+  const activeCityCountry = cityMatch?.country ?? countries[0] ?? "";
+  const hasActiveCity = isCityMode && cityQuery.trim().length >= 2;
+
+  // Points of interest for the exact city just entered (up to 50), shown when
+  // the point field is empty/short — and a live Photon search (POIs + street
+  // addresses, typo-tolerant) once the user has typed something there.
   const [poiItems, setPoiItems] = useState<WpSuggestion[]>([]);
   useEffect(() => {
-    if (!isCityMode || !cityHint) { setPoiItems([]); return; }
+    if (!hasActiveCity) { setPoiItems([]); return; }
     let alive = true;
-    fetchCityPOIs(cityHint.name, cityHint.country).then((res) => { if (alive) setPoiItems(res); });
+    fetchCityPOIs(cityQuery.trim(), activeCityCountry).then((res) => { if (alive) setPoiItems(res); });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isCityMode, cityHint?.name, cityHint?.country]);
+  }, [hasActiveCity, cityQuery, activeCityCountry]);
 
   const [liveItems, setLiveItems] = useState<WpSuggestion[]>([]);
   const [liveLoading, setLiveLoading] = useState(false);
   useEffect(() => {
-    if (!isCityMode || value.trim().length < 2) { setLiveItems([]); return; }
+    if (!hasActiveCity || value.trim().length < 2) { setLiveItems([]); return; }
     let alive = true;
     setLiveLoading(true);
     const timer = setTimeout(async () => {
-      const res = await searchRoadPoints(value, cityHint ?? null, lang);
+      const res = await searchRoadPoints(value, { name: cityQuery.trim(), country: activeCityCountry }, lang);
       if (alive) { setLiveItems(res); setLiveLoading(false); }
     }, 250);
     return () => { alive = false; clearTimeout(timer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isCityMode, value, cityHint?.name, cityHint?.country, lang]);
+  }, [hasActiveCity, value, cityQuery, activeCityCountry, lang]);
 
   if (isCityMode) {
-    const cityList = countries.flatMap((iso) =>
-      citiesOfCountry(iso).map((c) => ({ name: c.name, country: c.country })),
-    );
-    const q = value.trim().toLowerCase();
-    const filteredCities = (q
-      ? cityList.filter((c) => c.name.toLowerCase().includes(q)).slice(0, 300)
+    const cq = cityQuery.trim().toLowerCase();
+    const filteredCities = (cq
+      ? cityList.filter((c) => c.name.toLowerCase().includes(cq)).slice(0, 300)
       : cityList.slice(0, 300)
-    ).filter((c) => c.name !== suggested);
-    const showSuggested = !!suggested && (!q || suggested.toLowerCase().includes(q));
-    // Below 2 chars: up to 50 POIs of the hinted city. From 2 chars: a live
-    // Photon search across POIs/addresses/cities near that city (typo-tolerant
-    // — a near-miss on a landmark name still surfaces the real place).
-    const poiToShow = q.length < 2 ? poiItems.filter((p) => p.name !== suggested).slice(0, POI_CAP) : [];
-    const liveToShow = liveItems.filter((p) => p.name !== suggested);
+    );
+    const showSuggested = !!suggested && !value.trim();
+    const cityLabel = cityQuery.trim();
+    const useCityLabel = wpL(lang).useCity.replace("{{city}}", cityLabel);
+    // Below 2 chars typed in the point field: up to 50 POIs of the chosen
+    // city. From 2 chars: a live Photon search (POIs + addresses), biased to
+    // that exact city and typo-tolerant — a near-miss on a landmark name
+    // still surfaces the real place.
+    const poiToShow = value.trim().length < 2 ? poiItems.slice(0, POI_CAP) : [];
+    const liveToShow = liveItems;
     return (
-      <div className="relative">
-        <Input
-          value={value}
-          placeholder={placeholder || t("search_city")}
-          onFocus={() => setOpen(true)}
-          onBlur={() => setTimeout(() => setOpen(false), 150)}
-          onChange={(e) => { onChange(e.target.value); setOpen(true); }}
-          autoComplete="off"
-        />
-        {open && (showSuggested || poiToShow.length > 0 || liveToShow.length > 0 || liveLoading || filteredCities.length > 0) && (
-          <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-72 overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
-            {showSuggested && (
-              <button
-                type="button"
-                key="suggested"
-                onMouseDown={(e) => { e.preventDefault(); onChange(suggested!); setOpen(false); }}
-                className="mb-1 flex w-full items-center gap-2 rounded-sm border border-primary/30 bg-primary/10 px-2 py-1.5 text-left text-sm hover:bg-primary/20"
-              >
-                <Check className={cn("h-4 w-4 shrink-0", value === suggested ? "opacity-100" : "opacity-0")} />
-                <span className="min-w-0 flex-1 truncate font-medium">{suggested}</span>
-                <span className="shrink-0 rounded-full bg-primary/20 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-                  {wpL(lang).recommended}
-                </span>
-              </button>
-            )}
-            {liveToShow.length > 0 && (
-              <div className="py-0.5">
-                {liveToShow.map((s, i) => {
-                  const sel = value === s.name;
-                  return (
-                    <button
-                      type="button"
-                      key={`live-${s.name}-${i}`}
-                      onMouseDown={(e) => { e.preventDefault(); onChange(s.name); setOpen(false); }}
-                      className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
-                    >
-                      <Check className={cn("h-4 w-4 shrink-0", sel ? "opacity-100" : "opacity-0")} />
-                      <MapPin className="h-3.5 w-3.5 shrink-0 opacity-60" />
-                      <span className="min-w-0 flex-1 truncate">{s.label}</span>
-                    </button>
-                  );
-                })}
+      <div className="space-y-1.5">
+        {showSuggested && (
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              onChange(suggested!);
+              const hit = cityList.find((c) => c.name.toLowerCase() === suggested!.trim().toLowerCase());
+              setCityQuery(hit ? hit.name : suggested!);
+            }}
+            className="flex w-full items-center gap-2 rounded-md border border-primary/30 bg-primary/10 px-2 py-1.5 text-left text-sm hover:bg-primary/20"
+          >
+            <span className="min-w-0 flex-1 truncate font-medium">{suggested}</span>
+            <span className="shrink-0 rounded-full bg-primary/20 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+              {wpL(lang).recommended}
+            </span>
+          </button>
+        )}
+
+        {/* Step 1 — which city (independent for departure and arrival) */}
+        <div className="relative">
+          <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{wpL(lang).city}</p>
+          <Input
+            value={cityQuery}
+            placeholder={t("search_city")}
+            onFocus={() => setCityOpen(true)}
+            onBlur={() => setTimeout(() => setCityOpen(false), 150)}
+            onChange={(e) => setCityQuery(e.target.value)}
+            autoComplete="off"
+          />
+          {cityOpen && filteredCities.length > 0 && (
+            <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-56 overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+              {filteredCities.map((c, i) => {
+                const sel = cityQuery === c.name;
+                return (
+                  <button
+                    type="button"
+                    key={`${c.country}-${c.name}-${i}`}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      setCityQuery(c.name);
+                      onChange(c.name); // default point = city centre until a POI is picked
+                      setCityOpen(false);
+                    }}
+                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                  >
+                    <Check className={cn("h-4 w-4 shrink-0", sel ? "opacity-100" : "opacity-0")} />
+                    <span className="mr-1">{flagOf(c.country)}</span>
+                    <span className="min-w-0 flex-1 truncate">{c.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Step 2 — point of interest / address WITHIN that exact city */}
+        {hasActiveCity && (
+          <div className="relative">
+            <Input
+              value={value}
+              placeholder={placeholder || t("search_type")}
+              onFocus={() => setOpen(true)}
+              onBlur={() => setTimeout(() => setOpen(false), 150)}
+              onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+              autoComplete="off"
+            />
+            {open && (poiToShow.length > 0 || liveToShow.length > 0 || liveLoading || value.trim() !== cityLabel) && (
+              <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-72 overflow-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+                {value.trim() !== cityLabel && (
+                  <button
+                    type="button"
+                    key="use-city"
+                    onMouseDown={(e) => { e.preventDefault(); onChange(cityLabel); setOpen(false); }}
+                    className="mb-1 flex w-full items-center gap-2 rounded-sm border border-border px-2 py-1.5 text-left text-sm hover:bg-accent"
+                  >
+                    <MapPin className="h-3.5 w-3.5 shrink-0 opacity-60" />
+                    <span className="min-w-0 flex-1 truncate">{useCityLabel}</span>
+                  </button>
+                )}
+                {liveToShow.length > 0 && (
+                  <div className="py-0.5">
+                    {liveToShow.map((s, i) => {
+                      const sel = value === s.name;
+                      return (
+                        <button
+                          type="button"
+                          key={`live-${s.name}-${i}`}
+                          onMouseDown={(e) => { e.preventDefault(); onChange(s.name); setOpen(false); }}
+                          className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                        >
+                          <Check className={cn("h-4 w-4 shrink-0", sel ? "opacity-100" : "opacity-0")} />
+                          <MapPin className="h-3.5 w-3.5 shrink-0 opacity-60" />
+                          <span className="min-w-0 flex-1 truncate">{s.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                {liveLoading && liveToShow.length === 0 && (
+                  <div className="px-2 py-1.5 text-xs text-muted-foreground animate-pulse">{t("loading")}</div>
+                )}
+                {poiToShow.length > 0 && (
+                  <div className="py-0.5">
+                    <p className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                      {wpL(lang).poi}
+                    </p>
+                    {poiToShow.map((s, i) => {
+                      const sel = value === s.name;
+                      return (
+                        <button
+                          type="button"
+                          key={`poi-${s.name}-${i}`}
+                          onMouseDown={(e) => { e.preventDefault(); onChange(s.name); setOpen(false); }}
+                          className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                        >
+                          <Check className={cn("h-4 w-4 shrink-0", sel ? "opacity-100" : "opacity-0")} />
+                          <MapPin className="h-3.5 w-3.5 shrink-0 opacity-60" />
+                          <span className="min-w-0 flex-1 truncate">{s.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
-            {liveLoading && liveToShow.length === 0 && (
-              <div className="px-2 py-1.5 text-xs text-muted-foreground animate-pulse">{t("loading")}</div>
-            )}
-            {poiToShow.length > 0 && (
-              <div className="py-0.5">
-                <p className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                  {wpL(lang).poi}
-                </p>
-                {poiToShow.map((s, i) => {
-                  const sel = value === s.name;
-                  return (
-                    <button
-                      type="button"
-                      key={`poi-${s.name}-${i}`}
-                      onMouseDown={(e) => { e.preventDefault(); onChange(s.name); setOpen(false); }}
-                      className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
-                    >
-                      <Check className={cn("h-4 w-4 shrink-0", sel ? "opacity-100" : "opacity-0")} />
-                      <MapPin className="h-3.5 w-3.5 shrink-0 opacity-60" />
-                      <span className="min-w-0 flex-1 truncate">{s.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-            {filteredCities.map((c, i) => {
-              const sel = value === c.name;
-              return (
-                <button
-                  type="button"
-                  key={`${c.country}-${c.name}-${i}`}
-                  onMouseDown={(e) => { e.preventDefault(); onChange(c.name); setOpen(false); }}
-                  className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
-                >
-                  <Check className={cn("h-4 w-4 shrink-0", sel ? "opacity-100" : "opacity-0")} />
-                  <span className="mr-1">{flagOf(c.country)}</span>
-                  <span className="min-w-0 flex-1 truncate">{c.name}</span>
-                </button>
-              );
-            })}
           </div>
         )}
       </div>
