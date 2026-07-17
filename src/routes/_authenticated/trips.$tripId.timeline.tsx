@@ -686,6 +686,42 @@ async function fetchFerryDestinations(port: string): Promise<string[]> {
   return result;
 }
 
+const _portCache = new Map<string, Array<{ name: string; city?: string }>>();
+
+// Regional ferry-port search: the curated per-country hub list only carries a
+// handful of "main" ports, and the live Nominatim search only kicks in once
+// the user has typed 3+ characters (see useRemoteHubs) — so opening the
+// departure-port field blank showed almost nothing beyond the biggest ports,
+// missing e.g. the smaller mainland ports that actually connect to a
+// specific island. This queries Overpass for EVERY mapped ferry terminal
+// within a whole trip country's administrative boundary at once (same
+// area-boundary technique already used for transit lines/stops), giving a
+// much richer, immediately browsable list that covers the entire region.
+async function fetchRegionalPorts(country: string): Promise<Array<{ name: string; city?: string }>> {
+  const key = country.trim().toLowerCase();
+  if (!key) return [];
+  if (_portCache.has(key)) return _portCache.get(key)!;
+  let result: Array<{ name: string; city?: string }> = [];
+  try {
+    const countryName = countryNameLocalized(country, "en") || country;
+    const areaQ = await getAreaQuery(countryName);
+    const q = `[out:json][timeout:40];${areaQ};(node["amenity"="ferry_terminal"](area.c);way["amenity"="ferry_terminal"](area.c);relation["amenity"="ferry_terminal"](area.c);node["amenity"="ferry_terminal"]["name"](area.c););out tags center;`;
+    const data = await overpassFetch(q) as { elements: Array<{ tags?: Record<string, string> }> };
+    const seen = new Set<string>();
+    for (const el of data.elements) {
+      const name = el.tags?.name;
+      if (!name) continue;
+      const k = name.toLowerCase();
+      if (seen.has(k)) continue;
+      seen.add(k);
+      result.push({ name, city: el.tags?.["addr:city"] });
+    }
+    result.sort((a, b) => a.name.localeCompare(b.name));
+  } catch { /* leave empty — the curated list + live search still work */ }
+  _portCache.set(key, result);
+  return result;
+}
+
 const TRANSIT_COLOR_ACTIVE: Record<string, string> = {
   // Silver, fixed regardless of light/dark theme (matches the Profile page's
   // treno colour — Tailwind arbitrary-value classes since this is a literal
@@ -2527,6 +2563,8 @@ function AddItemDialog({
                         value={leg.to_stop}
                         onChange={(v) => updateMixedLeg(i, { to_stop: v })}
                         placeholder={t("to_port")}
+                        countries={tripCountries}
+                        usedPlaces={usedPlaces}
                       />
                     </div>
                   ) : (
@@ -2637,6 +2675,7 @@ function AddItemDialog({
                           toStop={leg.to_stop}
                           onFrom={(v) => updateMixedLeg(i, { from_stop: v })}
                           onTo={(v) => updateMixedLeg(i, { to_stop: v })}
+                          usedPlaces={usedPlaces}
                         />
                       )}
                     </>
@@ -2860,7 +2899,7 @@ function LegCityCombobox({
 // Boarding/alighting stops for one multi-modal leg. Fetches the selected
 // line's stops so the suggestions are limited to that line (not other lines).
 function MixedLegStops({
-  mode, city, vehicle, countries, fromStop, toStop, onFrom, onTo,
+  mode, city, vehicle, countries, fromStop, toStop, onFrom, onTo, usedPlaces,
 }: {
   mode: MixedLeg["mode"];
   city: string;
@@ -2870,6 +2909,7 @@ function MixedLegStops({
   toStop: string;
   onFrom: (v: string) => void;
   onTo: (v: string) => void;
+  usedPlaces?: string[];
 }) {
   const { t } = useTranslation();
   const [lineStops, setLineStops] = useState<string[]>([]);
@@ -2895,6 +2935,7 @@ function MixedLegStops({
         onChange={onFrom}
         placeholder={t("boarding_stop")}
         extraOptions={lineStops}
+        usedPlaces={usedPlaces}
       />
       <StopCombobox
         mode={mode}
@@ -2904,6 +2945,7 @@ function MixedLegStops({
         onChange={onTo}
         placeholder={t("alighting_stop")}
         extraOptions={lineStops}
+        usedPlaces={usedPlaces}
       />
     </div>
   );
@@ -2925,7 +2967,7 @@ function stripLineRef(name: string, ref: string): string {
 }
 
 function StopCombobox({
-  mode, city, countries, value, onChange, placeholder, extraOptions,
+  mode, city, countries, value, onChange, placeholder, extraOptions, usedPlaces,
 }: {
   mode: MixedLeg["mode"];
   city: string;
@@ -2935,6 +2977,11 @@ function StopCombobox({
   placeholder?: string;
   /** Line-specific stops (from Overpass) shown first among suggestions. */
   extraOptions?: string[];
+  // Every place name already used elsewhere in the trip — same "already
+  // used" badge/priority the HubCombobox pickers show (train/bus/ferry/
+  // metro/tram's own from/to fields), so a repeat stop is easy to spot here
+  // too.
+  usedPlaces?: string[];
 }) {
   const { t, i18n } = useTranslation();
   const lang = i18n.language || "it";
@@ -3014,15 +3061,23 @@ function StopCombobox({
     return nq ? opts.filter((o) => norm(o).includes(nq)) : opts;
   }, [extraOptions, nq]);
 
-  // When a line is selected, show ONLY that line's stops (not other lines' /
-  // city-wide stations). Otherwise fall back to city hubs + the broader OSM
-  // stop search + remote (Nominatim) hits — whatever contains the typed text.
+  // When a line is selected, that line's own stops are shown FIRST as the
+  // recommended set (they're exactly where the picked line actually stops),
+  // but city hubs + the broader OSM stop search + remote (Nominatim) hits
+  // are still appended afterward, deduped — a recommended set must never be
+  // the ONLY thing shown, since the line's own stop list can be incomplete
+  // (a stop mapped without the exact name typed, or a station shared with
+  // another line) and the user still needs a way to find it.
   const suggestions = useMemo(() => {
-    if (hasLineStops) {
-      return extraFiltered.slice(0, 60).map((name) => ({ name }) as { name: string; city?: string });
-    }
     const seen = new Set<string>();
     const out: Array<{ name: string; city?: string }> = [];
+    if (hasLineStops) {
+      for (const name of extraFiltered) {
+        const k = norm(name);
+        if (seen.has(k)) continue;
+        seen.add(k); out.push({ name });
+      }
+    }
     for (const h of [...localFiltered, ...remoteFiltered]) {
       const k = norm(h.name);
       if (seen.has(k)) continue;
@@ -3033,8 +3088,13 @@ function StopCombobox({
       if (seen.has(k)) continue;
       seen.add(k); out.push({ name });
     }
-    return out.slice(0, 60);
-  }, [hasLineStops, extraFiltered, localFiltered, remoteFiltered, cityStopsFiltered]);
+    // Already-used stops float to the top of whichever section they're in,
+    // same treatment as every HubCombobox picker.
+    return out
+      .slice(0, 120)
+      .sort((a, b) => Number(isUsedPlace(b.name, usedPlaces)) - Number(isUsedPlace(a.name, usedPlaces)))
+      .slice(0, 60);
+  }, [hasLineStops, extraFiltered, localFiltered, remoteFiltered, cityStopsFiltered, usedPlaces]);
 
   return (
     <div className="relative">
@@ -3048,18 +3108,25 @@ function StopCombobox({
       />
       {open && (suggestions.length > 0 || (!hasLineStops && remote.isFetching)) && (
         <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] overflow-auto overscroll-contain rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
-          {suggestions.map((h, idx) => (
-            <button
-              type="button"
-              key={`${h.name}-${idx}`}
-              onMouseDown={(e) => { e.preventDefault(); onChange(h.name); setOpen(false); }}
-              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
-            >
-              <span className="min-w-0 flex-1 truncate">
-                <span className="font-medium">{withRomanization(h.name, lang)}</span>
-              </span>
-            </button>
-          ))}
+          {suggestions.map((h, idx) => {
+            const used = isUsedPlace(h.name, usedPlaces);
+            return (
+              <button
+                type="button"
+                key={`${h.name}-${idx}`}
+                onMouseDown={(e) => { e.preventDefault(); onChange(h.name); setOpen(false); }}
+                className={cn(
+                  "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent",
+                  used && "bg-sky-500/5",
+                )}
+              >
+                <span className="min-w-0 flex-1 truncate">
+                  <span className="font-medium">{withRomanization(h.name, lang)}</span>
+                </span>
+                {used && <UsedPlaceBadge lang={lang} />}
+              </button>
+            );
+          })}
           {!hasLineStops && remote.isFetching && suggestions.length === 0 && (
             <div className="px-2 py-1.5 text-xs text-muted-foreground">{t("global_search")}</div>
           )}
@@ -3076,12 +3143,19 @@ function StopCombobox({
 // Free text is still allowed (the input is a plain controlled value) for a
 // route OSM doesn't have mapped.
 function FerryDestinationCombobox({
-  fromPort, value, onChange, placeholder,
+  fromPort, value, onChange, placeholder, countries, usedPlaces,
 }: {
   fromPort: string;
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
+  // Every country the trip touches — used ONLY for the "other options"
+  // fallback below (the curated/regional port list + live search), never to
+  // scope the Overpass destinations lookup itself: a real ferry destination
+  // from the picked port can legitimately be in a country the trip never
+  // declared (an island reached from a mainland port, say).
+  countries?: string[];
+  usedPlaces?: string[];
 }) {
   const { t, i18n } = useTranslation();
   const lang = i18n.language || "it";
@@ -3101,11 +3175,57 @@ function FerryDestinationCombobox({
     return () => { alive = false; };
   }, [fromPort]);
 
+  // "Other options" — the same broader port net the departure-port field
+  // itself offers (curated ferry hubs + the regional Overpass port search),
+  // plus a live free-text search. The Overpass destinations above are the
+  // RECOMMENDED set (real routes confirmed to call at this exact port), but
+  // that list can be incomplete (a route mapped without stop members, or one
+  // OSM simply hasn't tagged yet) — recommended must never be the ONLY thing
+  // shown, so every other known port is still reachable here too.
+  const tripCountries = countries ?? [];
+  const [regionalPorts, setRegionalPorts] = useState<Array<{ name: string; city?: string }>>([]);
+  useEffect(() => {
+    if (tripCountries.length === 0) { setRegionalPorts([]); return; }
+    let alive = true;
+    Promise.all(tripCountries.map((iso) => fetchRegionalPorts(iso)))
+      .then((lists) => { if (alive) setRegionalPorts(lists.flat()); })
+      .catch(() => {});
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tripCountries.join(",")]);
+  const curatedPorts = useMemo(() => hubsForMode("ferry", tripCountries, true), [tripCountries]);
+  const remote = useRemoteHubs("ferry", value);
+
   const nq = norm(value);
-  const filtered = useMemo(
-    () => (nq ? destinations.filter((d) => norm(d).includes(nq)) : destinations).slice(0, 60),
+  const recommendedFiltered = useMemo(
+    () => (nq ? destinations.filter((d) => norm(d).includes(nq)) : destinations),
     [destinations, nq],
   );
+  const otherOptions = useMemo(() => {
+    const seen = new Set(recommendedFiltered.map(norm));
+    const out: string[] = [];
+    for (const h of curatedPorts) {
+      const label = formatHub(h);
+      const k = norm(label);
+      if (seen.has(k)) continue;
+      if (nq && !norm(label).includes(nq)) continue;
+      seen.add(k); out.push(label);
+    }
+    for (const p of regionalPorts) {
+      const k = norm(p.name);
+      if (seen.has(k)) continue;
+      if (nq && !norm(p.name).includes(nq)) continue;
+      seen.add(k); out.push(p.name);
+    }
+    for (const r of remote.data ?? []) {
+      const k = norm(r.name);
+      if (seen.has(k)) continue;
+      seen.add(k); out.push(r.name);
+    }
+    return out;
+  }, [recommendedFiltered, curatedPorts, regionalPorts, remote.data, nq]);
+
+  const hasRecommended = recommendedFiltered.length > 0;
 
   return (
     <div className="relative">
@@ -3118,21 +3238,63 @@ function FerryDestinationCombobox({
         onChange={(e) => { onChange(e.target.value); setOpen(true); }}
         autoComplete="off"
       />
-      {open && fromPort.trim() && (filtered.length > 0 || loading) && (
+      {open && fromPort.trim() && (hasRecommended || otherOptions.length > 0 || loading) && (
         <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] overflow-auto overscroll-contain rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
-          {filtered.map((d, idx) => (
-            <button
-              type="button"
-              key={`${d}-${idx}`}
-              onMouseDown={(e) => { e.preventDefault(); onChange(d); setOpen(false); }}
-              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
-            >
-              <span className="min-w-0 flex-1 truncate">
-                <span className="font-medium">{withRomanization(d, lang)}</span>
-              </span>
-            </button>
-          ))}
-          {loading && filtered.length === 0 && (
+          {hasRecommended && (
+            <div className="py-0.5">
+              <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                {wpL(lang).recommended}
+              </p>
+              {recommendedFiltered.slice(0, 40).map((d, idx) => {
+                const used = isUsedPlace(d, usedPlaces);
+                return (
+                  <button
+                    type="button"
+                    key={`rec-${d}-${idx}`}
+                    onMouseDown={(e) => { e.preventDefault(); onChange(d); setOpen(false); }}
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent",
+                      used && "bg-sky-500/5",
+                    )}
+                  >
+                    <span className="min-w-0 flex-1 truncate">
+                      <span className="font-medium">{withRomanization(d, lang)}</span>
+                    </span>
+                    {used && <UsedPlaceBadge lang={lang} />}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {otherOptions.length > 0 && (
+            <div className={cn("py-0.5", hasRecommended && "border-t border-border/60")}>
+              {hasRecommended && (
+                <p className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                  {t("all_options")}
+                </p>
+              )}
+              {otherOptions.slice(0, 40).map((d, idx) => {
+                const used = isUsedPlace(d, usedPlaces);
+                return (
+                  <button
+                    type="button"
+                    key={`other-${d}-${idx}`}
+                    onMouseDown={(e) => { e.preventDefault(); onChange(d); setOpen(false); }}
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent",
+                      used && "bg-sky-500/5",
+                    )}
+                  >
+                    <span className="min-w-0 flex-1 truncate">
+                      <span className="font-medium">{withRomanization(d, lang)}</span>
+                    </span>
+                    {used && <UsedPlaceBadge lang={lang} />}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {loading && !hasRecommended && otherOptions.length === 0 && (
             <div className="px-2 py-1.5 text-xs text-muted-foreground">{t("global_search")}</div>
           )}
         </div>
@@ -3658,6 +3820,22 @@ function HubCombobox({
     isTollMode ? value : "",
     isTollMode ? countries.join(",") : undefined,
   );
+
+  // Ferry only: the curated per-country port list only has a handful of
+  // "main" ports, missing most of the smaller ports that actually connect to
+  // a given island — fetch the FULL Overpass-derived regional list for every
+  // country the trip touches, so it's there even before the user types
+  // anything (see fetchRegionalPorts).
+  const [regionalPorts, setRegionalPorts] = useState<Array<{ name: string; city?: string }>>([]);
+  useEffect(() => {
+    if (mode !== "ferry" || countries.length === 0) { setRegionalPorts([]); return; }
+    let alive = true;
+    Promise.all(countries.map((iso) => fetchRegionalPorts(iso)))
+      .then((lists) => { if (alive) setRegionalPorts(lists.flat()); })
+      .catch(() => {});
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, countries.join(",")]);
 
   // ── Train-mode: pick the country first, then see (and search) exactly that
   // country's stations — trains connect cities on a national network, not a
@@ -4291,7 +4469,22 @@ function HubCombobox({
   }
 
   const major: Hub[] = hubsForMode(mode, countries, false);
-  const all: Hub[] = hubsForMode(mode, countries, true);
+  // Ferry: the curated list is widened with every regionally-found port
+  // (see the effect above) — deduped by name+city against the curated
+  // entries so a port already hand-picked doesn't show up twice.
+  const dedupeHubs = (base: Hub[], extra: Array<{ name: string; city?: string }>): Hub[] => {
+    const seen = new Set(base.map((h) => `${h.name.toLowerCase()}|${(h.city ?? "").toLowerCase()}`));
+    const out = [...base];
+    for (const e of extra) {
+      const k = `${e.name.toLowerCase()}|${(e.city ?? "").toLowerCase()}`;
+      if (seen.has(k)) continue;
+      seen.add(k); out.push({ name: e.name, city: e.city });
+    }
+    return out;
+  };
+  const all: Hub[] = mode === "ferry"
+    ? dedupeHubs(hubsForMode(mode, countries, true), regionalPorts)
+    : hubsForMode(mode, countries, true);
   const allCountries = Object.keys(HUBS);
   const globalHubs: Hub[] = hubsForMode(mode, allCountries, true);
   const list: Hub[] = showAll ? all : major;
@@ -4299,10 +4492,16 @@ function HubCombobox({
   const matchQuery = (h: Hub) =>
     [h.name, h.city].filter(Boolean).join(" ").toLowerCase().includes(q) &&
     formatHub(h).toLowerCase() !== q;
-  let filtered: Hub[] = q ? all.filter(matchQuery).slice(0, 80) : list;
-  if (q && filtered.length === 0) {
-    filtered = globalHubs.filter(matchQuery);
+  let filteredRaw: Hub[] = q ? all.filter(matchQuery).slice(0, 80) : list;
+  if (q && filteredRaw.length === 0) {
+    filteredRaw = globalHubs.filter(matchQuery);
   }
+  // A port/stop already used elsewhere in the trip floats to the top — same
+  // treatment as the train-mode station list below, so re-picking a repeat
+  // boarding/alighting point is easy to spot regardless of transport mode.
+  const filtered: Hub[] = [...filteredRaw].sort(
+    (a, b) => Number(isUsedPlace(formatHub(b), usedPlaces)) - Number(isUsedPlace(formatHub(a), usedPlaces)),
+  );
   const remoteHubs: Hub[] = (remote.data ?? []).filter(
     (r) => !filtered.some((f) => f.name.toLowerCase() === r.name.toLowerCase() && f.city === r.city),
   );
@@ -4331,18 +4530,23 @@ function HubCombobox({
               {filtered.map((h, i) => {
                 const label = formatHub(h);
                 const sel = value === label;
+                const used = isUsedPlace(label, usedPlaces);
                 return (
                   <button
                     type="button"
                     key={`${h.city ?? ""}-${h.name}-${i}`}
                     onMouseDown={(e) => { e.preventDefault(); onChange(label); setOpen(false); }}
-                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent",
+                      used && "bg-sky-500/5",
+                    )}
                   >
                     <Check className={cn("h-4 w-4 shrink-0", sel ? "opacity-100" : "opacity-0")} />
                     <span className="min-w-0 flex-1 truncate">
                       <span className="font-medium">{h.city ?? h.name}</span>
                       {h.city && <span className="ml-1.5 text-xs opacity-70">- {h.name}</span>}
                     </span>
+                    {used && <UsedPlaceBadge lang={lang} />}
                   </button>
                 );
               })}
@@ -4355,18 +4559,23 @@ function HubCombobox({
               </p>
               {remoteHubs.map((h, i) => {
                 const label = formatHub(h);
+                const used = isUsedPlace(label, usedPlaces);
                 return (
                   <button
                     type="button"
                     key={`remote-${h.name}-${i}`}
                     onMouseDown={(e) => { e.preventDefault(); onChange(label); setOpen(false); }}
-                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent",
+                      used && "bg-sky-500/5",
+                    )}
                   >
                     <Check className="h-4 w-4 shrink-0 opacity-0" />
                     <span className="min-w-0 flex-1 truncate">
                       <span className="font-medium">{h.city ?? h.name}</span>
                       {h.city && <span className="ml-1.5 text-xs opacity-70">- {h.name}</span>}
                     </span>
+                    {used && <UsedPlaceBadge lang={lang} />}
                   </button>
                 );
               })}
