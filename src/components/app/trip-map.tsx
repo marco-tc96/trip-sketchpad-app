@@ -254,7 +254,14 @@ function refMatches(relRef: string | undefined, relName: string | undefined, wan
     if (_normRef(relRef) === wr) return true;
     if (wd && _digits(relRef) === wd) return true;
   }
-  if (relName && wd && _digits(relName) === wd) return true;
+  if (relName) {
+    // Exact normalised match (e.g. the relation carries no `ref` tag at all
+    // and was only ever identified by its `name` — see the name-fallback
+    // clause in fetchTransitGeometry's query below) is a full, reliable
+    // match on its own, not just a same-digits heuristic.
+    if (_normRef(relName) === wr) return true;
+    if (wd && _digits(relName) === wd) return true;
+  }
   return false;
 }
 
@@ -391,6 +398,17 @@ async function fetchTransitGeometry(center: LL, radiusM: number, mode: string, r
     for (const m of osmModes) {
       if (withRef) {
         for (const rc of cands) clauses.push(`relation["type"="route"]["route"="${m}"]["ref"="${rc.replace(/"/g, "")}"]${around}`);
+        // Some lines have no structured `ref` tag at all (common for Korean/
+        // Japanese local bus routes) — fetchLineStops in the leg editor
+        // already falls back to matching such a line by its `name` tag (see
+        // "name-fallback key" there), which is why it can list real,
+        // pickable stops for it. Without the same `name` fallback HERE, that
+        // exact line would find zero relations by `ref` and permanently
+        // fail verification on the map — a real, user-picked line with two
+        // real stops rendering as a dashed "unverified" line forever. Only
+        // tried against the raw, un-mangled ref (not every candidate
+        // variant) to match fetchLineStops' own exact-name query.
+        clauses.push(`relation["type"="route"]["route"="${m}"]["name"="${ref.replace(/"/g, "")}"]${around}`);
       } else {
         clauses.push(`relation["type"="route"]["route"="${m}"]${around}`);
       }
