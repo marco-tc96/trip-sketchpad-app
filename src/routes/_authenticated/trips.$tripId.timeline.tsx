@@ -121,7 +121,7 @@ function UsedPlaceBadge({ lang }: { lang: string }) {
   );
 }
 type MixedLeg = {
-  mode: "train" | "bus" | "metro" | "tram" | "car" | "moto" | "taxi";
+  mode: "train" | "bus" | "metro" | "tram" | "car" | "moto" | "taxi" | "ferry";
   vehicle: string;
   // Road modes (car/moto/taxi) reuse these two fields as the leg's departure/
   // arrival point (picked via HubCombobox, with city POI/address suggestions)
@@ -218,7 +218,7 @@ const KIND_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
 const TRANSPORT_KINDS = new Set([
   "outbound", "return", "flight", "train", "bus", "car", "taxi", "moto", "ferry", "transfer", "metro", "tram",
 ]);
-const STOP_KINDS = new Set(["train", "bus", "metro", "tram"]);
+const STOP_KINDS = new Set(["train", "bus", "metro", "tram", "ferry"]);
 // Road modes, added as a daily-activity item: edited through the same
 // multi-leg UI as public transport, but with from/to point-of-interest fields
 // (HubCombobox) instead of a vehicle/line + stop pair.
@@ -423,6 +423,12 @@ async function getAreaQuery(city: string): Promise<string> {
 // still being "buses that pass through this city", not a whole country.
 const INTERCITY_BUS_RADIUS_M = 45000;
 
+// Radius (m) for the ferry-destinations search around a departure port — much
+// wider than the bus one, since ferry routes commonly link a port to another
+// port tens/a hundred+ km away (e.g. mainland ↔ island), not just neighbouring
+// stops within one city.
+const FERRY_RADIUS_M = 150000;
+
 // A relation's ref/name/tags → which badge (if any) its line gets in the
 // picker. `express` and `intercity` are independent/can combine (an airport
 // express coach is both); express is shown in preference when both apply,
@@ -606,6 +612,80 @@ async function fetchLineStops(city: string, osmMode: string, lineRef: string): P
   return best;
 }
 
+// Ferries don't have numbered "lines" the way bus/metro/tram do — what's
+// actually useful, given a departure PORT, is the list of other ports/
+// destinations reachable directly by a real ferry route that calls at it.
+// Unlike `parseLineStopsResponse` (which picks the single richest route
+// variant), this collects the union of stop names across EVERY ferry
+// relation found near the port, since a busy port is normally served by
+// several distinct routes/companies to different destinations.
+function parseFerryDestinationsResponse(
+  data: {
+    elements: Array<{
+      type: string;
+      id: number;
+      tags?: Record<string, string>;
+      members?: Array<{ type: string; ref: number; role: string }>;
+    }>;
+  },
+  port: string,
+): string[] {
+  const nameById = new Map<string, string>();
+  const relations: Array<Array<{ type: string; ref: number; role: string }>> = [];
+  for (const el of data.elements) {
+    if (el.type === "relation" && el.members) relations.push(el.members);
+    else if ((el.type === "node" || el.type === "way") && el.tags?.name) {
+      nameById.set(`${el.type[0]}${el.id}`, el.tags.name);
+      registerEnName(el.tags.name, el.tags["name:en"] || el.tags["int_name"]);
+    }
+  }
+  const isStopRole = (role: string) => role.startsWith("stop") || role.startsWith("platform");
+  const portQ = norm(port);
+  const seen = new Set<string>();
+  const dests: string[] = [];
+  for (const members of relations) {
+    for (const m of members) {
+      if (!isStopRole(m.role)) continue;
+      const nm = nameById.get(`${m.type[0]}${m.ref}`);
+      if (!nm) continue;
+      const k = norm(nm);
+      // Skip the departure port itself — a route relation's own name for its
+      // terminus rarely matches the picked port string exactly, so this is a
+      // fuzzy either-direction "contains" check (e.g. picked "Barcelona" vs.
+      // OSM's "Port de Barcelona").
+      if (!k || k.includes(portQ) || portQ.includes(k)) continue;
+      if (seen.has(k)) continue;
+      seen.add(k); dests.push(nm);
+    }
+  }
+  return dests;
+}
+
+const _ferryDestCache = new Map<string, string[]>();
+
+// Given a departure port (already picked via HubCombobox), finds every real
+// ferry route (OSM route=ferry relation) calling there and returns the
+// union of its OTHER stops as the list of realistic destinations — so the
+// user picks from actual routes/islands served from that specific port
+// instead of typing a destination blind.
+async function fetchFerryDestinations(port: string): Promise<string[]> {
+  const key = port.trim().toLowerCase();
+  if (!key) return [];
+  if (_ferryDestCache.has(key)) return _ferryDestCache.get(key)!;
+  let result: string[] = [];
+  try {
+    const center = await geocodePlaceName(port);
+    if (center) {
+      const around = `(around:${FERRY_RADIUS_M},${center.lat},${center.lng})`;
+      const q = `[out:json][timeout:40];(relation["type"="route"]["route"="ferry"]${around};)->.r;.r out body;node(r.r);out tags;way(r.r);out tags;`;
+      const data = await overpassFetch(q) as Parameters<typeof parseFerryDestinationsResponse>[0];
+      result = parseFerryDestinationsResponse(data, port).sort((a, b) => a.localeCompare(b));
+    }
+  } catch { /* leave empty — the combobox still allows free-text entry */ }
+  _ferryDestCache.set(key, result);
+  return result;
+}
+
 const TRANSIT_COLOR_ACTIVE: Record<string, string> = {
   // Silver, fixed regardless of light/dark theme (matches the Profile page's
   // treno colour — Tailwind arbitrary-value classes since this is a literal
@@ -617,6 +697,7 @@ const TRANSIT_COLOR_ACTIVE: Record<string, string> = {
   car:   "border-red-500 bg-red-500 text-white",
   moto:  "border-orange-500 bg-orange-500 text-white",
   taxi:  "border-yellow-500 bg-yellow-500 text-white",
+  ferry: "border-sky-300 bg-sky-300 text-white",
 };
 const TRANSIT_COLOR_INACTIVE: Record<string, string> = {
   train: "border-[#c0c0c0]/40 text-[#c0c0c0] hover:bg-[#c0c0c0]/10",
@@ -626,6 +707,7 @@ const TRANSIT_COLOR_INACTIVE: Record<string, string> = {
   car:   "border-red-400/40 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20",
   moto:  "border-orange-400/40 text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-950/20",
   taxi:  "border-yellow-400/40 text-yellow-600 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/20",
+  ferry: "border-sky-300/40 text-sky-500 hover:bg-sky-50 dark:hover:bg-sky-950/20",
 };
 const TRANSIT_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   train: TrainFront,
@@ -635,6 +717,7 @@ const TRANSIT_ICON: Record<string, React.ComponentType<{ className?: string }>> 
   car:   Car,
   moto:  Bike,
   taxi:  CarTaxiFront,
+  ferry: Ship,
 };
 // Colour per transit mode — mirrors the edit screen's mode picker
 // (amber/sky/violet/emerald/red/green/yellow) so the timeline legs match
@@ -651,6 +734,7 @@ const TRANSIT_TEXT: Record<string, string> = {
   car:   "text-red-500",
   moto:  "text-orange-500",
   taxi:  "text-yellow-500",
+  ferry: "text-sky-300",
 };
 
 function kindClasses(kind: string) {
@@ -2419,6 +2503,32 @@ function AddItemDialog({
                         usedPlaces={usedPlaces}
                       />
                     </div>
+                  ) : leg.mode === "ferry" ? (
+                    /* Ferry — pick the departure PORT first (same hub search as
+                       every other public-transport mode), then a destination
+                       list built from REAL ferry routes calling at that exact
+                       port (see fetchFerryDestinations), not a generic stop
+                       search — a port itself isn't a "line" the way a bus/
+                       metro/tram stop is, so it doesn't fit the vehicle+stop
+                       pattern used below for those modes. Changing the
+                       departure port clears the destination, since the list of
+                       realistic destinations depends entirely on it. */
+                    <div className="space-y-2">
+                      <HubCombobox
+                        mode="ferry"
+                        countries={tripCountries}
+                        value={leg.from_stop}
+                        onChange={(v) => updateMixedLeg(i, { from_stop: v, to_stop: "" })}
+                        placeholder={t("from_port")}
+                        usedPlaces={usedPlaces}
+                      />
+                      <FerryDestinationCombobox
+                        fromPort={leg.from_stop}
+                        value={leg.to_stop}
+                        onChange={(v) => updateMixedLeg(i, { to_stop: v })}
+                        placeholder={t("to_port")}
+                      />
+                    </div>
                   ) : (
                     <>
                       {/* Train only: national (big intercity/national network,
@@ -2951,6 +3061,78 @@ function StopCombobox({
             </button>
           ))}
           {!hasLineStops && remote.isFetching && suggestions.length === 0 && (
+            <div className="px-2 py-1.5 text-xs text-muted-foreground">{t("global_search")}</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Ferry destination picker: given the departure port already chosen in the
+// sibling field, lists the REAL destinations served by an actual ferry route
+// from that port (see fetchFerryDestinations) — a live Overpass lookup, not a
+// hand-picked list, so it stays realistic for whatever port the user typed.
+// Free text is still allowed (the input is a plain controlled value) for a
+// route OSM doesn't have mapped.
+function FerryDestinationCombobox({
+  fromPort, value, onChange, placeholder,
+}: {
+  fromPort: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language || "it";
+  const [open, setOpen] = useState(false);
+  const [destinations, setDestinations] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const port = fromPort.trim();
+    if (!port) { setDestinations([]); return; }
+    let alive = true;
+    setLoading(true);
+    fetchFerryDestinations(port)
+      .then((res) => { if (alive) setDestinations(res); })
+      .catch(() => {})
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [fromPort]);
+
+  const nq = norm(value);
+  const filtered = useMemo(
+    () => (nq ? destinations.filter((d) => norm(d).includes(nq)) : destinations).slice(0, 60),
+    [destinations, nq],
+  );
+
+  return (
+    <div className="relative">
+      <Input
+        value={value}
+        placeholder={placeholder}
+        disabled={!fromPort.trim()}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+        autoComplete="off"
+      />
+      {open && fromPort.trim() && (filtered.length > 0 || loading) && (
+        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] overflow-auto overscroll-contain rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+          {filtered.map((d, idx) => (
+            <button
+              type="button"
+              key={`${d}-${idx}`}
+              onMouseDown={(e) => { e.preventDefault(); onChange(d); setOpen(false); }}
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+            >
+              <span className="min-w-0 flex-1 truncate">
+                <span className="font-medium">{withRomanization(d, lang)}</span>
+              </span>
+            </button>
+          ))}
+          {loading && filtered.length === 0 && (
             <div className="px-2 py-1.5 text-xs text-muted-foreground">{t("global_search")}</div>
           )}
         </div>
