@@ -139,6 +139,11 @@ function TripLayout() {
   const [scrolled, setScrolled] = useState(false);
   const titleSentinelRef = useRef<HTMLDivElement | null>(null);
   const tabsSectionRef = useRef<HTMLElement | null>(null);
+  // Title block (the header with the trip name/emoji/badges) — see the
+  // swipe-up-snap effect below: on a map cover, this is the ONLY area a
+  // swipe is allowed to start from, so a drag on the map itself is never
+  // hijacked by the outer page.
+  const titleBlockRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     const row = trip.data as { cover_type?: string; cover_bg?: string | null } | undefined;
     if (!row) return;
@@ -179,6 +184,7 @@ function TripLayout() {
 
     let animating = false;
     let triggered = false;
+    let eligible = true;
     let touchStartY = 0;
     let startScroll = 0;
     const TOP_BAR = 64; // leave the tabs just under the fixed top bar
@@ -213,11 +219,24 @@ function TripLayout() {
       }
     };
     const onTouchStart = (e: TouchEvent) => {
+      // On a MAP cover, the hero is an interactive Leaflet map the user
+      // needs to pan/zoom with a finger — a swipe is only eligible to
+      // trigger this outer snap when it starts on the title block itself
+      // (name/emoji/badges), never on the map. A photo cover has no such
+      // conflict (it isn't draggable), so it keeps swiping from anywhere.
+      if (ct === "map") {
+        const target = e.target as Node | null;
+        eligible = !!titleBlockRef.current && !!target && titleBlockRef.current.contains(target);
+        if (!eligible) return;
+      } else {
+        eligible = true;
+      }
       touchStartY = e.touches[0].clientY;
       startScroll = scroller.scrollTop;
       triggered = false;
     };
     const onTouchMove = (e: TouchEvent) => {
+      if (!eligible) return;
       if (animating) { e.preventDefault(); return; }
       if (triggered) return;
       const target = foldTarget();
@@ -648,6 +667,7 @@ function TripLayout() {
         )}
 
         <header
+          ref={titleBlockRef}
           className={cn(
             "flex flex-col items-center gap-2 rounded-3xl border border-border/50 bg-background/70 p-3 text-center shadow-soft backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:p-4 sm:text-left",
             hasReservedSpace ? "mt-2 mb-4" : "mt-2 mb-6",

@@ -275,6 +275,35 @@ async function overpassFetch(query: string, timeoutMs = 25000): Promise<{ elemen
 type LL = [number, number];
 const _near = (p: LL, q: LL) => Math.abs(p[0] - q[0]) < 1e-4 && Math.abs(p[1] - q[1]) < 1e-4;
 
+// ── Great-circle distance (haversine, km) — used to build the pan/zoom
+// "leash" below from a real-world radius rather than a proportional lat/lng
+// padding, so it behaves the same whether the trip's pins are 20km apart or
+// 2000km apart.
+const EARTH_RADIUS_KM = 6371;
+function haversineKm(a: LL, b: LL): number {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(b[0] - a[0]);
+  const dLng = toRad(b[1] - a[1]);
+  const lat1 = toRad(a[0]);
+  const lat2 = toRad(b[0]);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return 2 * EARTH_RADIUS_KM * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+// Bounding box that circumscribes a circle of `radiusKm` around `center` —
+// Leaflet's maxBounds is rectangular, so this is the practical way to give
+// panning a circular "feel": everything inside the circle is reachable at
+// any zoom, and the box only starts clipping once you're already past the
+// circle's edge in every direction (including diagonally).
+function circleBoundsKm(center: LL, radiusKm: number): L.LatLngBounds {
+  const latDelta = radiusKm / 111.32;
+  const lngDelta = radiusKm / (111.32 * Math.max(0.1, Math.cos((center[0] * Math.PI) / 180)));
+  return L.latLngBounds(
+    [center[0] - latDelta, center[1] - lngDelta],
+    [center[0] + latDelta, center[1] + lngDelta],
+  );
+}
+
 // Stitch the route's way segments into one continuous ordered polyline,
 // flipping ways whose direction doesn't match so the path stays connected.
 function stitchWays(ways: LL[][]): LL[] {
@@ -1567,15 +1596,37 @@ export function TripMap({
     [cityPoints, legEndpoints, drawn, showRoutes],
   );
 
-  // Trip-wide area of interest — every city, leg endpoint and drawn route,
-  // regardless of the "Città"/"Tratte" toggle — padded generously and used
-  // to cap panning/zooming so the map can't wander off to an unrelated
-  // continent (and so it doesn't fetch tiles for areas outside the trip).
+  // Trip-wide area of interest — a real-world "leash" so the map can't
+  // wander off to an unrelated continent, but stays generous enough that
+  // panning from one trip pin toward another (e.g. from the destination
+  // city out toward the home-country pin) is never blocked partway there.
+  //
+  // Built from the pins themselves (trip cities + every leg endpoint, NOT
+  // the drawn route geometry): find the two most distant pins — they define
+  // a circle's diameter — then allow free panning anywhere inside that
+  // circle plus a further 250km buffer past its edge in any direction.
+  // Every pin is guaranteed to sit at or inside the circle itself, so it's
+  // always reachable at any zoom; only the area well beyond every pin gets
+  // clipped. Leaflet's maxBounds is rectangular, so the circle is expressed
+  // as its circumscribing box (see circleBoundsKm) — slightly more
+  // permissive at the diagonal corners than a true circle, which is fine
+  // here since the goal is "don't feel boxed in", not a hard geometric cap.
   const restrictBounds = useMemo(() => {
-    const pts: [number, number][] = [...cityPoints, ...legEndpoints.map((e) => e.ll), ...drawn.flatMap((d) => d.positions)];
-    if (pts.length === 0) return undefined;
-    return L.latLngBounds(pts).pad(0.6);
-  }, [cityPoints, legEndpoints, drawn]);
+    const pins: LL[] = [...cityPoints, ...legEndpoints.map((e) => e.ll)];
+    if (pins.length === 0) return undefined;
+    if (pins.length === 1) return circleBoundsKm(pins[0], 250);
+
+    let a = pins[0], b = pins[1], best = -1;
+    for (let i = 0; i < pins.length; i++) {
+      for (let j = i + 1; j < pins.length; j++) {
+        const d = haversineKm(pins[i], pins[j]);
+        if (d > best) { best = d; a = pins[i]; b = pins[j]; }
+      }
+    }
+    const center: LL = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    const radiusKm = best / 2 + 250;
+    return circleBoundsKm(center, radiusKm);
+  }, [cityPoints, legEndpoints]);
 
   if (boundsPoints.length === 0) {
     return (
