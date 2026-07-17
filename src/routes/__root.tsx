@@ -227,7 +227,11 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   head: () => ({
     meta: [
       { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
+      // maximum-scale=1 + user-scalable=no disable pinch/double-tap zoom of
+      // the whole page on mobile — without this, a user could zoom the
+      // entire app in/out (not just the map), throwing off fixed-position
+      // headers/docks and touch targets across every page.
+      { name: "viewport", content: "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" },
       { title: "Voyager — Travel Journal & Planner" },
       { name: "description", content: "Track every trip: itineraries, flights, lodging, expenses and live currency conversion. Plan future journeys with a beautiful timeline." },
       { name: "theme-color", content: "#c2632c" },

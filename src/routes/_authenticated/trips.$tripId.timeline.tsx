@@ -2898,7 +2898,13 @@ function HubCombobox({
   // point) once it becomes available — but only while the user hasn't typed a
   // city yet, so it's a soft default, never an override of an explicit choice.
   useEffect(() => {
-    if (isCityMode && !cityQuery && cityHint) { setCityQuery(cityHint.name); setOpen(true); }
+    // NB: only seeds the text — must NOT open the dropdown here. This effect
+    // fires on mount for every road-mode field at once (the hint is usually
+    // available immediately), so auto-opening here would pop every from/to
+    // field's suggestion list open simultaneously as soon as the leg editor
+    // renders. Opening on an explicit user action (picking a city below) is
+    // fine because that only ever affects the one field being touched.
+    if (isCityMode && !cityQuery && cityHint) setCityQuery(cityHint.name);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isCityMode, cityHint?.name]);
 
