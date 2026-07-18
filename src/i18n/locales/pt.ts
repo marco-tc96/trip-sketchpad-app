@@ -240,6 +240,7 @@ const translations: Record<string, string> = {
   select_day: "Select a day",
   start_time: "Start time",
   end_time: "End time",
+  reset_time: "Redefinir",
   optional: "(optional)",
   trip_stops: "Trip stops",
   other_cities_label: "Other cities",

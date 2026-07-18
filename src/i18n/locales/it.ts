@@ -242,6 +242,7 @@ const translations: Record<string, string> = {
   select_day: "Seleziona un giorno",
   start_time: "Orario inizio",
   end_time: "Orario fine",
+  reset_time: "Ripristina",
   optional: "(opzionale)",
   trip_stops: "Tappe del viaggio",
   other_cities_label: "Altre città",

@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
+  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -1982,11 +1982,9 @@ function TransportDialog({
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs">{t("depart_time")} <span className="opacity-60">{t("optional")}</span></Label>
-                    <Input
-                      type="time"
+                    <TimeField
                       value={leg.depart_at && leg.depart_at.slice(11, 16) !== "00:00" ? leg.depart_at.slice(11, 16) : ""}
-                      onChange={(e) => {
-                        const time = e.target.value;
+                      onChange={(time) => {
                         const date = leg.depart_at ? leg.depart_at.slice(0, 10) : "";
                         updateLeg(i, { depart_at: date ? `${date}T${time || "00:00"}` : "" });
                       }}
@@ -2006,11 +2004,9 @@ function TransportDialog({
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs">{t("arrive_time")} <span className="opacity-60">{t("optional")}</span></Label>
-                    <Input
-                      type="time"
+                    <TimeField
                       value={leg.arrive_at && leg.arrive_at.slice(11, 16) !== "00:00" ? leg.arrive_at.slice(11, 16) : ""}
-                      onChange={(e) => {
-                        const time = e.target.value;
+                      onChange={(time) => {
                         const date = leg.arrive_at ? leg.arrive_at.slice(0, 10) : "";
                         updateLeg(i, { arrive_at: date ? `${date}T${time || "00:00"}` : "" });
                       }}
@@ -2120,6 +2116,145 @@ function TransportDialog({
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ── Custom time picker ──────────────────────────────────────────────────
+// Replaces the plain `<Input type="time">` for every time field in this
+// dialog. On mobile Safari/WebKit, a native `<input type="time">` opens an
+// OS picker sheet that anchors itself to the input's on-screen position —
+// but this dialog (DialogContent, see components/ui/dialog.tsx) is centered
+// with a CSS `transform: translate(-50%,-50%)` on a `position: fixed`
+// ancestor, and WebKit is known to miscompute the anchor rect through that
+// transform. The visible symptoms are exactly what got reported: the picker
+// sheet isn't centered, the departure/arrival time boxes underneath render
+// overlapping/oversized while it's open, and the sheet touches the left/
+// right edges but not the top/bottom with square corners. None of that is
+// fixable with CSS since it's the OS's own native control — so instead this
+// swaps in a fully custom picker (two scrollable hour/minute columns inside
+// an actually-centered, rounded, margin-on-all-sides dialog) that never
+// touches a native date/time form control, sidestepping the bug entirely.
+const TIME_HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
+const TIME_MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0"));
+const TIME_WHEEL_ITEM_H = 36; // px — must match the button's h-9 below
+const TIME_WHEEL_PAD = 72; // px — top/bottom spacer so the first/last item can center
+
+function TimeWheelColumn({
+  values, selected, onPick,
+}: {
+  values: string[];
+  selected: string;
+  onPick: (v: string) => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const idx = values.indexOf(selected);
+    if (idx >= 0 && ref.current) {
+      ref.current.scrollTop = idx * TIME_WHEEL_ITEM_H;
+    }
+    // Only on mount (dialog open) — not on every keystroke of `selected`,
+    // so clicking an item doesn't fight the user's own scroll position.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return (
+    <div
+      ref={ref}
+      className="h-48 w-16 snap-y snap-mandatory overflow-y-auto rounded-lg [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+    >
+      <div style={{ height: TIME_WHEEL_PAD }} aria-hidden />
+      {values.map((v) => (
+        <button
+          key={v}
+          type="button"
+          onClick={() => {
+            onPick(v);
+            const idx = values.indexOf(v);
+            if (ref.current) ref.current.scrollTo({ top: idx * TIME_WHEEL_ITEM_H, behavior: "smooth" });
+          }}
+          className={cn(
+            "flex h-9 w-full shrink-0 snap-center items-center justify-center text-base tabular-nums transition",
+            v === selected ? "font-semibold text-primary" : "text-muted-foreground",
+          )}
+        >
+          {v}
+        </button>
+      ))}
+      <div style={{ height: TIME_WHEEL_PAD }} aria-hidden />
+    </div>
+  );
+}
+
+function TimeField({
+  value, onChange, className, placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  className?: string;
+  placeholder?: string;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const [hh, setHh] = useState(value ? value.slice(0, 2) : "12");
+  const [mm, setMm] = useState(value ? value.slice(3, 5) : "00");
+
+  function handleOpenChange(v: boolean) {
+    if (v) {
+      setHh(value ? value.slice(0, 2) : "12");
+      setMm(value ? value.slice(3, 5) : "00");
+    }
+    setOpen(v);
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => handleOpenChange(true)}
+        className={cn(
+          "flex h-10 w-full items-center rounded-md border border-input bg-background px-3 py-2 text-left text-sm tabular-nums ring-offset-background transition-colors hover:bg-accent/40",
+          !value && "text-muted-foreground",
+          className,
+        )}
+      >
+        {value || placeholder || "--:--"}
+      </button>
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+        {/* Overrides DialogContent's default `sm:rounded-lg`/full-bleed-on-
+            mobile sizing: a fixed, narrow, always-rounded card with margin
+            on every side, exactly what was asked for instead of a sheet
+            that touches the screen's left/right edges. */}
+        <DialogContent className="w-[min(88vw,300px)] max-w-none rounded-2xl p-4">
+          <div className="flex items-center justify-center gap-2">
+            <TimeWheelColumn values={TIME_HOURS} selected={hh} onPick={setHh} />
+            <span className="text-lg font-semibold text-muted-foreground">:</span>
+            <TimeWheelColumn values={TIME_MINUTES} selected={mm} onPick={setMm} />
+          </div>
+          <DialogFooter className="mt-1 flex-row items-center justify-between sm:justify-between">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                onChange("");
+                setOpen(false);
+              }}
+            >
+              {t("reset_time")}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => {
+                onChange(`${hh}:${mm}`);
+                setOpen(false);
+              }}
+            >
+              <Check className="h-4 w-4" />
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -2720,18 +2855,16 @@ function AddItemDialog({
                   <div className="grid grid-cols-2 gap-2">
                     <div className="space-y-1">
                       <p className="text-[11px] text-muted-foreground">{t("depart_time")}</p>
-                      <Input
-                        type="time"
+                      <TimeField
                         value={leg.depart_at}
-                        onChange={(e) => updateMixedLeg(i, { depart_at: e.target.value })}
+                        onChange={(time) => updateMixedLeg(i, { depart_at: time })}
                       />
                     </div>
                     <div className="space-y-1">
                       <p className="text-[11px] text-muted-foreground">{t("arrive_time")}</p>
-                      <Input
-                        type="time"
+                      <TimeField
                         value={leg.arrive_at}
-                        onChange={(e) => updateMixedLeg(i, { arrive_at: e.target.value })}
+                        onChange={(time) => updateMixedLeg(i, { arrive_at: time })}
                       />
                     </div>
                   </div>
@@ -2780,12 +2913,10 @@ function AddItemDialog({
                 </div>
                 <div className="min-w-0 space-y-1.5">
                   <Label className="text-muted-foreground">{t("start_time")} <span className="text-xs opacity-70">{t("optional")}</span></Label>
-                  <Input
-                    type="time"
+                  <TimeField
                     className="w-full"
                     value={form.start_at && form.start_at.slice(11, 16) !== "00:00" ? form.start_at.slice(11, 16) : ""}
-                    onChange={(e) => {
-                      const time = e.target.value;
+                    onChange={(time) => {
                       const date = form.start_at ? form.start_at.slice(0, 10) : "";
                       setForm({ ...form, start_at: date ? `${date}T${time || "00:00"}` : "" });
                     }}
@@ -2808,12 +2939,10 @@ function AddItemDialog({
                 </div>
                 <div className="min-w-0 space-y-1.5">
                   <Label className="text-muted-foreground">{t("end_time")} <span className="text-xs opacity-70">{t("optional")}</span></Label>
-                  <Input
-                    type="time"
+                  <TimeField
                     className="w-full"
                     value={form.end_at && form.end_at.slice(11, 16) !== "00:00" ? form.end_at.slice(11, 16) : ""}
-                    onChange={(e) => {
-                      const time = e.target.value;
+                    onChange={(time) => {
                       const date = form.end_at ? form.end_at.slice(0, 10) : "";
                       setForm({ ...form, end_at: date ? `${date}T${time || "00:00"}` : "" });
                     }}
