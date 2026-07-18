@@ -88,6 +88,10 @@ const WP_LABELS: Record<
     // Bus line category badge (LineCombobox) — express/rapid/shuttle coach
     // services, distinct from the existing "intercity" badge.
     express: string;
+    // Urban ("local") line badge (LineCombobox) — shown for every line NOT
+    // flagged intercity, so every suggestion carries an explicit urban/
+    // extraurban badge rather than only marking the intercity ones.
+    urban: string;
     poi: string; city: string; useCity: string;
     // Sub-headers for the grouped POI dropdown (touristic / transport hubs / other).
     poiTouristic: string; poiTransport: string; poiOther: string;
@@ -99,15 +103,15 @@ const WP_LABELS: Record<
     usedSectionTitle: string;
   }
 > = {
-  it: { cities: "Tappe di stop (città)", place: "Città o luogo", addCity: "Aggiungi città", via: "via", recommended: "Consigliato", intercity: "Extraurbano", express: "Express", poi: "Punti di interesse", city: "Città", useCity: "Usa {{city}} (centro città)", poiTouristic: "Turistici", poiTransport: "Stazioni e aeroporti", poiOther: "Altri luoghi", country: "Paese", selectCountry: "Seleziona un paese", usedBadge: "Già usato", usedSectionTitle: "Già usati in questo viaggio" },
-  en: { cities: "Stops (cities)", place: "City or place", addCity: "Add city", via: "via", recommended: "Recommended", intercity: "Intercity", express: "Express", poi: "Points of interest", city: "City", useCity: "Use {{city}} (city centre)", poiTouristic: "Sightseeing", poiTransport: "Stations & airports", poiOther: "Other places", country: "Country", selectCountry: "Select a country", usedBadge: "Already used", usedSectionTitle: "Already used in this trip" },
-  es: { cities: "Paradas (ciudades)", place: "Ciudad o lugar", addCity: "Añadir ciudad", via: "vía", recommended: "Recomendado", intercity: "Interurbano", express: "Exprés", poi: "Puntos de interés", city: "Ciudad", useCity: "Usar {{city}} (centro)", poiTouristic: "Turísticos", poiTransport: "Estaciones y aeropuertos", poiOther: "Otros lugares", country: "País", selectCountry: "Selecciona un país", usedBadge: "Ya usado", usedSectionTitle: "Ya usados en este viaje" },
-  fr: { cities: "Étapes (villes)", place: "Ville ou lieu", addCity: "Ajouter une ville", via: "via", recommended: "Recommandé", intercity: "Interurbain", express: "Express", poi: "Points d'intérêt", city: "Ville", useCity: "Utiliser {{city}} (centre-ville)", poiTouristic: "Touristique", poiTransport: "Gares et aéroports", poiOther: "Autres lieux", country: "Pays", selectCountry: "Sélectionner un pays", usedBadge: "Déjà utilisé", usedSectionTitle: "Déjà utilisés dans ce voyage" },
-  de: { cities: "Stopps (Städte)", place: "Stadt oder Ort", addCity: "Stadt hinzufügen", via: "über", recommended: "Empfohlen", intercity: "Überland", express: "Express", poi: "Sehenswürdigkeiten", city: "Stadt", useCity: "{{city}} verwenden (Stadtzentrum)", poiTouristic: "Touristisch", poiTransport: "Bahnhöfe & Flughäfen", poiOther: "Sonstige Orte", country: "Land", selectCountry: "Land auswählen", usedBadge: "Bereits verwendet", usedSectionTitle: "In dieser Reise bereits verwendet" },
-  pt: { cities: "Paradas (cidades)", place: "Cidade ou lugar", addCity: "Adicionar cidade", via: "via", recommended: "Recomendado", intercity: "Interurbano", express: "Expresso", poi: "Pontos de interesse", city: "Cidade", useCity: "Usar {{city}} (centro)", poiTouristic: "Turísticos", poiTransport: "Estações e aeroportos", poiOther: "Outros locais", country: "País", selectCountry: "Selecione um país", usedBadge: "Já usado", usedSectionTitle: "Já usados nesta viagem" },
-  ja: { cities: "立ち寄り（都市）", place: "都市または場所", addCity: "都市を追加", via: "経由", recommended: "おすすめ", intercity: "郊外路線", express: "急行", poi: "観光スポット", city: "都市", useCity: "{{city}}を使用（市の中心部）", poiTouristic: "観光", poiTransport: "駅・空港", poiOther: "その他の場所", country: "国", selectCountry: "国を選択", usedBadge: "使用済み", usedSectionTitle: "この旅行で使用済み" },
-  ko: { cities: "경유(도시)", place: "도시 또는 장소", addCity: "도시 추가", via: "경유", recommended: "추천", intercity: "시외", express: "급행", poi: "관심 지점", city: "도시", useCity: "{{city}} 사용(시내 중심)", poiTouristic: "관광", poiTransport: "역·공항", poiOther: "기타 장소", country: "국가", selectCountry: "국가 선택", usedBadge: "사용됨", usedSectionTitle: "이 여행에서 이미 사용됨" },
-  zh: { cities: "停靠（城市）", place: "城市或地点", addCity: "添加城市", via: "途经", recommended: "推荐", intercity: "城际", express: "快线", poi: "兴趣点", city: "城市", useCity: "使用{{city}}（市中心）", poiTouristic: "旅游景点", poiTransport: "车站和机场", poiOther: "其他地点", country: "国家", selectCountry: "选择国家", usedBadge: "已使用", usedSectionTitle: "本次旅行中已使用" },
+  it: { cities: "Tappe di stop (città)", place: "Città o luogo", addCity: "Aggiungi città", via: "via", recommended: "Consigliato", intercity: "Extraurbano", express: "Express", urban: "Urbano", poi: "Punti di interesse", city: "Città", useCity: "Usa {{city}} (centro città)", poiTouristic: "Turistici", poiTransport: "Stazioni e aeroporti", poiOther: "Altri luoghi", country: "Paese", selectCountry: "Seleziona un paese", usedBadge: "Già usato", usedSectionTitle: "Già usati in questo viaggio" },
+  en: { cities: "Stops (cities)", place: "City or place", addCity: "Add city", via: "via", recommended: "Recommended", intercity: "Intercity", express: "Express", urban: "Urban", poi: "Points of interest", city: "City", useCity: "Use {{city}} (city centre)", poiTouristic: "Sightseeing", poiTransport: "Stations & airports", poiOther: "Other places", country: "Country", selectCountry: "Select a country", usedBadge: "Already used", usedSectionTitle: "Already used in this trip" },
+  es: { cities: "Paradas (ciudades)", place: "Ciudad o lugar", addCity: "Añadir ciudad", via: "vía", recommended: "Recomendado", intercity: "Interurbano", express: "Exprés", urban: "Urbano", poi: "Puntos de interés", city: "Ciudad", useCity: "Usar {{city}} (centro)", poiTouristic: "Turísticos", poiTransport: "Estaciones y aeropuertos", poiOther: "Otros lugares", country: "País", selectCountry: "Selecciona un país", usedBadge: "Ya usado", usedSectionTitle: "Ya usados en este viaje" },
+  fr: { cities: "Étapes (villes)", place: "Ville ou lieu", addCity: "Ajouter une ville", via: "via", recommended: "Recommandé", intercity: "Interurbain", express: "Express", urban: "Urbain", poi: "Points d'intérêt", city: "Ville", useCity: "Utiliser {{city}} (centre-ville)", poiTouristic: "Touristique", poiTransport: "Gares et aéroports", poiOther: "Autres lieux", country: "Pays", selectCountry: "Sélectionner un pays", usedBadge: "Déjà utilisé", usedSectionTitle: "Déjà utilisés dans ce voyage" },
+  de: { cities: "Stopps (Städte)", place: "Stadt oder Ort", addCity: "Stadt hinzufügen", via: "über", recommended: "Empfohlen", intercity: "Überland", express: "Express", urban: "Städtisch", poi: "Sehenswürdigkeiten", city: "Stadt", useCity: "{{city}} verwenden (Stadtzentrum)", poiTouristic: "Touristisch", poiTransport: "Bahnhöfe & Flughäfen", poiOther: "Sonstige Orte", country: "Land", selectCountry: "Land auswählen", usedBadge: "Bereits verwendet", usedSectionTitle: "In dieser Reise bereits verwendet" },
+  pt: { cities: "Paradas (cidades)", place: "Cidade ou lugar", addCity: "Adicionar cidade", via: "via", recommended: "Recomendado", intercity: "Interurbano", express: "Expresso", urban: "Urbano", poi: "Pontos de interesse", city: "Cidade", useCity: "Usar {{city}} (centro)", poiTouristic: "Turísticos", poiTransport: "Estações e aeroportos", poiOther: "Outros locais", country: "País", selectCountry: "Selecione um país", usedBadge: "Já usado", usedSectionTitle: "Já usados nesta viagem" },
+  ja: { cities: "立ち寄り（都市）", place: "都市または場所", addCity: "都市を追加", via: "経由", recommended: "おすすめ", intercity: "郊外路線", express: "急行", urban: "市内", poi: "観光スポット", city: "都市", useCity: "{{city}}を使用（市の中心部）", poiTouristic: "観光", poiTransport: "駅・空港", poiOther: "その他の場所", country: "国", selectCountry: "国を選択", usedBadge: "使用済み", usedSectionTitle: "この旅行で使用済み" },
+  ko: { cities: "경유(도시)", place: "도시 또는 장소", addCity: "도시 추가", via: "경유", recommended: "추천", intercity: "시외", express: "급행", urban: "시내", poi: "관심 지점", city: "도시", useCity: "{{city}} 사용(시내 중심)", poiTouristic: "관광", poiTransport: "역·공항", poiOther: "기타 장소", country: "국가", selectCountry: "국가 선택", usedBadge: "사용됨", usedSectionTitle: "이 여행에서 이미 사용됨" },
+  zh: { cities: "停靠（城市）", place: "城市或地点", addCity: "添加城市", via: "途经", recommended: "推荐", intercity: "城际", express: "快线", urban: "市区", poi: "兴趣点", city: "城市", useCity: "使用{{city}}（市中心）", poiTouristic: "旅游景点", poiTransport: "车站和机场", poiOther: "其他地点", country: "国家", selectCountry: "选择国家", usedBadge: "已使用", usedSectionTitle: "本次旅行中已使用" },
 };
 const wpL = (lang: string | undefined) => WP_LABELS[(lang || "it").slice(0, 2)] ?? WP_LABELS.it;
 // Small colored pill flagging a POI/station already used elsewhere in the
@@ -260,7 +264,33 @@ const legCity = (leg: MixedLeg, activityLocation: string) =>
 
 // ── Caches (module-level, persist across dialog opens) ───────────────────────
 const _areaCache = new Map<string, string>();   // city → overpass area snippet
-const _lineCache = new Map<string, Array<{ ref: string; name: string; intercity?: boolean; express?: boolean }>>();
+const _lineCache = new Map<string, Array<{ ref: string; name: string; intercity?: boolean; express?: boolean; color?: string }>>();
+
+// Validates/normalizes an OSM `colour` tag value to a CSS-safe hex color
+// (`#rgb`/`#rrggbb`/`#rrggbbaa`, with or without the leading `#`, is all
+// real-world OSM data uses for this tag) — OSM sometimes also has stray
+// non-hex garbage (color *names*, empty strings) which we reject rather
+// than risk feeding an invalid value straight into an inline style.
+function normalizeOsmColor(raw: string | undefined): string | undefined {
+  const v = (raw ?? "").trim();
+  if (!v) return undefined;
+  const hex = v.startsWith("#") ? v : `#${v}`;
+  return /^#[0-9a-fA-F]{3}$|^#[0-9a-fA-F]{6}$|^#[0-9a-fA-F]{8}$/.test(hex) ? hex : undefined;
+}
+
+// True black/near-black or white/near-white text — whichever contrasts more
+// against `bgHex` — for a badge whose background is a real, unpredictable
+// OSM line colour (uses the standard relative-luminance heuristic).
+function contrastTextColor(bgHex: string): string {
+  const h = bgHex.length === 4
+    ? bgHex.slice(1).split("").map(c => c + c).join("")
+    : bgHex.slice(1, 7);
+  const r = parseInt(h.slice(0, 2), 16) || 0;
+  const g = parseInt(h.slice(2, 4), 16) || 0;
+  const b = parseInt(h.slice(4, 6), 16) || 0;
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.6 ? "#111111" : "#ffffff";
+}
 const _stopCache = new Map<string, string[]>();
 
 // ── Overpass fetch: race several mirrors, first success wins ─────────────────
@@ -467,14 +497,30 @@ function classifyBusLine(
   ref: string,
   name: string,
   foundWide: boolean,
-): { intercity?: boolean; express?: boolean } {
+): { intercity?: boolean; express?: boolean; color?: string } {
   const hay = `${ref} ${name}`;
   const isExpress = tags?.service === "express" || tags?.bus === "express" || EXPRESS_RE.test(hay);
   const isIntercity = foundWide || tags?.route === "coach" || tags?.service === "long_distance";
-  return { intercity: isIntercity || undefined, express: isExpress || undefined };
+  const color = normalizeOsmColor(tags?.colour ?? tags?.color);
+  return { intercity: isIntercity || undefined, express: isExpress || undefined, color };
 }
 
-async function fetchTransitLines(city: string, osmMode: string): Promise<Array<{ ref: string; name: string; intercity?: boolean; express?: boolean }>> {
+// Radius (m) around the city's geocoded centre within which a route must
+// have an actual STOP (not merely pass-through geometry) to count as
+// "serving this city" — used by the wide intercity/airport-shuttle search
+// below. Deliberately much smaller than the old geometry-only radius: a
+// coach line that simply transits within 130km of the centre used to match
+// even when it never stops anywhere near the city (the exact "linee che non
+// c'entrano nulla con la città" the user flagged), whereas requiring a real
+// stop within this tighter radius still catches genuine airport shuttles —
+// their city-side terminal/stop is normally well within it even when the
+// route's OTHER end (the airport) sits far outside the city.
+const CITY_STOP_RADIUS_M = 15000;
+function classifyBusLineWide(tags: Record<string, string> | undefined, ref: string, name: string) {
+  return classifyBusLine(tags, ref, name, true);
+}
+
+async function fetchTransitLines(city: string, osmMode: string): Promise<Array<{ ref: string; name: string; intercity?: boolean; express?: boolean; color?: string }>> {
   const key = `${city}|${osmMode}`;
   if (_lineCache.has(key)) return _lineCache.get(key)!;
   const areaQ = await getAreaQuery(city);
@@ -490,7 +536,7 @@ async function fetchTransitLines(city: string, osmMode: string): Promise<Array<{
   const q = `[out:json][timeout:40];${areaQ};(${clauses};);out tags;`;
   const data = await overpassFetch(q) as { elements: Array<{ tags: Record<string, string> }> };
   const seen = new Set<string>();
-  const lines: Array<{ ref: string; name: string; intercity?: boolean; express?: boolean }> = [];
+  const lines: Array<{ ref: string; name: string; intercity?: boolean; express?: boolean; color?: string }> = [];
   for (const el of data.elements) {
     // Not every mapped route carries a structured `ref` tag — airport/
     // limousine lines in particular are often entered with only a `name`
@@ -507,33 +553,44 @@ async function fetchTransitLines(city: string, osmMode: string): Promise<Array<{
   // Buses: the strict administrative-boundary query above only finds LOCAL/
   // urban lines. Intercity and airport express buses (e.g. Seoul's Incheon
   // Airport limousine bus 6103) mostly run OUTSIDE that boundary and are
-  // missed entirely — search a wide radius around the city's geocoded centre
-  // as well (both "bus" and "coach"), and flag anything found only this way
-  // as (at least) `intercity`.
+  // missed entirely — find them via their actual STOPS near the city centre
+  // (CITY_STOP_RADIUS_M) rather than any point of their route geometry, so a
+  // long-distance coach that merely transits near the city without stopping
+  // here doesn't show up as an unrelated suggestion, and flag anything found
+  // only this way as (at least) `intercity`.
   if (osmMode === "bus") {
     try {
       const center = await geocodePlaceName(city);
       if (center) {
-        const around = `(around:${INTERCITY_BUS_RADIUS_M},${center.lat},${center.lng})`;
-        const wideModes = ["bus", "coach"];
-        const wideClauses = wideModes.flatMap(m => [
-          `relation["type"="route_master"]["route_master"="${m}"]${around}`,
-          `relation["type"="route"]["route"="${m}"]${around}`,
-        ]).join(";");
-        const q2 = `[out:json][timeout:40];(${wideClauses};);out tags;`;
+        const around = `(around:${CITY_STOP_RADIUS_M},${center.lat},${center.lng})`;
+        const q2 = `[out:json][timeout:40];
+          node${around}["public_transport"~"^(stop_position|platform)$"]->.stops1;
+          node${around}["highway"="bus_stop"]->.stops2;
+          way${around}["highway"="bus_stop"]->.stops3;
+          (.stops1;.stops2;.stops3;)->.stops;
+          (
+            rel(bn.stops)["type"="route_master"]["route_master"~"^(bus|coach)$"];
+            rel(bn.stops)["type"="route"]["route"~"^(bus|coach)$"];
+          );
+          out tags;`;
         const data2 = await overpassFetch(q2) as { elements: Array<{ tags: Record<string, string> }> };
         for (const el of data2.elements) {
           const ref = el.tags?.ref || el.tags?.name || "";
           if (!ref || seen.has(ref)) continue;
           seen.add(ref);
           const name = el.tags?.name ?? ref;
-          lines.push({ ref, name, ...classifyBusLine(el.tags, ref, name, true) });
+          lines.push({ ref, name, ...classifyBusLineWide(el.tags, ref, name) });
         }
       }
     } catch { /* the local-boundary results above still stand */ }
   }
 
+  // Urban (local) lines first, then intercity/extraurban — within each group,
+  // numeric refs sort numerically, everything else falls back to locale
+  // string order. Foto 7: "prima tutte le tratte urbane... poi quelle
+  // extraurbane".
   lines.sort((a, b) => {
+    if (!!a.intercity !== !!b.intercity) return a.intercity ? 1 : -1;
     const na = parseFloat(a.ref), nb = parseFloat(b.ref);
     if (!isNaN(na) && !isNaN(nb)) return na - nb;
     return a.ref.localeCompare(b.ref);
@@ -2651,98 +2708,104 @@ function AddItemDialog({
           {!form.selectedTransit.includes("train") && (
           <div className="space-y-1.5">
             <Label>{t("location")}</Label>
-            <Popover open={locOpen} onOpenChange={setLocOpen}>
-              <PopoverTrigger asChild>
-                <Button type="button" variant="outline" className="w-full justify-between font-normal">
-                  <span className={cn("truncate", !form.location && "text-muted-foreground")}>
-                    {form.location || t("location")}
-                  </span>
-                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-                <Command shouldFilter={false}>
-                  <CommandInput placeholder={t("search_type")} value={locQuery} onValueChange={setLocQuery} />
-                  {/* Radix already repositions the popover (flips above the field,
-                      shrinks the room it has) when the on-screen keyboard eats the
-                      bottom of the screen — but a FIXED "max-h-72" on the list inside
-                      ignored how much room Radix actually found, so the list could
-                      still be taller than the space left and get cut off/require an
-                      awkward scroll under the keyboard. `--radix-popover-content-
-                      available-height` is the exact space Radix computed; capping at
-                      the smaller of that and the old 18rem keeps the same look when
-                      there's plenty of room, and actually fits when there isn't.
-                      That variable is still computed from the LAYOUT viewport,
-                      though, which iOS/Android do NOT shrink when the on-screen
-                      keyboard opens — so Radix can still think there's more room
-                      below the field than is actually visible, letting the list
-                      render partly under the keyboard. `50dvh` is a hard ceiling on
-                      top of Radix's own number, and `dvh` (dynamic viewport height)
-                      DOES shrink with the keyboard, so the list never claims more
-                      height than what's actually on screen right now. */}
-                  <CommandList className="max-h-[min(18rem,var(--radix-popover-content-available-height,18rem),50dvh)]">
-                    {matchTrip.length === 0 && matchExtras.length === 0 && !locQuery && (
-                      <CommandEmpty>{t("no_cities")}</CommandEmpty>
-                    )}
-                    {locQuery && (
-                      <CommandGroup heading={t("custom")}>
-                        <CommandItem
-                          onSelect={() => {
-                            setForm({ ...form, location: locQuery.trim() });
-                            setLocOpen(false);
-                          }}
-                        >
-                          <Plus className="mr-2 h-4 w-4" />
-                          <span>{t("use_value", { name: locQuery.trim() })}</span>
-                        </CommandItem>
-                      </CommandGroup>
-                    )}
-                    {matchTrip.length > 0 && (
-                      <CommandGroup heading={t("trip_stops")}>
-                        {matchTrip.map((c) => {
-                          const sel = form.location === c.name;
-                          return (
-                            <CommandItem
-                              key={`trip-${c.country}-${c.name}`}
-                              value={`trip-${c.country}-${c.name}`}
-                              onSelect={() => {
-                                setForm({ ...form, location: c.name });
-                                setLocOpen(false);
-                              }}
-                            >
-                              <Check className={cn("mr-2 h-4 w-4", sel ? "opacity-100" : "opacity-0")} />
-                              <span className="mr-2">{flagOf(c.country)}</span>
-                              <span>{c.name}</span>
-                            </CommandItem>
-                          );
-                        })}
-                      </CommandGroup>
-                    )}
-                    {matchExtras.length > 0 && (
-                      <CommandGroup heading={t("other_cities_label")}>
-                        {matchExtras.map((c) => {
-                          const sel = form.location === c.name;
-                          return (
-                            <CommandItem
-                              key={`x-${c.country}-${c.name}`}
-                              value={`x-${c.country}-${c.name}`}
-                              onSelect={() => {
-                                setForm({ ...form, location: c.name });
-                                setLocOpen(false);
-                              }}
-                            >
-                              <Check className={cn("mr-2 h-4 w-4", sel ? "opacity-100" : "opacity-0")} />
-                              <span className="mr-2">{flagOf(c.country)}</span>
-                              <span>{c.name}</span>
-                            </CommandItem>
-                          );
-                        })}
-                      </CommandGroup>
-                    )}
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
+            {/* Was a Radix Popover+Command sized via the
+                `--radix-popover-trigger-width` CSS var — that var is only set
+                once Radix's own ResizeObserver has actually measured the
+                trigger, so on first open (and, worse, intermittently
+                depending on render timing) the popover could paint at its
+                unstyled shrink-to-fit width instead, one frame narrower than
+                the trigger button — exactly the "città non ha la stessa
+                dimensione delle tratte" mismatch, since every OTHER picker
+                in this file (HubCombobox, LineCombobox, …) uses this same
+                plain `relative` + `absolute left-0 right-0` pattern instead,
+                which is never at the mercy of any async measurement and
+                always matches the input's width exactly, every time. Rebuilt
+                on that same pattern for both a guaranteed-consistent width
+                AND the single shared dropdown style already used everywhere
+                else. */}
+            <div className="relative">
+              <Input
+                value={locOpen ? locQuery : form.location}
+                placeholder={t("location")}
+                onFocus={() => { setLocQuery(form.location); setLocOpen(true); }}
+                onBlur={() => setTimeout(() => setLocOpen(false), 150)}
+                onChange={(e) => setLocQuery(e.target.value)}
+                autoComplete="off"
+              />
+              {locOpen && (
+                <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] overflow-y-auto overflow-x-hidden overscroll-contain rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-md">
+                  {matchTrip.length === 0 && matchExtras.length === 0 && !locQuery && (
+                    <div className="px-2 py-1.5 text-xs text-muted-foreground">{t("no_cities")}</div>
+                  )}
+                  {locQuery.trim() && (
+                    <button
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setForm({ ...form, location: locQuery.trim() });
+                        setLocOpen(false);
+                      }}
+                      className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                    >
+                      <Plus className="h-4 w-4 shrink-0" />
+                      <span className="min-w-0 flex-1 truncate">{t("use_value", { name: locQuery.trim() })}</span>
+                    </button>
+                  )}
+                  {matchTrip.length > 0 && (
+                    <div className="py-0.5">
+                      <p className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                        {t("trip_stops")}
+                      </p>
+                      {matchTrip.map((c) => {
+                        const sel = form.location === c.name;
+                        return (
+                          <button
+                            type="button"
+                            key={`trip-${c.country}-${c.name}`}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              setForm({ ...form, location: c.name });
+                              setLocOpen(false);
+                            }}
+                            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                          >
+                            <Check className={cn("h-4 w-4 shrink-0", sel ? "opacity-100" : "opacity-0")} />
+                            <span className="mr-1">{flagOf(c.country)}</span>
+                            <span className="min-w-0 flex-1 truncate">{c.name}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {matchExtras.length > 0 && (
+                    <div className="py-0.5">
+                      <p className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                        {t("other_cities_label")}
+                      </p>
+                      {matchExtras.map((c) => {
+                        const sel = form.location === c.name;
+                        return (
+                          <button
+                            type="button"
+                            key={`x-${c.country}-${c.name}`}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              setForm({ ...form, location: c.name });
+                              setLocOpen(false);
+                            }}
+                            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                          >
+                            <Check className={cn("h-4 w-4 shrink-0", sel ? "opacity-100" : "opacity-0")} />
+                            <span className="mr-1">{flagOf(c.country)}</span>
+                            <span className="min-w-0 flex-1 truncate">{c.name}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
           )}
           {hasTransit && (
@@ -3583,13 +3646,13 @@ function LineCombobox({
   // Fired (in addition to onChange) when a suggestion is actually picked, with
   // the full line info — lets the caller also record whether it's an
   // intercity/express bus (see fetchTransitLines) for the map's colour.
-  onPick?: (line: { ref: string; name: string; intercity?: boolean; express?: boolean }) => void;
+  onPick?: (line: { ref: string; name: string; intercity?: boolean; express?: boolean; color?: string }) => void;
 }) {
   const { t, i18n } = useTranslation();
   const lang = i18n.language || "it";
   useTranslationTick();
   const [open, setOpen] = useState(false);
-  const [lines, setLines] = useState<Array<{ ref: string; name: string; intercity?: boolean; express?: boolean }>>([]);
+  const [lines, setLines] = useState<Array<{ ref: string; name: string; intercity?: boolean; express?: boolean; color?: string }>>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -3626,7 +3689,14 @@ function LineCombobox({
         disabled={!city}
       />
       {open && (suggestions.length > 0 || loading) && (
-        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] overflow-auto overscroll-contain rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-md">
+        // overflow-y-auto ONLY (never overflow-x) + min-w-0 on every flex
+        // child down the tree is what actually stops the list from becoming
+        // horizontally scrollable — a `line.ref` badge with a fixed real OSM
+        // colour is `shrink-0` by design (its width must stay true to its
+        // text), so the truncating `desc` span next to it is what has to give
+        // way first; without `min-w-0` a flex child's *content* width still
+        // pushes the row (and the whole list) wider than the popover itself.
+        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] w-full min-w-0 overflow-y-auto overflow-x-hidden overscroll-contain rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-md">
           {suggestions.map(line => {
             const desc = stripLineRef(line.name, line.ref);
             return (
@@ -3634,29 +3704,48 @@ function LineCombobox({
                 type="button"
                 key={line.ref}
                 onMouseDown={(e) => { e.preventDefault(); onChange(line.ref); onPick?.(line); setOpen(false); }}
-                className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                className="flex w-full min-w-0 items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
               >
-                <span
-                  className={cn(
-                    "shrink-0 font-semibold",
-                    line.express ? "text-violet-600 dark:text-violet-400" : line.intercity && "text-amber-600 dark:text-amber-400",
-                  )}
-                >
-                  {line.ref}
-                </span>
+                {line.color ? (
+                  // Real OSM line colour: shown as a small filled badge (like
+                  // the Extraurbano badge, but more vivid) with the ref/name
+                  // in a contrasting text colour rather than the plain
+                  // text-only ref used when no real colour is known.
+                  <span
+                    className="shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-bold leading-tight"
+                    style={{ background: line.color, color: contrastTextColor(line.color) }}
+                  >
+                    {line.ref}
+                  </span>
+                ) : (
+                  <span
+                    className={cn(
+                      "shrink-0 font-semibold",
+                      line.express ? "text-violet-600 dark:text-violet-400" : line.intercity && "text-amber-600 dark:text-amber-400",
+                    )}
+                  >
+                    {line.ref}
+                  </span>
+                )}
                 {desc && (
                   <span className="min-w-0 flex-1 truncate text-xs opacity-55">{withRomanization(desc, lang)}</span>
                 )}
-                {/* Independent badges — a line can be both (e.g. an airport
-                    express coach), so both show rather than picking one. */}
+                {/* Express/intercity/urban badges are mutually exclusive with
+                    each other along the urban/extraurban axis (a line is
+                    either one or the other), but express is independent and
+                    can combine with either. */}
                 {line.express && (
                   <span className="shrink-0 rounded-full bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-violet-600 dark:text-violet-400">
                     {wpL(lang).express}
                   </span>
                 )}
-                {line.intercity && (
+                {line.intercity ? (
                   <span className="shrink-0 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
                     {wpL(lang).intercity}
+                  </span>
+                ) : (
+                  <span className="shrink-0 rounded-full bg-red-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-red-600 dark:text-red-400">
+                    {wpL(lang).urban}
                   </span>
                 )}
               </button>

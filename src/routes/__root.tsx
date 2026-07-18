@@ -302,12 +302,36 @@ function RootShell({ children }: { children: ReactNode }) {
 // meant for whatever's scrolled underneath it; a high z-index keeps it
 // above every dialog/sheet, since the real status bar is always on top of
 // the entire app, not just the current page's content.
+//
+// Two things were wrong with the previous version:
+// 1. `backdrop-blur-md` (12px) let app text stay perfectly legible right
+//    through the blur, which is exactly backwards — the system clock/icons
+//    on top became the illegible ones instead. Bumped hard to a 28px blur
+//    (well past Tailwind's largest `backdrop-blur-2xl` preset) plus a
+//    `saturate` boost, which is what actually turns text into an
+//    unreadable smear rather than a softened one.
+// 2. `bg-background/40` painted a flat 40%-opacity layer of the app's own
+//    *global* background colour on top of the blur — on a trip page with a
+//    vivid cover gradient/photo behind it, that fixed neutral tint is what
+//    made the strip look like "a generic background" instead of a blurred
+//    continuation of the real page. Replaced with a colour-neutral
+//    black/white scrim (light/dark mode respectively) at a much lower
+//    opacity: its only job is nudging contrast enough that the status bar's
+//    white icons stay legible over a very bright photo, while the blur
+//    itself is what shows the real gradient/photo (or the plain app
+//    background, on every other page) through — so the strip's colour is
+//    always whatever's actually behind it, per page, rather than one fixed
+//    swatch everywhere.
 function StatusBarBlur() {
   return (
     <div
       aria-hidden
-      className="pointer-events-none fixed inset-x-0 top-0 z-[9999] backdrop-blur-md bg-background/40"
-      style={{ height: "env(safe-area-inset-top, 0px)" }}
+      className="pointer-events-none fixed inset-x-0 top-0 z-[9999] bg-black/10 dark:bg-white/5"
+      style={{
+        height: "env(safe-area-inset-top, 0px)",
+        backdropFilter: "blur(28px) saturate(160%)",
+        WebkitBackdropFilter: "blur(28px) saturate(160%)",
+      }}
     />
   );
 }

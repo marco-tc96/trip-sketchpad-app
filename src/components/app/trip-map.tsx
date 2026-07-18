@@ -874,11 +874,19 @@ function escapeHtml(s: string): string {
 // real coordinate, in actual pixels — so the two badges sit a constant,
 // correct distance apart at every zoom level, from fully zoomed out to
 // fully zoomed in.
-function endpointIcon(mode: string, color: string, line: string | undefined | null, isBoarding: boolean, offsetPx = 0): L.DivIcon {
+//
+// `offsetPx` is now [x, y]: X separates badges of the SAME mode sitting
+// side-by-side on one row; Y separates different-mode ROWS stacked above/
+// below each other (see `pinNudge`'s row layout) — before this, only an X
+// offset existed, so every coincident badge (same mode or not) was forced
+// onto one single horizontal line, which is what pushed badges far sideways
+// away from their route's real endpoint whenever several different modes
+// met at the same spot.
+function endpointIcon(mode: string, color: string, line: string | undefined | null, isBoarding: boolean, offsetPx: [number, number] = [0, 0]): L.DivIcon {
   // Icon content is centred via CSS `translate(-50%,-50%)` around anchor
   // (0,0); shifting the anchor by -offsetPx moves the rendered badge
-  // +offsetPx pixels to the right (and vice versa for a negative offset).
-  const iconAnchor: [number, number] = [-offsetPx, 0];
+  // +offsetPx pixels right/down (and vice versa for a negative offset).
+  const iconAnchor: [number, number] = [-offsetPx[0], -offsetPx[1]];
   let html: string;
   if (!isBoarding) {
     html = `<span style="position:relative;transform:translate(-50%,-50%);display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:9999px;background:${color};border:2.5px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.35)">${DOWN_ARROW_SVG}</span>`;
@@ -2174,13 +2182,27 @@ export function TripMap({
   // a real alight-and-reboard — so only the first one is kept (see
   // `pinSkip` below); a boarding pin for a DIFFERENT line still gets its own
   // badge, and alighting (arrow) pins are never deduplicated.
+  //
+  // Layout within a cluster is now MODE-first: one row per mode (car with
+  // car, bus with bus, plane with plane…). Within a row, same-mode badges
+  // are placed with ZERO gap between them — they touch edge-to-edge, not
+  // overlapping, per the user's explicit "non ci deve essere spazio... Devono
+  // toccarsi ma non sovrapporsi". Different-mode rows get a small but
+  // deliberate vertical gap (ROW_GAP_PX) so they read as visually distinct
+  // groups. Both axes are centred on the cluster's real point (mean-of-zero)
+  // so the whole stack stays visually anchored to where the route lines
+  // actually end, instead of drifting sideways the more distinct modes pile
+  // up (the previous single-row layout put every mode on the same line, so
+  // 3+ different vehicles at one spot could spread badges tens of pixels
+  // from their true endpoint — exactly the Foto 4 complaint).
   const { pinNudge, pinSkip } = useMemo(() => {
-    const SAFETY_PX = 2; // small visible gap beyond exact touching
     // Real-world radius within which two pins are considered "the same
     // spot" for decluttering purposes — generous enough to catch an
     // airport's terminal-vs-bus-stop geocoding drift, tight enough to never
     // merge two genuinely different nearby places.
     const CLUSTER_RADIUS_M = 70;
+    const ROW_HEIGHT_PX = 28; // matches the 28px circle / 26px capsule badge height
+    const ROW_GAP_PX = 8; // visible-but-modest gap between different-mode rows
 
     type Big = { dKey: string; idx: number; ll: LL; mode: string; line?: string | null; board?: boolean; halfW: number };
     const pins: Big[] = [];
@@ -2193,7 +2215,7 @@ export function TripMap({
         });
       });
     });
-    const noOffsets = new Map<string, number>();
+    const noOffsets = new Map<string, [number, number]>();
     const noSkips = new Set<string>();
     if (pins.length < 2) return { pinNudge: noOffsets, pinSkip: noSkips };
 
@@ -2222,7 +2244,7 @@ export function TripMap({
     });
 
     const skip = new Set<string>();
-    const out = new Map<string, number>(); // `${dKey}-${idx}` -> offsetPx
+    const out = new Map<string, [number, number]>(); // `${dKey}-${idx}` -> [offsetXPx, offsetYPx]
     for (const idxs0 of clusters.values()) {
       if (idxs0.length < 2) continue;
       // Drop duplicate boardings for the same (mode, line) within this
@@ -2237,18 +2259,51 @@ export function TripMap({
         return true;
       });
       if (idxs.length < 2) continue;
-      // Stable order (insertion order from `drawn`, itself stable per
-      // render) so the same pin always lands on the same side instead of
-      // flip-flopping. Lay out left→right using each badge's own half-width
-      // so adjacent badges just touch, then centre the whole row on 0.
-      const gaps = idxs.slice(1).map((_, i) => pins[idxs[i]].halfW + pins[idxs[i + 1]].halfW + SAFETY_PX);
-      const pos: number[] = [0];
-      gaps.forEach((g) => pos.push(pos[pos.length - 1] + g));
-      const mean = pos.reduce((a, b) => a + b, 0) / pos.length;
-      idxs.forEach((pinIdx, i) => {
-        const { dKey, idx } = pins[pinIdx];
-        out.set(`${dKey}-${idx}`, pos[i] - mean);
+
+      // Group the cluster's surviving pins by mode — one row per mode, in
+      // stable first-seen order (insertion order from `drawn`, itself stable
+      // per render) so rows never flip-flop between renders.
+      const modeOrder: string[] = [];
+      const byMode = new Map<string, number[]>();
+      idxs.forEach((pinIdx) => {
+        const m = pins[pinIdx].mode;
+        let arr = byMode.get(m);
+        if (!arr) { arr = []; byMode.set(m, arr); modeOrder.push(m); }
+        arr.push(pinIdx);
       });
+
+      // A cluster with only one mode present just needs the horizontal
+      // same-mode layout below, with no vertical component at all — treat it
+      // as row 0 like any other single-mode row.
+      modeOrder.forEach((mode, rowI) => {
+        const rowIdxs = byMode.get(mode)!;
+        // Lay out left→right using each badge's own half-width so adjacent
+        // same-mode badges touch with ZERO extra gap, then centre the row on
+        // x=0 so it doesn't drift sideways off the real endpoint.
+        const xGaps = rowIdxs.slice(1).map((_, i) => pins[rowIdxs[i]].halfW + pins[rowIdxs[i + 1]].halfW);
+        const xPos: number[] = [0];
+        xGaps.forEach((g) => xPos.push(xPos[xPos.length - 1] + g));
+        const xMean = xPos.reduce((a, b) => a + b, 0) / xPos.length;
+        const rowY = rowI * (ROW_HEIGHT_PX + ROW_GAP_PX);
+        rowIdxs.forEach((pinIdx, i) => {
+          const { dKey, idx } = pins[pinIdx];
+          out.set(`${dKey}-${idx}`, [xPos[i] - xMean, rowY]);
+        });
+      });
+
+      // Centre the whole stack of rows vertically on y=0 too, so — same
+      // logic as the horizontal centring — a 2-mode cluster sits half above/
+      // half below the real point rather than growing only downward away
+      // from it.
+      const rowCount = modeOrder.length;
+      if (rowCount > 1) {
+        const yMean = ((rowCount - 1) * (ROW_HEIGHT_PX + ROW_GAP_PX)) / 2;
+        idxs.forEach((pinIdx) => {
+          const { dKey, idx } = pins[pinIdx];
+          const cur = out.get(`${dKey}-${idx}`);
+          if (cur) out.set(`${dKey}-${idx}`, [cur[0], cur[1] - yMean]);
+        });
+      }
     }
     return { pinNudge: out, pinSkip: skip };
   }, [drawn]);
@@ -2463,7 +2518,7 @@ export function TripMap({
             // rather than drawn a second time right next to itself.
             if (pinSkip.has(`${d.key}-${idx}`)) return null;
             return p.big && !p.hollow ? (
-              <Marker key={`${d.key}-p${idx}`} position={p.ll} icon={endpointIcon(d.mode, d.color, d.line, p.board !== undefined ? p.board : idx === firstBigIdx, pinNudge.get(`${d.key}-${idx}`) ?? 0)}>
+              <Marker key={`${d.key}-p${idx}`} position={p.ll} icon={endpointIcon(d.mode, d.color, d.line, p.board !== undefined ? p.board : idx === firstBigIdx, pinNudge.get(`${d.key}-${idx}`) ?? [0, 0])}>
                 {p.name && (
                   <>
                     <Popup><strong>{withRomanization(p.name, lang)}</strong></Popup>
