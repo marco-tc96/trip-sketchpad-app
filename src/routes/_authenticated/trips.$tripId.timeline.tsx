@@ -1320,7 +1320,7 @@ function TimelineView() {
                                   <div className="flex flex-col items-center justify-center gap-1 mt-0.5">
                                     <LIcon className={cn("h-4 w-4 shrink-0", color)} />
                                     {leg.vehicle && (
-                                      <p className={cn("text-[10px] font-semibold leading-none text-center break-all", color)}>
+                                      <p className={cn("font-semibold leading-none text-center break-all", color)}>
                                         {withRomanization(leg.vehicle, lang)}
                                       </p>
                                     )}
