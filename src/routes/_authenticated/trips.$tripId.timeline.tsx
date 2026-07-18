@@ -1309,18 +1309,18 @@ function TimelineView() {
                         {mixedLegs.length > 0 && (
                           // One shared grid for all legs → line refs, times and
                           // stops line up in fixed columns (no jagged in/out).
-                          <div className="mt-2 grid grid-cols-[2rem_auto_1fr] items-start gap-x-3 gap-y-1 text-xs">
+                        <div className="mt-2 grid grid-cols-[2rem_auto_1fr] items-start gap-x-3 gap-y-2 text-xs">
                             {mixedLegs.map((leg, i) => {
                               const LIcon = TRANSIT_ICON[leg.mode] ?? Bus;
                               const color = TRANSIT_TEXT[leg.mode] ?? "text-muted-foreground";
                               return (
                                 <Fragment key={i}>
-                                  {/* Column 1 — mode icon only, centred in a 2rem
-                                      column (same width as the h-8 circle above). */}
-                                  <div className="flex items-center justify-center">
+                                  {/* Column 1 — mode icon and line ref underneath, vertically stacked, 
+                                      centred in a 2rem column (same width as the h-8 circle above). */}
+                                  <div className="flex flex-col items-center justify-center gap-1 mt-0.5">
                                     <LIcon className={cn("h-4 w-4 shrink-0", color)} />
                                     {leg.vehicle && (
-                                      <p className={cn("font-semibold", color)}>
+                                      <p className={cn("text-[10px] font-semibold leading-none text-center break-all", color)}>
                                         {withRomanization(leg.vehicle, lang)}
                                       </p>
                                     )}
