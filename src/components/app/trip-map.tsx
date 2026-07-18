@@ -816,22 +816,31 @@ const pinIcon = L.divIcon({
 });
 
 // ── Per-mode endpoint pins (icon inside, + line ref for bus/tram/metro) ──────
-// Small, hand-drawn 24×24 pictograms (stroke-only, matching the app's icon
-// style) so a leg's departure/arrival pin is identifiable at a glance without
-// depending on a component icon library inside a Leaflet divIcon string.
+// The exact lucide-react icon paths already used for these modes elsewhere in
+// the app (MODE_ICON in the timeline editor: car→Car, moto→Bike, taxi→
+// CarTaxiFront, train→TrainFront, ferry→Ship, bus→Bus, tram→TramFront,
+// metro→the app's own MetroWagonIcon), reproduced verbatim here so a leg's
+// map pin is the SAME pictogram as its activity-list icon instead of a
+// similar-but-different hand-drawn stand-in — the two used to read as two
+// different vehicles for the same leg at a glance. Kept as raw path strings
+// (rather than importing the icon components) since this markup has to live
+// inside a plain HTML string for Leaflet's divIcon, not JSX.
 const MODE_GLYPH: Record<string, string> = {
-  car: `<rect x="3" y="11" width="18" height="6" rx="2"/><path d="M5 11l2-5h10l2 5"/><circle cx="7.5" cy="19" r="1.4"/><circle cx="16.5" cy="19" r="1.4"/>`,
-  moto: `<circle cx="6" cy="17" r="2.6"/><circle cx="18" cy="17" r="2.6"/><path d="M6 17h5l3-7h4"/><path d="M11 17l3-7"/>`,
-  taxi: `<rect x="3" y="11" width="18" height="6" rx="2"/><path d="M5 11l2-5h10l2 5"/><circle cx="7.5" cy="19" r="1.4"/><circle cx="16.5" cy="19" r="1.4"/>`,
-  train: `<rect x="6" y="4" width="12" height="11" rx="2"/><path d="M6 10h12M9 4v6M15 4v6"/><circle cx="9" cy="17.5" r="1.3"/><circle cx="15" cy="17.5" r="1.3"/>`,
-  // Same silhouette as lucide's "Plane" icon (used everywhere else in the
-  // app for flights) instead of the previous hand-drawn stylized triangle,
-  // so a flight's endpoint pin actually reads as a plane at a glance.
-  plane: `<path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8l-8.2-1.8c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2Z"/>`,
-  ferry: `<path d="M4 10h16l-2 6H6l-2-6z"/><path d="M8 10V5h4v5"/><path d="M3 19c1.5 1 3 1 4.5 0s3-1 4.5 0 3 1 4.5 0 3-1 4.5 0"/>`,
-  bus: `<rect x="4" y="5" width="16" height="10" rx="2"/><path d="M4 10h16M8 5v5M16 5v5"/><circle cx="8" cy="17.5" r="1.3"/><circle cx="16" cy="17.5" r="1.3"/>`,
-  metro: `<rect x="5" y="4" width="14" height="12" rx="4"/><path d="M5 10h14"/><circle cx="9" cy="18" r="1.3"/><circle cx="15" cy="18" r="1.3"/>`,
-  tram: `<rect x="5" y="6" width="14" height="10" rx="2"/><path d="M12 6V3M9 3h6M5 11h14"/><circle cx="9" cy="18" r="1.3"/><circle cx="15" cy="18" r="1.3"/>`,
+  car: `<path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/>`,
+  moto: `<circle cx="18.5" cy="17.5" r="3.5"/><circle cx="5.5" cy="17.5" r="3.5"/><circle cx="15" cy="5" r="1"/><path d="M12 17.5V14l-3-3 4-3 2 3h2"/>`,
+  taxi: `<path d="M10 2h4"/><path d="m21 8-2 2-1.5-3.7A2 2 0 0 0 15.646 5H8.4a2 2 0 0 0-1.903 1.257L5 10 3 8"/><path d="M7 14h.01"/><path d="M17 14h.01"/><rect width="18" height="8" x="3" y="10" rx="2"/><path d="M5 18v2"/><path d="M19 18v2"/>`,
+  train: `<path d="M8 3.1V7a4 4 0 0 0 8 0V3.1"/><path d="m9 15-1-1"/><path d="m15 15 1-1"/><path d="M9 19c-2.8 0-5-2.2-5-5v-4a8 8 0 0 1 16 0v4c0 2.8-2.2 5-5 5Z"/><path d="m8 19-2 3"/><path d="m16 19 2 3"/>`,
+  // lucide's "Plane" icon (used everywhere else in the app for flights) —
+  // was already meant to match here but had a transcription typo in one
+  // coordinate pair ("8.2-1.8" instead of "4.8 6.2"), fixed as part of this
+  // same verbatim-path pass.
+  plane: `<path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/>`,
+  ferry: `<path d="M12 10.189V14"/><path d="M12 2v3"/><path d="M19 13V7a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v6"/><path d="M19.38 20A11.6 11.6 0 0 0 21 14l-8.188-3.639a2 2 0 0 0-1.624 0L3 14a11.6 11.6 0 0 0 2.81 7.76"/><path d="M2 21c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1s1.2 1 2.5 1c2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/>`,
+  bus: `<path d="M8 6v6"/><path d="M15 6v6"/><path d="M2 12h19.6"/><path d="M18 18h3s.5-1.7.8-2.8c.1-.4.2-.8.2-1.2 0-.4-.1-.8-.2-1.2l-1.4-5C20.1 6.8 19.1 6 18 6H4a2 2 0 0 0-2 2v10h3"/><circle cx="7" cy="18" r="2"/><path d="M9 18h5"/><circle cx="16" cy="18" r="2"/>`,
+  // The app's own custom MetroWagonIcon (see timeline.tsx) — not a stock
+  // lucide icon — reproduced exactly rather than approximated.
+  metro: `<rect x="3" y="6" width="18" height="11" rx="2"/><line x1="3" y1="12" x2="21" y2="12"/><rect x="6.3" y="8.3" width="3.6" height="2.4" rx="0.4"/><rect x="14.1" y="8.3" width="3.6" height="2.4" rx="0.4"/><circle cx="7.5" cy="19" r="1.4"/><circle cx="16.5" cy="19" r="1.4"/>`,
+  tram: `<rect width="16" height="16" x="4" y="3" rx="2"/><path d="M4 11h16"/><path d="M12 3v8"/><path d="m8 19-2 3"/><path d="m18 22-2-3"/><path d="M8 15h.01"/><path d="M16 15h.01"/>`,
 };
 // Line ref / flight number is carried by these — matches "la linea per bus,
 // tram, metro e treno" (+ flight number for planes).
@@ -2119,6 +2128,21 @@ export function TripMap({
     });
   }, [drawn]);
 
+  // Half-width (px) of a boarding/alighting badge as actually drawn by
+  // `endpointIcon` — a plain circle is a fixed 28px (+2.5px border each
+  // side), a line-ref capsule is wider and grows with the ref's text length.
+  // Used below to space adjacent badges so they just touch rather than using
+  // one fixed gap for every pair (which either overlapped wide capsules or
+  // left plain circles looking needlessly far apart).
+  function badgeHalfWidthPx(mode: string, line: string | undefined | null, isBoarding: boolean): number {
+    const hasLine = isBoarding && LINE_LABEL_MODES.has(mode) && !!(line ?? "").trim();
+    if (!hasLine) return 16.5; // plain circle: 28px + 2.5px border each side
+    // Capsule: left/right padding (6+8) + icon (15) + gap (4) + text (~7px/
+    // char at 11px bold, plus letter-spacing) + border (2.5 each side).
+    const textW = (line ?? "").trim().length * 7.4;
+    return (6 + 8 + 15 + 4 + textW + 5) / 2;
+  }
+
   // ── Overlap offsetting for coincident endpoint pins ──────────────────────
   // A "big" endpoint badge (boarding/alighting icon) can land on (or very
   // near) another leg's endpoint badge — the classic case being an airport
@@ -2139,30 +2163,39 @@ export function TripMap({
   // varies with latitude/zoom. A pixel offset via the icon's own anchor
   // keeps badges a constant, correct distance apart on screen at every zoom
   // level. The underlying route lines still terminate at the real, un-nudged
-  // coordinate; only each badge's drawn position shifts.
-  const pinNudge = useMemo(() => {
-    // Two adjacent badges are circles ~28px across (a line-ref capsule is
-    // wider still) — the previous 15px step left them overlapping by more
-    // than half their width. 34px between centres clears the plain circular
-    // badges with a visible gap; a wide capsule pin next to one may still
-    // touch, but every pair is now genuinely side by side rather than
-    // stacked on top of each other.
-    const PIN_GAP_PX = 34;
+  // coordinate; only each badge's drawn position shifts. The per-pair gap is
+  // each badge's own half-width plus a small safety margin, so badges of any
+  // size (plain circle or wide line-ref capsule) end up touching without
+  // overlapping — not a one-size-fits-all fixed distance.
+  //
+  // A cluster can also contain a real duplicate rather than a genuine
+  // overlap: two BOARDING pins for the SAME line (identical mode + line ref)
+  // at the same stop mean the trip just continues on the same vehicle — not
+  // a real alight-and-reboard — so only the first one is kept (see
+  // `pinSkip` below); a boarding pin for a DIFFERENT line still gets its own
+  // badge, and alighting (arrow) pins are never deduplicated.
+  const { pinNudge, pinSkip } = useMemo(() => {
+    const SAFETY_PX = 2; // small visible gap beyond exact touching
     // Real-world radius within which two pins are considered "the same
     // spot" for decluttering purposes — generous enough to catch an
     // airport's terminal-vs-bus-stop geocoding drift, tight enough to never
     // merge two genuinely different nearby places.
     const CLUSTER_RADIUS_M = 70;
 
-    type Big = { dKey: string; idx: number; ll: LL };
+    type Big = { dKey: string; idx: number; ll: LL; mode: string; line?: string | null; board?: boolean; halfW: number };
     const pins: Big[] = [];
     drawn.forEach((d) => {
       d.pins.forEach((p, idx) => {
         if (!p.big || p.hollow) return;
-        pins.push({ dKey: d.key, idx, ll: p.ll });
+        pins.push({
+          dKey: d.key, idx, ll: p.ll, mode: d.mode, line: d.line, board: p.board,
+          halfW: badgeHalfWidthPx(d.mode, d.line, !!p.board),
+        });
       });
     });
-    if (pins.length < 2) return new Map<string, number>();
+    const noOffsets = new Map<string, number>();
+    const noSkips = new Set<string>();
+    if (pins.length < 2) return { pinNudge: noOffsets, pinSkip: noSkips };
 
     // Union-find over pairwise proximity, so A–B close and B–C close still
     // cluster all three together (not just A–B), regardless of leg/mode.
@@ -2188,19 +2221,36 @@ export function TripMap({
       arr.push(i);
     });
 
+    const skip = new Set<string>();
     const out = new Map<string, number>(); // `${dKey}-${idx}` -> offsetPx
-    for (const idxs of clusters.values()) {
+    for (const idxs0 of clusters.values()) {
+      if (idxs0.length < 2) continue;
+      // Drop duplicate boardings for the same (mode, line) within this
+      // cluster before laying anything out, so they don't consume a slot.
+      const seenBoard = new Set<string>();
+      const idxs = idxs0.filter((pinIdx) => {
+        const p = pins[pinIdx];
+        if (!p.board) return true;
+        const k = `${p.mode}|${(p.line ?? "").trim().toLowerCase()}`;
+        if (seenBoard.has(k)) { skip.add(`${p.dKey}-${p.idx}`); return false; }
+        seenBoard.add(k);
+        return true;
+      });
       if (idxs.length < 2) continue;
       // Stable order (insertion order from `drawn`, itself stable per
       // render) so the same pin always lands on the same side instead of
-      // flip-flopping.
-      const mid = (idxs.length - 1) / 2;
+      // flip-flopping. Lay out left→right using each badge's own half-width
+      // so adjacent badges just touch, then centre the whole row on 0.
+      const gaps = idxs.slice(1).map((_, i) => pins[idxs[i]].halfW + pins[idxs[i + 1]].halfW + SAFETY_PX);
+      const pos: number[] = [0];
+      gaps.forEach((g) => pos.push(pos[pos.length - 1] + g));
+      const mean = pos.reduce((a, b) => a + b, 0) / pos.length;
       idxs.forEach((pinIdx, i) => {
         const { dKey, idx } = pins[pinIdx];
-        out.set(`${dKey}-${idx}`, (i - mid) * PIN_GAP_PX);
+        out.set(`${dKey}-${idx}`, pos[i] - mean);
       });
     }
-    return out;
+    return { pinNudge: out, pinSkip: skip };
   }, [drawn]);
 
   // Count transit legs whose line couldn't be resolved from OSM data, to warn.
@@ -2406,8 +2456,13 @@ export function TripMap({
           // all (defensive default; every current pin-construction site sets
           // it explicitly).
           const firstBigIdx = d.pins.findIndex((p) => p.big && !p.hollow);
-          return d.pins.map((p, idx) =>
-            p.big && !p.hollow ? (
+          return d.pins.map((p, idx) => {
+            // A duplicate boarding pin for a line another leg already shows
+            // boarding at the exact same stop (see `pinSkip`) — the trip
+            // just continues on the same vehicle, so it's dropped entirely
+            // rather than drawn a second time right next to itself.
+            if (pinSkip.has(`${d.key}-${idx}`)) return null;
+            return p.big && !p.hollow ? (
               <Marker key={`${d.key}-p${idx}`} position={p.ll} icon={endpointIcon(d.mode, d.color, d.line, p.board !== undefined ? p.board : idx === firstBigIdx, pinNudge.get(`${d.key}-${idx}`) ?? 0)}>
                 {p.name && (
                   <>
@@ -2435,8 +2490,8 @@ export function TripMap({
                   </Tooltip>
                 )}
               </CircleMarker>
-            ),
-          );
+            );
+          });
         })}
 
       {enrichedCities
