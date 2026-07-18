@@ -254,14 +254,7 @@ function refMatches(relRef: string | undefined, relName: string | undefined, wan
     if (_normRef(relRef) === wr) return true;
     if (wd && _digits(relRef) === wd) return true;
   }
-  if (relName) {
-    // Exact normalised match (e.g. the relation carries no `ref` tag at all
-    // and was only ever identified by its `name` — see the name-fallback
-    // clause in fetchTransitGeometry's query below) is a full, reliable
-    // match on its own, not just a same-digits heuristic.
-    if (_normRef(relName) === wr) return true;
-    if (wd && _digits(relName) === wd) return true;
-  }
+  if (relName && wd && _digits(relName) === wd) return true;
   return false;
 }
 
@@ -398,17 +391,6 @@ async function fetchTransitGeometry(center: LL, radiusM: number, mode: string, r
     for (const m of osmModes) {
       if (withRef) {
         for (const rc of cands) clauses.push(`relation["type"="route"]["route"="${m}"]["ref"="${rc.replace(/"/g, "")}"]${around}`);
-        // Some lines have no structured `ref` tag at all (common for Korean/
-        // Japanese local bus routes) — fetchLineStops in the leg editor
-        // already falls back to matching such a line by its `name` tag (see
-        // "name-fallback key" there), which is why it can list real,
-        // pickable stops for it. Without the same `name` fallback HERE, that
-        // exact line would find zero relations by `ref` and permanently
-        // fail verification on the map — a real, user-picked line with two
-        // real stops rendering as a dashed "unverified" line forever. Only
-        // tried against the raw, un-mangled ref (not every candidate
-        // variant) to match fetchLineStops' own exact-name query.
-        clauses.push(`relation["type"="route"]["route"="${m}"]["name"="${ref.replace(/"/g, "")}"]${around}`);
       } else {
         clauses.push(`relation["type"="route"]["route"="${m}"]${around}`);
       }
@@ -851,38 +833,38 @@ const MODE_GLYPH: Record<string, string> = {
   metro: `<rect x="5" y="4" width="14" height="12" rx="4"/><path d="M5 10h14"/><circle cx="9" cy="18" r="1.3"/><circle cx="15" cy="18" r="1.3"/>`,
   tram: `<rect x="5" y="6" width="14" height="10" rx="2"/><path d="M12 6V3M9 3h6M5 11h14"/><circle cx="9" cy="18" r="1.3"/><circle cx="15" cy="18" r="1.3"/>`,
 };
-// Line ref / flight number is carried by these — matches "la linea solo per
-// bus, tram e metro" (+ flight number for planes).
-const LINE_LABEL_MODES = new Set(["bus", "tram", "metro", "plane"]);
-// Down-arrow glyph shown at the alighting/arrival pin instead of the line ref
-// — the label only makes sense at boarding, so the arrival end gets a plain
-// "you get off here" marker next to the vehicle icon instead.
-const DOWN_ARROW_SVG = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="white" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v13M6 13l6 6 6-6"/></svg>`;
+// Line ref / flight number is carried by these — matches "la linea per bus,
+// tram, metro e treno" (+ flight number for planes).
+const LINE_LABEL_MODES = new Set(["bus", "tram", "metro", "train", "plane"]);
+// Down-arrow glyph shown at the alighting/arrival pin — every leg's arrival
+// end is just "you get off here", so it's the arrow alone, with no vehicle
+// icon (the vehicle icon is what marks BOARDING; repeating it at arrival is
+// redundant since the leg's own colour/line already identifies the vehicle).
+const DOWN_ARROW_SVG = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="white" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v13M6 13l6 6 6-6"/></svg>`;
 
 function escapeHtml(s: string): string {
   return (s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string));
 }
 
-// Bigger endpoint pin for a leg's departure/arrival: mode-coloured badge with
-// the vehicle icon inside. For bus/tram/metro/plane, the ALIGHTING pin always
-// shows the icon + a down arrow — that's just "you get off here", true
-// whether or not this specific leg happens to carry a known line ref/flight
-// number. The BOARDING pin shows the icon + that ref ONLY when one is known;
-// with no ref to show, it falls back to the plain icon (nothing to display
-// there), but the arrival end still gets its arrow either way, so the two
-// ends of the same leg always read differently at a glance. Uses a zero-size
-// icon + CSS centering so the badge can be a plain circle OR a wider capsule
+// Bigger endpoint pin for a leg's departure/arrival: mode-coloured badge.
+// BOARDING shows the vehicle icon, plus the line ref/flight number next to
+// it when one is known (bus/tram/metro/train/plane). ALIGHTING is always
+// just a plain down arrow, for every mode — no vehicle icon there, since
+// "you get off here" doesn't need to repeat the vehicle glyph the boarding
+// pin already showed a moment ago on the same line. Uses a zero-size icon +
+// CSS centering so the badge can be a plain circle OR a wider capsule
 // without any anchor-offset math.
 function endpointIcon(mode: string, color: string, line: string | undefined | null, isBoarding: boolean): L.DivIcon {
+  let html: string;
+  if (!isBoarding) {
+    html = `<span style="position:relative;transform:translate(-50%,-50%);display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:9999px;background:${color};border:2.5px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.35)">${DOWN_ARROW_SVG}</span>`;
+    return L.divIcon({ className: "voyager-pin", html, iconSize: [0, 0], iconAnchor: [0, 0] });
+  }
   const glyph = MODE_GLYPH[mode] ?? `<circle cx="12" cy="12" r="5"/>`;
   const svg = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0">${glyph}</svg>`;
-  const isLineMode = LINE_LABEL_MODES.has(mode);
-  const hasLine = isLineMode && !!(line ?? "").trim();
-  let html: string;
-  if (hasLine && isBoarding) {
+  const hasLine = LINE_LABEL_MODES.has(mode) && !!(line ?? "").trim();
+  if (hasLine) {
     html = `<span style="position:relative;transform:translate(-50%,-50%);display:inline-flex;align-items:center;gap:4px;height:26px;padding:0 8px 0 6px;border-radius:9999px;background:${color};border:2.5px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.35);white-space:nowrap">${svg}<span style="color:white;font:700 11px/1 -apple-system,BlinkMacSystemFont,sans-serif;letter-spacing:.2px">${escapeHtml((line ?? "").trim())}</span></span>`;
-  } else if (isLineMode && !isBoarding) {
-    html = `<span style="position:relative;transform:translate(-50%,-50%);display:inline-flex;align-items:center;gap:3px;height:26px;padding:0 7px 0 6px;border-radius:9999px;background:${color};border:2.5px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.35)">${svg}${DOWN_ARROW_SVG}</span>`;
   } else {
     html = `<span style="position:relative;transform:translate(-50%,-50%);display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:9999px;background:${color};border:2.5px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.35)">${svg}</span>`;
   }
@@ -1961,12 +1943,12 @@ export function TripMap({
         const res = transitResolved[key];
         if (res) {
           if (res.state === "ok" && res.positions && res.pins) {
-            // Metro, tram AND train lines draw in their real network colour
-            // when OSM tags it (e.g. Milano M1 red, Roma B blue, Barcelona's
-            // Rodalies R2 Nord's own line colour); other transit modes keep
-            // their fixed mode colour, and metro/tram/train fall back to it
-            // when the line's real colour is unknown.
-            const usesRealColor = l.mode === "metro" || l.mode === "tram" || l.mode === "train";
+            // Metro, tram, train AND bus lines draw in their real network
+            // colour when OSM tags it (e.g. Milano M1 red, Roma B blue,
+            // Barcelona's Rodalies R2 Nord's own line colour, or a city bus
+            // line's own livery colour) — falls back to the fixed mode
+            // colour when the line's real colour is unknown.
+            const usesRealColor = l.mode === "metro" || l.mode === "tram" || l.mode === "train" || l.mode === "bus";
             const lineColor = usesRealColor && res.color ? res.color : color;
             // No real track geometry from OSM (see `noGeometry`) → use the
             // OSRM-snapped road path fetched above instead of the raw
@@ -2290,10 +2272,11 @@ export function TripMap({
         ))}
 
       {/* Stop / waypoint pins — mode colour. A leg's own departure/arrival (big,
-          not hollow) gets a bigger badge with the vehicle icon inside — the
-          boarding end shows the line ref/flight number (bus/tram/metro/plane),
-          the alighting end shows a down arrow instead — so it reads at a glance
-          and stays visually distinct from a trip-city pin. HOLLOW pins (road
+          not hollow) gets a bigger badge: the boarding end shows the vehicle
+          icon plus the line ref/flight number (bus/tram/metro/train/plane),
+          the alighting end always shows a plain down arrow instead (no
+          vehicle icon there, for every mode) — so it reads at a glance and
+          stays visually distinct from a trip-city pin. HOLLOW pins (road
           waypoints) and small mid-route stops keep the plain coloured dot. */}
       {showRoutes &&
         drawn.flatMap((d) => {
