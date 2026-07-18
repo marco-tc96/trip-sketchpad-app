@@ -282,8 +282,29 @@ function RootShell({ children }: { children: ReactNode }) {
             __html: `(function(){try{var t=localStorage.getItem('voyager.theme');if(t==='dark'||(t===null&&window.matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.classList.add('dark')}}catch(e){}})()`,
           }}
         />
+        {/* Plain CSS @supports (not a Tailwind arbitrary variant, which can't
+            express a bare property-support check reliably) — on a WebView
+            that doesn't implement backdrop-filter at all, #status-bar-blur
+            falls back to a solid, on-brand strip instead of the near-
+            invisible black-10%/white-5% tint alone, which is what read as
+            "no effect" (Foto 3: system-bar text still fully sharp). */}
+        <style
+          dangerouslySetInnerHTML={{
+            __html: `@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { #status-bar-blur { background: var(--background); opacity: 0.96; } }`,
+          }}
+        />
       </head>
       <body>
+        {/* Rendered as a DIRECT child of <body>, OUTSIDE every context
+            provider below (Query/Theme/DockStyle/Auth) — a `transform`,
+            `filter` or `perspective` on ANY ancestor establishes a new
+            containing block for `position: fixed` per spec, which silently
+            turns this into something positioned relative to THAT ancestor
+            instead of the viewport. Keeping it here, sibling to the whole
+            provider tree, guarantees nothing any provider ever does to its
+            wrapper can break the fixed positioning or the stacking context
+            this relies on to sit above every page's content. */}
+        <StatusBarBlur />
         {children}
         <Scripts />
       </body>
@@ -303,34 +324,40 @@ function RootShell({ children }: { children: ReactNode }) {
 // above every dialog/sheet, since the real status bar is always on top of
 // the entire app, not just the current page's content.
 //
-// Two things were wrong with the previous version:
-// 1. `backdrop-blur-md` (12px) let app text stay perfectly legible right
-//    through the blur, which is exactly backwards — the system clock/icons
-//    on top became the illegible ones instead. Bumped hard to a 28px blur
-//    (well past Tailwind's largest `backdrop-blur-2xl` preset) plus a
-//    `saturate` boost, which is what actually turns text into an
-//    unreadable smear rather than a softened one.
-// 2. `bg-background/40` painted a flat 40%-opacity layer of the app's own
-//    *global* background colour on top of the blur — on a trip page with a
-//    vivid cover gradient/photo behind it, that fixed neutral tint is what
-//    made the strip look like "a generic background" instead of a blurred
-//    continuation of the real page. Replaced with a colour-neutral
-//    black/white scrim (light/dark mode respectively) at a much lower
-//    opacity: its only job is nudging contrast enough that the status bar's
-//    white icons stay legible over a very bright photo, while the blur
-//    itself is what shows the real gradient/photo (or the plain app
-//    background, on every other page) through — so the strip's colour is
-//    always whatever's actually behind it, per page, rather than one fixed
-//    swatch everywhere.
+// Moved to a direct child of <body> (see RootShell) and given its own
+// `isolation: isolate` so it always opens a fresh stacking context rooted at
+// the very top of the page, regardless of what z-index games any page below
+// it plays — before this it lived deep inside QueryClientProvider >
+// ThemeProvider > DockStyleProvider > AuthProvider, and if ANY of those (or
+// anything Splash/Toaster mount nearby) ever gained a transform/filter of
+// their own, this div's "fixed" positioning would have silently detached
+// from the viewport and started tracking that ancestor instead — completely
+// invisible in a static screenshot review, but exactly the kind of bug that
+// makes a blur "just not show up" on a real device while looking correct in
+// code.
+//
+// A `@supports not (backdrop-filter: ...)` fallback is now included too: on
+// a WebView that doesn't implement backdrop-filter at all (some older
+// in-app browsers), the previous version silently fell back to just the
+// very faint `bg-black/10`/`bg-white/5` tint — which reads as "no effect
+// at all", exactly what was reported ("si vede ancora testo e qualsiasi
+// dettaglio a fuoco"). The fallback swaps in the page's own solid
+// background colour instead, so unsupported browsers at least get an
+// opaque, on-brand strip rather than a nearly-invisible tint over sharp
+// text.
 function StatusBarBlur() {
   return (
     <div
+      id="status-bar-blur"
       aria-hidden
       className="pointer-events-none fixed inset-x-0 top-0 z-[9999] bg-black/10 dark:bg-white/5"
       style={{
         height: "env(safe-area-inset-top, 0px)",
         backdropFilter: "blur(28px) saturate(160%)",
         WebkitBackdropFilter: "blur(28px) saturate(160%)",
+        isolation: "isolate",
+        transform: "translateZ(0)",
+        willChange: "backdrop-filter",
       }}
     />
   );
@@ -345,7 +372,6 @@ function RootComponent() {
         <DockStyleProvider>
           <AuthProvider>
             <NotificationBootstrap />
-            <StatusBarBlur />
             <SplashWrapper>
               <Outlet />
             </SplashWrapper>

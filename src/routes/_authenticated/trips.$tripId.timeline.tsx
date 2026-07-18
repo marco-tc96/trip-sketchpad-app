@@ -1,3 +1,391 @@
+import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
+import {
+  Outlet,
+  Link,
+  createRootRouteWithContext,
+  useRouter,
+  HeadContent,
+  Scripts,
+} from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
+import { useEffect, useState, type ReactNode } from "react";
+import { Compass } from "lucide-react";
+
+import appCss from "../styles.css?url";
+import { reportLovableError } from "../lib/lovable-error-reporting";
+import "@fontsource/plus-jakarta-sans/400.css";
+import "@fontsource/plus-jakarta-sans/500.css";
+import "@fontsource/plus-jakarta-sans/600.css";
+import "@fontsource/plus-jakarta-sans/700.css";
+import "@fontsource/space-grotesk/500.css";
+import "@fontsource/space-grotesk/600.css";
+import "@fontsource/space-grotesk/700.css";
+import "@/i18n";
+import { AuthProvider, useAuth } from "@/lib/auth-context";
+import { ThemeProvider } from "@/lib/theme";
+import { DockStyleProvider } from "@/lib/dock-style";
+import { Toaster } from "@/components/ui/sonner";
+import { subscribePush, checkTripNotifications } from "@/lib/notifications.functions";
+
+function NotFoundComponent() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background px-4">
+      <div className="max-w-md text-center">
+        <h1 className="text-7xl font-bold text-foreground">404</h1>
+        <h2 className="mt-4 text-xl font-semibold text-foreground">Page not found</h2>
+        <p className="mt-2 text-sm text-muted-foreground">
+          The page you're looking for doesn't exist or has been moved.
+        </p>
+        <div className="mt-6">
+          <Link
+            to="/"
+            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+          >
+            Go home
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
+  console.error(error);
+  const router = useRouter();
+  useEffect(() => {
+    reportLovableError(error, { boundary: "tanstack_root_error_component" });
+  }, [error]);
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background px-4">
+      <div className="max-w-md text-center">
+        <h1 className="text-xl font-semibold tracking-tight text-foreground">
+          This page didn't load
+        </h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Something went wrong on our end. You can try refreshing or head back home.
+        </p>
+        <div className="mt-6 flex flex-wrap justify-center gap-2">
+          <button
+            onClick={() => {
+              router.invalidate();
+              reset();
+            }}
+            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+          >
+            Try again
+          </button>
+          <a
+            href="/"
+            className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+          >
+            Go home
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Splash screen ─────────────────────────────────────────────────────────────
+
+function SplashScreen({ fading }: { fading: boolean }) {
+  return (
+    <div
+      className={[
+        "fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-background",
+        "transition-opacity duration-500",
+        fading ? "pointer-events-none opacity-0" : "opacity-100",
+      ].join(" ")}
+    >
+      <div className="flex flex-col items-center gap-5">
+        <div className="grid h-20 w-20 place-items-center rounded-3xl bg-warm-gradient shadow-soft">
+          <Compass className="h-10 w-10 text-white" strokeWidth={1.75} />
+        </div>
+        <span className="font-serif text-3xl font-bold tracking-tight text-foreground">
+          Voyager
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/** Renders children immediately (so they can start loading in background),
+ *  then overlays the splash until auth resolves and fades it out. */
+function SplashWrapper({ children }: { children: ReactNode }) {
+  const { loading } = useAuth();
+  const [visible, setVisible] = useState(true);
+  const [fading, setFading] = useState(false);
+
+  useEffect(() => {
+    if (!loading && visible) {
+      setFading(true);
+      const timer = setTimeout(() => setVisible(false), 500);
+      return () => clearTimeout(timer);
+    }
+  }, [loading, visible]);
+
+  return (
+    <>
+      {children}
+      {visible && <SplashScreen fading={fading} />}
+    </>
+  );
+}
+
+// ── Push helpers ──────────────────────────────────────────────────────────────
+
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = atob(base64);
+  return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  return btoa(String.fromCharCode(...new Uint8Array(buffer)));
+}
+
+// ── Notification bootstrap ────────────────────────────────────────────────────
+
+/**
+ * Mounts inside AuthProvider. Renders nothing.
+ * 1. Registers /sw.js and subscribes to Web Push (once per user session).
+ * 2. Polls checkTripNotifications every 5 min so in-app notifications
+ *    appear even before the edge-function cron fires.
+ */
+function NotificationBootstrap() {
+  const { user } = useAuth();
+  const subscribeFn = useServerFn(subscribePush);
+  const checkFn = useServerFn(checkTripNotifications);
+  const qc = useQueryClient();
+
+  // Register service worker + subscribe to Web Push
+  useEffect(() => {
+    if (!user) return;
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+    const vapidKey = "BHxhapEufuQxX5IHMuzyHNRAQQuSFdfTv0mUqmVPclpd7uiwlD_O8kcNThXqrLJM39EbkZ5VinIWkYVM7wSUtVI";
+
+    (async () => {
+      try {
+        const reg = await navigator.serviceWorker.register("/sw.js");
+        let perm = Notification.permission;
+        if (perm === "default") perm = await Notification.requestPermission();
+        if (perm !== "granted") return;
+
+        let sub = await reg.pushManager.getSubscription();
+        if (!sub) {
+          sub = await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(vapidKey) as BufferSource,
+          });
+        }
+
+        const p256dh = sub.getKey("p256dh");
+        const authKey = sub.getKey("auth");
+        if (!p256dh || !authKey) return;
+
+        await subscribeFn({
+          data: {
+            endpoint: sub.endpoint,
+            p256dh: arrayBufferToBase64(p256dh),
+            auth: arrayBufferToBase64(authKey),
+          },
+        });
+      } catch (e) {
+        console.error("[Voyager] Push subscription failed:", e);
+      }
+    })();
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Poll for trip notifications every 5 minutes
+  useEffect(() => {
+    if (!user) return;
+
+    const check = async () => {
+      try {
+        const now = new Date();
+        const localDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+        await checkFn({ data: { localDate, utcOffsetMinutes: -now.getTimezoneOffset() } });
+        qc.invalidateQueries({ queryKey: ["notifications"] });
+        qc.invalidateQueries({ queryKey: ["notifications-count"] });
+      } catch (e) {
+        console.error("[Voyager] Notification check failed:", e);
+      }
+    };
+
+    check();
+    const id = setInterval(check, 5 * 60_000);
+    return () => clearInterval(id);
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return null;
+}
+
+// ── Root route ────────────────────────────────────────────────────────────────
+
+export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
+  head: () => ({
+    meta: [
+      { charSet: "utf-8" },
+      // maximum-scale=1 + user-scalable=no disable pinch/double-tap zoom of
+      // the whole page on mobile — without this, a user could zoom the
+      // entire app in/out (not just the map), throwing off fixed-position
+      // headers/docks and touch targets across every page.
+      // viewport-fit=cover lets the page draw underneath the iOS status bar/
+      // notch and home indicator (paired with apple-mobile-web-app-status-
+      // bar-style below) instead of the OS leaving that whole strip an
+      // opaque, un-themed black bar the app can't paint anything behind —
+      // env(safe-area-inset-top) below then reserves exactly that height for
+      // a blurred header so the system clock/battery icons stay legible with
+      // the app's own content visible (blurred) behind them, matching how
+      // native iOS apps treat the status bar area.
+      { name: "viewport", content: "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" },
+      { title: "Voyager — Travel Journal & Planner" },
+      { name: "description", content: "Track every trip: itineraries, flights, lodging, expenses and live currency conversion. Plan future journeys with a beautiful timeline." },
+      { name: "theme-color", content: "#c2632c" },
+      // Only takes effect when installed to the home screen (standalone
+      // PWA) — "black-translucent" is what makes the status bar area
+      // translucent/overlaid instead of a solid opaque bar.
+      { name: "apple-mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
+      { name: "mobile-web-app-capable", content: "yes" },
+      { property: "og:title", content: "Voyager — Travel Journal & Planner" },
+      { property: "og:description", content: "Your trips, itineraries and expenses in one elegant place." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
+    ],
+    links: [
+      {
+        rel: "stylesheet",
+        href: appCss,
+      },
+      { rel: "manifest", href: "/manifest.webmanifest" },
+      { rel: "apple-touch-icon", href: "/icons/icon-512.png" },
+      { rel: "icon", href: "/icons/icon-512.png", type: "image/png" },
+    ],
+  }),
+  shellComponent: RootShell,
+  component: RootComponent,
+  notFoundComponent: NotFoundComponent,
+  errorComponent: ErrorComponent,
+});
+
+function RootShell({ children }: { children: ReactNode }) {
+  return (
+    <html lang="en">
+      <head>
+        <HeadContent />
+        {/* Sync dark-mode class before first paint — prevents flash of wrong theme on splash */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem('voyager.theme');if(t==='dark'||(t===null&&window.matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.classList.add('dark')}}catch(e){}})()`,
+          }}
+        />
+        {/* Plain CSS @supports (not a Tailwind arbitrary variant, which can't
+            express a bare property-support check reliably) — on a WebView
+            that doesn't implement backdrop-filter at all, #status-bar-blur
+            falls back to a solid, on-brand strip instead of the near-
+            invisible black-10%/white-5% tint alone, which is what read as
+            "no effect" (Foto 3: system-bar text still fully sharp). */}
+        <style
+          dangerouslySetInnerHTML={{
+            __html: `@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { #status-bar-blur { background: var(--background); opacity: 0.96; } }`,
+          }}
+        />
+      </head>
+      <body>
+        {/* Rendered as a DIRECT child of <body>, OUTSIDE every context
+            provider below (Query/Theme/DockStyle/Auth) — a `transform`,
+            `filter` or `perspective` on ANY ancestor establishes a new
+            containing block for `position: fixed` per spec, which silently
+            turns this into something positioned relative to THAT ancestor
+            instead of the viewport. Keeping it here, sibling to the whole
+            provider tree, guarantees nothing any provider ever does to its
+            wrapper can break the fixed positioning or the stacking context
+            this relies on to sit above every page's content. */}
+        <StatusBarBlur />
+        {children}
+        <Scripts />
+      </body>
+    </html>
+  );
+}
+
+// Fills exactly the iOS status-bar/notch strip (env(safe-area-inset-top) —
+// 0 on any device without one, so this is a no-op everywhere else) with a
+// blurred, translucent backdrop instead of leaving it the OS's own opaque
+// bar. Requires viewport-fit=cover + apple-mobile-web-app-status-bar-style=
+// black-translucent (see the <head> meta above) — without those two, iOS
+// never lets page content extend under that area in the first place, so
+// this div would just sit at y=0 with nothing behind it to blur.
+// pointer-events-none so it's purely decorative and never swallows a tap
+// meant for whatever's scrolled underneath it; a high z-index keeps it
+// above every dialog/sheet, since the real status bar is always on top of
+// the entire app, not just the current page's content.
+//
+// Moved to a direct child of <body> (see RootShell) and given its own
+// `isolation: isolate` so it always opens a fresh stacking context rooted at
+// the very top of the page, regardless of what z-index games any page below
+// it plays — before this it lived deep inside QueryClientProvider >
+// ThemeProvider > DockStyleProvider > AuthProvider, and if ANY of those (or
+// anything Splash/Toaster mount nearby) ever gained a transform/filter of
+// their own, this div's "fixed" positioning would have silently detached
+// from the viewport and started tracking that ancestor instead — completely
+// invisible in a static screenshot review, but exactly the kind of bug that
+// makes a blur "just not show up" on a real device while looking correct in
+// code.
+//
+// A `@supports not (backdrop-filter: ...)` fallback is now included too: on
+// a WebView that doesn't implement backdrop-filter at all (some older
+// in-app browsers), the previous version silently fell back to just the
+// very faint `bg-black/10`/`bg-white/5` tint — which reads as "no effect
+// at all", exactly what was reported ("si vede ancora testo e qualsiasi
+// dettaglio a fuoco"). The fallback swaps in the page's own solid
+// background colour instead, so unsupported browsers at least get an
+// opaque, on-brand strip rather than a nearly-invisible tint over sharp
+// text.
+function StatusBarBlur() {
+  return (
+    <div
+      id="status-bar-blur"
+      aria-hidden
+      className="pointer-events-none fixed inset-x-0 top-0 z-[9999] bg-black/10 dark:bg-white/5"
+      style={{
+        height: "env(safe-area-inset-top, 0px)",
+        backdropFilter: "blur(28px) saturate(160%)",
+        WebkitBackdropFilter: "blur(28px) saturate(160%)",
+        isolation: "isolate",
+        transform: "translateZ(0)",
+        willChange: "backdrop-filter",
+      }}
+    />
+  );
+}
+
+function RootComponent() {
+  const { queryClient } = Route.useRouteContext();
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider>
+        <DockStyleProvider>
+          <AuthProvider>
+            <NotificationBootstrap />
+            <SplashWrapper>
+              <Outlet />
+            </SplashWrapper>
+            <Toaster richColors position="top-center" />
+          </AuthProvider>
+        </DockStyleProvider>
+      </ThemeProvider>
+    </QueryClientProvider>
+  );
+}
+
+--- FINE FILE ---
+
+--- INIZIO FILE: src/routes/_authenticated/trips.$tripId.timeline.tsx ---
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -520,6 +908,73 @@ function classifyBusLineWide(tags: Record<string, string> | undefined, ref: stri
   return classifyBusLine(tags, ref, name, true);
 }
 
+// City admin-boundary bbox (Nominatim), reused to decide whether a bus
+// line's real geometry actually stays inside the city ("urbano") or reaches
+// beyond it ("extraurbano") even when OSM never tagged it route=coach —
+// e.g. a Correggio→Carpi bus that does have a stop inside Correggio's own
+// boundary but plainly isn't a local line since it runs to another town.
+const _cityBBoxCache = new Map<string, { s: number; n: number; w: number; e: number } | null>();
+async function getCityBBox(city: string): Promise<{ s: number; n: number; w: number; e: number } | null> {
+  const key = city.trim().toLowerCase();
+  if (_cityBBoxCache.has(key)) return _cityBBoxCache.get(key)!;
+  try {
+    const r = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(city)}&format=json&limit=1&addressdetails=0`,
+      { headers: { Accept: "application/json" } },
+    );
+    const hits = (await r.json()) as Array<{ boundingbox: [string, string, string, string] }>;
+    const bb = hits?.[0]?.boundingbox;
+    const v = bb
+      ? { s: parseFloat(bb[0]), n: parseFloat(bb[1]), w: parseFloat(bb[2]), e: parseFloat(bb[3]) }
+      : null;
+    _cityBBoxCache.set(key, v);
+    return v;
+  } catch {
+    _cityBBoxCache.set(key, null);
+    return null;
+  }
+}
+
+// A route relation's geometry "escapes" the city bbox when it strays past
+// it by more than this fraction of the bbox's own span — a small tolerance
+// absorbs Nominatim boundary rounding/a stop right at the city edge without
+// letting a line that genuinely runs to another town (Correggio→Carpi) read
+// as local just because its geometry clips the boundary by a few metres.
+const BBOX_ESCAPE_TOLERANCE = 0.15;
+function escapesCityBBox(
+  city: { s: number; n: number; w: number; e: number },
+  line: { s: number; n: number; w: number; e: number },
+): boolean {
+  const padLat = (city.n - city.s) * BBOX_ESCAPE_TOLERANCE;
+  const padLng = (city.e - city.w) * BBOX_ESCAPE_TOLERANCE;
+  return (
+    line.s < city.s - padLat ||
+    line.n > city.n + padLat ||
+    line.w < city.w - padLng ||
+    line.e > city.e + padLng
+  );
+}
+
+// Fetches full geometry for a batch of route relations in one request and
+// returns each relation's bounding box, so a whole city's worth of
+// candidate bus lines can be geometry-checked without one Overpass round
+// trip per line.
+async function fetchRelationBBoxes(ids: number[]): Promise<Map<number, { s: number; n: number; w: number; e: number }>> {
+  const out = new Map<number, { s: number; n: number; w: number; e: number }>();
+  if (ids.length === 0) return out;
+  const q = `[out:json][timeout:40];relation(id:${ids.join(",")});out geom;`;
+  try {
+    const data = (await overpassFetch(q)) as unknown as {
+      elements: Array<{ id: number; bounds?: { minlat: number; maxlat: number; minlon: number; maxlon: number } }>;
+    };
+    for (const el of data.elements) {
+      if (!el.bounds) continue;
+      out.set(el.id, { s: el.bounds.minlat, n: el.bounds.maxlat, w: el.bounds.minlon, e: el.bounds.maxlon });
+    }
+  } catch { /* geometry check is best-effort — lines just keep their tag-based classification */ }
+  return out;
+}
+
 async function fetchTransitLines(city: string, osmMode: string): Promise<Array<{ ref: string; name: string; intercity?: boolean; express?: boolean; color?: string }>> {
   const key = `${city}|${osmMode}`;
   if (_lineCache.has(key)) return _lineCache.get(key)!;
@@ -529,31 +984,74 @@ async function fetchTransitLines(city: string, osmMode: string): Promise<Array<{
   // the one "primary" tag — otherwise a line the map can already draw once
   // saved (see trip-map.tsx) never even shows up as a pickable suggestion.
   const modes = OSM_ROUTE_TAGS[osmMode] ?? [osmMode];
-  const clauses = modes.flatMap(m => [
-    `relation["type"="route_master"]["route_master"="${m}"](area.c)`,
-    `relation["type"="route"]["route"="${m}"](area.c)`,
-  ]).join(";");
-  const q = `[out:json][timeout:40];${areaQ};(${clauses};);out tags;`;
-  const data = await overpassFetch(q) as { elements: Array<{ tags: Record<string, string> }> };
   const seen = new Set<string>();
   const lines: Array<{ ref: string; name: string; intercity?: boolean; express?: boolean; color?: string }> = [];
-  for (const el of data.elements) {
-    // Not every mapped route carries a structured `ref` tag — airport/
-    // limousine lines in particular are often entered with only a `name`
-    // (e.g. "Incheon Airport Limousine 6705A"). Requiring `ref` silently
-    // dropped those entirely; fall back to `name` so the line still shows up
-    // (just not de-duplicated/sorted as neatly as a real ref code would be).
-    const ref = el.tags?.ref || el.tags?.name || "";
-    if (!ref || seen.has(ref)) continue;
-    seen.add(ref);
-    const name = el.tags?.name ?? ref;
-    lines.push({ ref, name, ...classifyBusLine(el.tags, ref, name, false) });
+
+  if (osmMode === "bus") {
+    // Buses need a real STOP inside the city's own administrative boundary
+    // to be shown at all — a route relation that merely clips the boundary
+    // with a bit of through-geometry (no actual stop here) used to pass the
+    // old `relation(area.c)` membership test and show up as an unrelated
+    // suggestion; requiring a stop-role member inside area.c fixes that.
+    const q = `[out:json][timeout:40];${areaQ};
+      node(area.c)["public_transport"~"^(stop_position|platform)$"]->.stops1;
+      node(area.c)["highway"="bus_stop"]->.stops2;
+      way(area.c)["highway"="bus_stop"]->.stops3;
+      (.stops1;.stops2;.stops3;)->.stops;
+      (
+        rel(bn.stops)["type"="route_master"]["route_master"~"^(bus|coach)$"];
+        rel(bn.stops)["type"="route"]["route"~"^(bus|coach)$"];
+      );
+      out ids tags;`;
+    const data = (await overpassFetch(q)) as unknown as { elements: Array<{ id: number; tags: Record<string, string> }> };
+    const candidates: Array<{ id: number; ref: string; name: string; tags: Record<string, string> }> = [];
+    for (const el of data.elements) {
+      const ref = el.tags?.ref || el.tags?.name || "";
+      if (!ref || seen.has(ref)) continue;
+      seen.add(ref);
+      candidates.push({ id: el.id, ref, name: el.tags?.name ?? ref, tags: el.tags });
+    }
+
+    // Geometry-check every candidate NOT already tag-marked coach/long_distance
+    // against the city's own bbox — a line that has a stop in town but whose
+    // route clearly reaches another town (Correggio→Carpi) still reads as
+    // extraurbano, matching how a rider actually experiences the line.
+    const cityBox = await getCityBBox(city);
+    const bboxes = cityBox
+      ? await fetchRelationBBoxes(candidates.filter(c => c.tags?.route !== "coach" && c.tags?.service !== "long_distance").map(c => c.id))
+      : new Map<number, { s: number; n: number; w: number; e: number }>();
+
+    for (const c of candidates) {
+      const base = classifyBusLine(c.tags, c.ref, c.name, false);
+      const box = bboxes.get(c.id);
+      const escapes = !!(cityBox && box && escapesCityBBox(cityBox, box));
+      lines.push({ ref: c.ref, name: c.name, ...base, intercity: base.intercity || escapes || undefined });
+    }
+  } else {
+    const clauses = modes.flatMap(m => [
+      `relation["type"="route_master"]["route_master"="${m}"](area.c)`,
+      `relation["type"="route"]["route"="${m}"](area.c)`,
+    ]).join(";");
+    const q = `[out:json][timeout:40];${areaQ};(${clauses};);out tags;`;
+    const data = await overpassFetch(q) as { elements: Array<{ tags: Record<string, string> }> };
+    for (const el of data.elements) {
+      // Not every mapped route carries a structured `ref` tag — airport/
+      // limousine lines in particular are often entered with only a `name`
+      // (e.g. "Incheon Airport Limousine 6705A"). Requiring `ref` silently
+      // dropped those entirely; fall back to `name` so the line still shows up
+      // (just not de-duplicated/sorted as neatly as a real ref code would be).
+      const ref = el.tags?.ref || el.tags?.name || "";
+      if (!ref || seen.has(ref)) continue;
+      seen.add(ref);
+      const name = el.tags?.name ?? ref;
+      lines.push({ ref, name, ...classifyBusLine(el.tags, ref, name, false) });
+    }
   }
 
-  // Buses: the strict administrative-boundary query above only finds LOCAL/
-  // urban lines. Intercity and airport express buses (e.g. Seoul's Incheon
-  // Airport limousine bus 6103) mostly run OUTSIDE that boundary and are
-  // missed entirely — find them via their actual STOPS near the city centre
+  // Buses: the strict stop-in-boundary query above only finds LOCAL/urban
+  // lines. Intercity and airport express buses (e.g. Seoul's Incheon Airport
+  // limousine bus 6103) mostly run OUTSIDE that boundary and are missed
+  // entirely — find them via their actual STOPS near the city centre
   // (CITY_STOP_RADIUS_M) rather than any point of their route geometry, so a
   // long-distance coach that merely transits near the city without stopping
   // here doesn't show up as an unrelated suggestion, and flag anything found
@@ -1189,25 +1687,33 @@ function TimelineView() {
                         </div>
 
                         {/* Vehicle legs — each on its own row: coloured mode icon
-                            beside its line/stops, highlighted in the mode colour */}
+                            beside its line/stops, highlighted in the mode colour.
+                            Column widths deliberately mirror the header row above
+                            (2rem icon column = the h-8 circle, gap-x-3 = the
+                            header's own gap-3) so the small icon sits centred
+                            under the big coloured circle and the grey time lines
+                            up with the big white time's left edge, instead of
+                            both drifting left under the title text. */}
                         {mixedLegs.length > 0 && (
                           // One shared grid for all legs → line refs, times and
                           // stops line up in fixed columns (no jagged in/out).
-                          <div className="mt-2 grid grid-cols-[auto_auto_1fr] items-start gap-x-2 gap-y-1 text-xs">
+                          <div className="mt-2 grid grid-cols-[2rem_auto_1fr] items-start gap-x-3 gap-y-1 text-xs">
                             {mixedLegs.map((leg, i) => {
                               const LIcon = TRANSIT_ICON[leg.mode] ?? Bus;
                               const color = TRANSIT_TEXT[leg.mode] ?? "text-muted-foreground";
                               return (
                                 <Fragment key={i}>
-                                  {/* Column 1 — icon + line ref */}
-                                  <div className="flex items-center gap-1.5">
+                                  {/* Column 1 — mode icon only, centred in a 2rem
+                                      column (same width as the h-8 circle above). */}
+                                  <div className="flex items-center justify-center">
                                     <LIcon className={cn("h-4 w-4 shrink-0", color)} />
-                                    {leg.vehicle && <span className={cn("font-semibold", color)}>{withRomanization(leg.vehicle, lang)}</span>}
                                   </div>
-                                  {/* Column 2 — departure time */}
+                                  {/* Column 2 — departure time, starts exactly where
+                                      the big time column starts above. */}
                                   <div className="tabular-nums text-muted-foreground">{leg.depart_at || ""}</div>
-                                  {/* Column 3 — boarding + alighting stops, stacked */}
+                                  {/* Column 3 — line ref + boarding/alighting stops, stacked */}
                                   <div className="min-w-0 space-y-0.5 text-muted-foreground">
+                                    {leg.vehicle && <p className={cn("font-semibold", color)}>{withRomanization(leg.vehicle, lang)}</p>}
                                     {leg.from_stop && <ScrollText>{withRomanization(leg.from_stop, lang)}</ScrollText>}
                                     {leg.to_stop && <ScrollText>→ {withRomanization(leg.to_stop, lang)}</ScrollText>}
                                   </div>
@@ -3164,6 +3670,11 @@ function fmtDT(s: string, lang?: string) {
 // native <select>, which (a) looks inconsistent (no flags, different visual
 // style) and (b) opens as the OS's own full-screen picker on mobile, which
 // doesn't match the in-page dropdown pattern the rest of the form uses.
+// Same custom absolute-positioned dropdown pattern as StopCombobox/"Luogo" —
+// NOT Radix Popover, which anchored its width to `--radix-popover-trigger-
+// width` and could render an unstable/collapsed width the same way the
+// place picker did before that was fixed; this trigger is a plain button +
+// text-filterable list, so its popup always spans the trigger's own width.
 function LegCityCombobox({
   cities, value, onChange,
 }: {
@@ -3173,48 +3684,56 @@ function LegCityCombobox({
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const selected = cities.find((c) => c.name === value);
+  const nq = norm(query);
+  const filtered = useMemo(
+    () => (nq ? cities.filter((c) => norm(c.name).includes(nq)) : cities),
+    [cities, nq],
+  );
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          role="combobox"
-          aria-expanded={open}
-          className="h-9 w-full justify-between font-normal"
-        >
-          <span className="flex min-w-0 items-center gap-1.5 truncate">
-            {selected && <span className="shrink-0">{flagOf(selected.country)}</span>}
-            <span className={cn("truncate", !selected && "text-muted-foreground")}>
-              {selected ? selected.name : t("select_city_placeholder")}
-            </span>
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => { setQuery(""); setOpen((v) => !v); }}
+        className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 text-left text-sm font-normal ring-offset-background hover:bg-accent/40"
+      >
+        <span className="flex min-w-0 items-center gap-1.5 truncate">
+          {selected && <span className="shrink-0">{flagOf(selected.country)}</span>}
+          <span className={cn("truncate", !selected && "text-muted-foreground")}>
+            {selected ? selected.name : t("select_city_placeholder")}
           </span>
-          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-        <Command>
-          <CommandInput placeholder={t("search_type")} />
-          <CommandList className="max-h-[min(18rem,var(--radix-popover-content-available-height,18rem),50dvh)]">
-            {cities.length === 0 && <CommandEmpty>{t("no_cities")}</CommandEmpty>}
-            <CommandGroup>
-              {cities.map((c) => (
-                <CommandItem
-                  key={`${c.country}|${c.name}`}
-                  value={c.name}
-                  onSelect={() => { onChange(c.name); setOpen(false); }}
-                >
-                  <Check className={cn("mr-2 h-4 w-4", value === c.name ? "opacity-100" : "opacity-0")} />
-                  <span className="mr-2">{flagOf(c.country)}</span>
-                  <span>{c.name}</span>
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          </CommandList>
-        </Command>
-      </PopoverContent>
-    </Popover>
+        </span>
+        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+      </button>
+      {open && (
+        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] w-full min-w-0 overflow-y-auto overflow-x-hidden overscroll-contain rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-md">
+          <Input
+            autoFocus
+            value={query}
+            placeholder={t("search_type")}
+            onChange={(e) => setQuery(e.target.value)}
+            onBlur={() => setTimeout(() => setOpen(false), 150)}
+            className="mb-1"
+          />
+          {filtered.length === 0 && (
+            <div className="px-2 py-1.5 text-sm text-muted-foreground">{t("no_cities")}</div>
+          )}
+          {filtered.map((c) => (
+            <button
+              type="button"
+              key={`${c.country}|${c.name}`}
+              onMouseDown={(e) => { e.preventDefault(); onChange(c.name); setOpen(false); }}
+              className="flex w-full min-w-0 items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+            >
+              <Check className={cn("h-4 w-4 shrink-0", value === c.name ? "opacity-100" : "opacity-0")} />
+              <span className="shrink-0">{flagOf(c.country)}</span>
+              <span className="min-w-0 flex-1 truncate">{c.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -3718,12 +4237,10 @@ function LineCombobox({
                     {line.ref}
                   </span>
                 ) : (
-                  <span
-                    className={cn(
-                      "shrink-0 font-semibold",
-                      line.express ? "text-violet-600 dark:text-violet-400" : line.intercity && "text-amber-600 dark:text-amber-400",
-                    )}
-                  >
+                  // No real OSM colour: still shown as a pill (not bare text)
+                  // so every line reads consistently in the list — just a
+                  // neutral/muted fill instead of a real, vivid line colour.
+                  <span className="shrink-0 rounded-md bg-foreground/10 px-1.5 py-0.5 text-[11px] font-bold leading-tight text-foreground/70">
                     {line.ref}
                   </span>
                 )}
@@ -3733,18 +4250,19 @@ function LineCombobox({
                 {/* Express/intercity/urban badges are mutually exclusive with
                     each other along the urban/extraurban axis (a line is
                     either one or the other), but express is independent and
-                    can combine with either. */}
+                    can combine with either. rounded-md (not rounded-full) to
+                    match the line-ref pill's own corner radius. */}
                 {line.express && (
-                  <span className="shrink-0 rounded-full bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-violet-600 dark:text-violet-400">
+                  <span className="shrink-0 rounded-md bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-violet-600 dark:text-violet-400">
                     {wpL(lang).express}
                   </span>
                 )}
                 {line.intercity ? (
-                  <span className="shrink-0 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+                  <span className="shrink-0 rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
                     {wpL(lang).intercity}
                   </span>
                 ) : (
-                  <span className="shrink-0 rounded-full bg-red-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-red-600 dark:text-red-400">
+                  <span className="shrink-0 rounded-md bg-red-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-red-600 dark:text-red-400">
                     {wpL(lang).urban}
                   </span>
                 )}
@@ -4973,4 +5491,3 @@ function HubCombobox({
     </div>
   );
 }
-

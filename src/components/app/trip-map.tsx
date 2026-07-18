@@ -807,6 +807,66 @@ async function geocodePlace(query: string, country?: string, airportHint = false
   return null;
 }
 
+// An airport's dataset/geocoded reference point (see geocodePlace) commonly
+// lands near the terminal/access road rather than visually "on" the airport
+// — Foto 4: "Pill relative agli aerei dovrebbero trovarsi su una pista di
+// atterraggio e non su strada". Snaps that point onto the nearest real
+// runway centreline (OSM `aeroway=runway` way) within a tight search radius,
+// so the plane pin actually sits on tarmac. Best-effort: any failure (no
+// runway mapped nearby, network error) just keeps the original point.
+const _runwaySnapCache = new Map<string, { lat: number; lng: number }>();
+const RUNWAY_SEARCH_RADIUS_M = 3000;
+function _nearestPointOnSegment(p: LL, a: LL, b: LL): LL {
+  // Small-scale planar approximation (fine at airport scale, a few km) —
+  // project lng by cos(lat) so the two axes are comparable in metres.
+  const cos = Math.cos((p[0] * Math.PI) / 180);
+  const ax = a[1] * cos, ay = a[0];
+  const bx = b[1] * cos, by = b[0];
+  const px = p[1] * cos, py = p[0];
+  const dx = bx - ax, dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2));
+  const x = ax + t * dx, y = ay + t * dy;
+  return [y, x / cos];
+}
+async function snapToNearestRunway(lat: number, lng: number): Promise<{ lat: number; lng: number }> {
+  const key = `${lat.toFixed(4)},${lng.toFixed(4)}`;
+  const cached = _runwaySnapCache.get(key);
+  if (cached) return cached;
+  const fallback = { lat, lng };
+  try {
+    const q = `[out:json][timeout:15];way(around:${RUNWAY_SEARCH_RADIUS_M},${lat},${lng})["aeroway"="runway"];out geom;`;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 15000);
+    const r = await fetch("https://overpass-api.de/api/interpreter", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `data=${encodeURIComponent(q)}`,
+      signal: ctrl.signal,
+    }).finally(() => clearTimeout(timer));
+    if (!r.ok) { _runwaySnapCache.set(key, fallback); return fallback; }
+    const data = (await r.json()) as { elements: Array<{ geometry?: Array<{ lat: number; lon: number }> }> };
+    const p: LL = [lat, lng];
+    let best: LL | null = null;
+    let bestD = Infinity;
+    for (const el of data.elements) {
+      const geom = el.geometry;
+      if (!geom || geom.length < 2) continue;
+      for (let i = 0; i < geom.length - 1; i++) {
+        const cand = _nearestPointOnSegment(p, [geom[i].lat, geom[i].lon], [geom[i + 1].lat, geom[i + 1].lon]);
+        const d = _approxDistM(p, cand);
+        if (d < bestD) { bestD = d; best = cand; }
+      }
+    }
+    const result = best ? { lat: best[0], lng: best[1] } : fallback;
+    _runwaySnapCache.set(key, result);
+    return result;
+  } catch {
+    _runwaySnapCache.set(key, fallback);
+    return fallback;
+  }
+}
+
 // Custom pin so we don't depend on Leaflet's default marker images.
 const pinIcon = L.divIcon({
   className: "voyager-pin",
@@ -1414,9 +1474,14 @@ export function TripMap({
         // "Belfast Lanyon Place" rather than "Belfast – Belfast Lanyon
         // Place") — falls back to the original full label if that finds
         // nothing, so this can only ever do as well as before, never worse.
-        updates[key] =
+        let coord =
           (stripped !== e.name ? await geocodePlace(stripped, e.country, e.airport, e.iata) : null) ??
           (await geocodePlace(e.name, e.country, e.airport, e.iata));
+        // Airport endpoints only: pull the pin onto the nearest real runway
+        // instead of leaving it at the dataset's terminal/road-side
+        // reference point (see snapToNearestRunway).
+        if (coord && e.airport) coord = await snapToNearestRunway(coord.lat, coord.lng);
+        updates[key] = coord;
       }
       if (!cancelled && Object.keys(updates).length > 0) {
         rememberGeo(memGeoRoute, updates);
@@ -2199,10 +2264,21 @@ export function TripMap({
     // Real-world radius within which two pins are considered "the same
     // spot" for decluttering purposes — generous enough to catch an
     // airport's terminal-vs-bus-stop geocoding drift, tight enough to never
-    // merge two genuinely different nearby places.
-    const CLUSTER_RADIUS_M = 70;
+    // merge two genuinely different nearby places. Widened from 70m: several
+    // real airport/station layouts (terminal building vs. the actual bus/
+    // taxi stand, or a road pin vs. its rail pin at the same interchange)
+    // still sat just outside 70m and kept showing as two separate,
+    // un-clustered badges.
+    const CLUSTER_RADIUS_M = 120;
     const ROW_HEIGHT_PX = 28; // matches the 28px circle / 26px capsule badge height
     const ROW_GAP_PX = 8; // visible-but-modest gap between different-mode rows
+    // Badges are spaced edge-to-edge using their exact half-widths, but a
+    // circle's own anti-aliased/border edge still reads as a hairline gap at
+    // that exact distance — pull every pair 1px closer so adjacent badges
+    // visibly touch (a slight overlap of their outer borders) rather than
+    // leaving the faint sliver of background the user kept seeing at every
+    // zoom level.
+    const TOUCH_OVERLAP_PX = 1;
 
     type Big = { dKey: string; idx: number; ll: LL; mode: string; line?: string | null; board?: boolean; halfW: number };
     const pins: Big[] = [];
@@ -2249,10 +2325,20 @@ export function TripMap({
       if (idxs0.length < 2) continue;
       // Drop duplicate boardings for the same (mode, line) within this
       // cluster before laying anything out, so they don't consume a slot.
+      // Alighting (down-arrow) pins get the same treatment, keyed by mode
+      // alone — an arrow carries no line ref, and two legs of the same mode
+      // ending at the same real spot (e.g. an interchange) is still just
+      // "you get off here" once, not twice (Foto 1: "la discesa deve essere
+      // solo una").
       const seenBoard = new Set<string>();
+      const seenAlight = new Set<string>();
       const idxs = idxs0.filter((pinIdx) => {
         const p = pins[pinIdx];
-        if (!p.board) return true;
+        if (!p.board) {
+          if (seenAlight.has(p.mode)) { skip.add(`${p.dKey}-${p.idx}`); return false; }
+          seenAlight.add(p.mode);
+          return true;
+        }
         const k = `${p.mode}|${(p.line ?? "").trim().toLowerCase()}`;
         if (seenBoard.has(k)) { skip.add(`${p.dKey}-${p.idx}`); return false; }
         seenBoard.add(k);
@@ -2280,7 +2366,7 @@ export function TripMap({
         // Lay out left→right using each badge's own half-width so adjacent
         // same-mode badges touch with ZERO extra gap, then centre the row on
         // x=0 so it doesn't drift sideways off the real endpoint.
-        const xGaps = rowIdxs.slice(1).map((_, i) => pins[rowIdxs[i]].halfW + pins[rowIdxs[i + 1]].halfW);
+        const xGaps = rowIdxs.slice(1).map((_, i) => pins[rowIdxs[i]].halfW + pins[rowIdxs[i + 1]].halfW - TOUCH_OVERLAP_PX);
         const xPos: number[] = [0];
         xGaps.forEach((g) => xPos.push(xPos[xPos.length - 1] + g));
         const xMean = xPos.reduce((a, b) => a + b, 0) / xPos.length;
