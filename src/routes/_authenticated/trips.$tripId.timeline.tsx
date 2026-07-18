@@ -1319,7 +1319,11 @@ function TimelineView() {
                                       column (same width as the h-8 circle above). */}
                                   <div className="flex items-center justify-center">
                                     <LIcon className={cn("h-4 w-4 shrink-0", color)} />
-                                    {leg.vehicle && <p className={cn("font-semibold", color)}>{withRomanization(leg.vehicle, lang)}</p>}
+                                    {leg.vehicle && (
+                                      <p className={cn("font-semibold", color)}>
+                                        {withRomanization(leg.vehicle, lang)}
+                                      </p>
+                                    )}
                                   </div>
                                   {/* Column 2 — departure time, starts exactly where
                                       the big time column starts above. */}
