@@ -1319,13 +1319,13 @@ function TimelineView() {
                                       column (same width as the h-8 circle above). */}
                                   <div className="flex items-center justify-center">
                                     <LIcon className={cn("h-4 w-4 shrink-0", color)} />
+                                    {leg.vehicle && <p className={cn("font-semibold", color)}>{withRomanization(leg.vehicle, lang)}</p>}
                                   </div>
                                   {/* Column 2 — departure time, starts exactly where
                                       the big time column starts above. */}
                                   <div className="tabular-nums text-muted-foreground">{leg.depart_at || ""}</div>
                                   {/* Column 3 — line ref + boarding/alighting stops, stacked */}
                                   <div className="min-w-0 space-y-0.5 text-muted-foreground">
-                                    {leg.vehicle && <p className={cn("font-semibold", color)}>{withRomanization(leg.vehicle, lang)}</p>}
                                     {leg.from_stop && <ScrollText>{withRomanization(leg.from_stop, lang)}</ScrollText>}
                                     {leg.to_stop && <ScrollText>→ {withRomanization(leg.to_stop, lang)}</ScrollText>}
                                   </div>
