@@ -3894,6 +3894,7 @@ function WaypointCombobox({
   onPick: (s: WpSuggestion) => void;
   onType: (name: string) => void;
 }) {
+  useTranslationTick();
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<WpSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
@@ -3932,7 +3933,7 @@ function WaypointCombobox({
               className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
             >
               <span>{flagOf(s.country)}</span>
-              <span className="min-w-0 flex-1 truncate">{s.label}</span>
+              <span className="min-w-0 flex-1 truncate">{withRomanization(s.label, lang)}</span>
             </button>
           ))}
         </div>
@@ -3980,6 +3981,12 @@ function HubCombobox({
 }) {
   const { t, i18n } = useTranslation();
   const lang = i18n.language || "it";
+  // Re-renders once a background translation of a non-Latin suggestion
+  // (Korean/Japanese/Chinese/etc. POI or stop name) resolves — otherwise the
+  // suggestion list below would keep showing the untranslated original
+  // forever, since nothing else here triggers a re-render when the async
+  // translation cache fills in.
+  useTranslationTick();
   const [open, setOpen] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const isPlane = mode === "plane";
@@ -4238,7 +4245,7 @@ function HubCombobox({
                   >
                     <Check className={cn("h-4 w-4 shrink-0", sel ? "opacity-100" : "opacity-0")} />
                     <span className="mr-1">{flagOf(c.country)}</span>
-                    <span className="min-w-0 flex-1 truncate">{c.name}</span>
+                    <span className="min-w-0 flex-1 truncate">{withRomanization(c.name, lang)}</span>
                   </button>
                 );
               })}
@@ -4289,7 +4296,7 @@ function HubCombobox({
                         >
                           <Check className={cn("h-4 w-4 shrink-0", sel ? "opacity-100" : "opacity-0")} />
                           <MapPin className="h-3.5 w-3.5 shrink-0 text-sky-600 dark:text-sky-400" />
-                          <span className="min-w-0 flex-1 truncate">{name}</span>
+                          <span className="min-w-0 flex-1 truncate">{withRomanization(name, lang)}</span>
                         </button>
                       );
                     })}
@@ -4312,7 +4319,7 @@ function HubCombobox({
                         >
                           <Check className={cn("h-4 w-4 shrink-0", sel ? "opacity-100" : "opacity-0")} />
                           <MapPin className="h-3.5 w-3.5 shrink-0 opacity-60" />
-                          <span className="min-w-0 flex-1 truncate">{s.label}</span>
+                          <span className="min-w-0 flex-1 truncate">{withRomanization(s.label, lang)}</span>
                           {used && <UsedPlaceBadge lang={lang} />}
                         </button>
                       );
@@ -4342,7 +4349,7 @@ function HubCombobox({
                         >
                           <Check className={cn("h-4 w-4 shrink-0", sel ? "opacity-100" : "opacity-0")} />
                           <MapPin className="h-3.5 w-3.5 shrink-0 opacity-60" />
-                          <span className="min-w-0 flex-1 truncate">{s.label}</span>
+                          <span className="min-w-0 flex-1 truncate">{withRomanization(s.label, lang)}</span>
                           {used && <UsedPlaceBadge lang={lang} />}
                         </button>
                       );
@@ -4386,8 +4393,8 @@ function HubCombobox({
                     >
                       <Check className={cn("h-4 w-4 shrink-0", sel ? "opacity-100" : "opacity-0")} />
                       <span className="min-w-0 flex-1 truncate">
-                        <span className="font-medium">{h.name}</span>
-                        {h.city && <span className="ml-1.5 text-xs opacity-70">- {h.city}</span>}
+                        <span className="font-medium">{withRomanization(h.name, lang)}</span>
+                        {h.city && <span className="ml-1.5 text-xs opacity-70">- {withRomanization(h.city, lang)}</span>}
                       </span>
                     </button>
                   );
@@ -4510,8 +4517,8 @@ function HubCombobox({
                       >
                         <Check className={cn("h-4 w-4 shrink-0", sel ? "opacity-100" : "opacity-0")} />
                         <span className="min-w-0 flex-1 truncate">
-                          <span className="font-medium">{h.city ?? h.name}</span>
-                          {h.city && <span className="ml-1.5 text-xs opacity-70">- {h.name}</span>}
+                          <span className="font-medium">{withRomanization(h.city ?? h.name, lang)}</span>
+                          {h.city && <span className="ml-1.5 text-xs opacity-70">- {withRomanization(h.name, lang)}</span>}
                         </span>
                         {used && <UsedPlaceBadge lang={lang} />}
                       </button>
@@ -4539,8 +4546,8 @@ function HubCombobox({
                       >
                         <Check className="h-4 w-4 shrink-0 opacity-0" />
                         <span className="min-w-0 flex-1 truncate">
-                          <span className="font-medium">{h.city ?? h.name}</span>
-                          {h.city && <span className="ml-1.5 text-xs opacity-70">- {h.name}</span>}
+                          <span className="font-medium">{withRomanization(h.city ?? h.name, lang)}</span>
+                          {h.city && <span className="ml-1.5 text-xs opacity-70">- {withRomanization(h.name, lang)}</span>}
                         </span>
                         {used && <UsedPlaceBadge lang={lang} />}
                       </button>
@@ -4726,8 +4733,8 @@ function HubCombobox({
                   >
                     <Check className={cn("h-4 w-4 shrink-0", sel ? "opacity-100" : "opacity-0")} />
                     <span className="min-w-0 flex-1 truncate">
-                      <span className="font-medium">{h.city ?? h.name}</span>
-                      {h.city && <span className="ml-1.5 text-xs opacity-70">- {h.name}</span>}
+                      <span className="font-medium">{withRomanization(h.city ?? h.name, lang)}</span>
+                      {h.city && <span className="ml-1.5 text-xs opacity-70">- {withRomanization(h.name, lang)}</span>}
                     </span>
                     {used && <UsedPlaceBadge lang={lang} />}
                   </button>
@@ -4755,8 +4762,8 @@ function HubCombobox({
                   >
                     <Check className="h-4 w-4 shrink-0 opacity-0" />
                     <span className="min-w-0 flex-1 truncate">
-                      <span className="font-medium">{h.city ?? h.name}</span>
-                      {h.city && <span className="ml-1.5 text-xs opacity-70">- {h.name}</span>}
+                      <span className="font-medium">{withRomanization(h.city ?? h.name, lang)}</span>
+                      {h.city && <span className="ml-1.5 text-xs opacity-70">- {withRomanization(h.name, lang)}</span>}
                     </span>
                     {used && <UsedPlaceBadge lang={lang} />}
                   </button>
