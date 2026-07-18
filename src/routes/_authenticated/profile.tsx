@@ -468,6 +468,38 @@ function ProfilePage() {
   }, [transportItems.data, stats.forStatsIds]);
   const { kmByMode, resolving: kmResolving } = useTransportKm(transportAgg.legsByMode);
 
+  const allRoutesByMode = useMemo(() => {
+    const rows = (transportItems.data ?? []).filter((r) => stats.forStatsIds.has(r.trip_id));
+    const routeMap = new Map<string, { mode: string; a: string; b: string; count: number }>();
+
+    rows.forEach((r: any) => {
+      const a = r.departure_name || r.start_name || r.origin || r.from || r.departure || r.a || "";
+      const b = r.arrival_name || r.end_name || r.destination || r.to || r.arrival || r.b || "";
+      if (!a || !b) return;
+
+      const [first, second] = [a, b].sort();
+      const key = `${r.mode}|${first}|${second}`;
+
+      const existing = routeMap.get(key);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        routeMap.set(key, { mode: r.mode, a: first, b: second, count: 1 });
+      }
+    });
+
+    const grouped: Record<string, { mode: string; a: string; b: string; count: number }[]> = {};
+    routeMap.forEach((val) => {
+      if (!grouped[val.mode]) grouped[val.mode] = [];
+      grouped[val.mode].push(val);
+    });
+
+    for (const mode in grouped) {
+      grouped[mode].sort((x, y) => y.count - x.count || x.a.localeCompare(y.a));
+    }
+    return grouped;
+  }, [transportItems.data, stats.forStatsIds]);
+
   // Every distinct visited city (name+country), used to resolve the
   // farthest-points compass below.
   const visitedCities = useMemo<City[]>(
@@ -746,6 +778,46 @@ function ProfilePage() {
                     );
                   })}
                 </ul>
+              </div>
+            )}
+
+            {/* Nuova sezione: Tutte le tratte */}
+            {Object.keys(allRoutesByMode).length > 0 && (
+              <div className="mt-8 border-t border-border/50 pt-6">
+                <div className="mb-4 flex items-center justify-center gap-2">
+                  <h3 className="font-serif text-base font-semibold">Tutte le tratte per mezzo</h3>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {Object.entries(allRoutesByMode)
+                    .sort(([, routesA], [, routesB]) => routesB.length - routesA.length)
+                    .map(([mode, routes]) => {
+                      const Icon = MODE_ICON[mode] ?? RouteIcon;
+                      const color = MODE_COLOR[mode];
+                      return (
+                        <div key={mode} className="flex flex-col rounded-2xl border border-border bg-secondary/20 p-4">
+                          <div className="mb-3 flex items-center gap-2 border-b border-border/50 pb-2">
+                            <Icon className="h-4 w-4" style={color ? { color } : undefined} />
+                            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                              {mode === "plane" ? "Volo" : t(MODE_LABEL_KEY[mode] ?? mode)}
+                            </span>
+                            <span className="ml-auto text-[10px] font-medium text-muted-foreground/70">
+                              {routes.length} tratte
+                            </span>
+                          </div>
+                          <ul className="space-y-2 text-sm">
+                            {routes.map((r, i) => (
+                              <li key={i} className="flex items-center justify-between gap-3">
+                                <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                                  <ScrollText className="min-w-0 flex-1 font-medium">{r.a} ↔ {r.b}</ScrollText>
+                                </span>
+                                <span className="shrink-0 tabular-nums font-medium text-muted-foreground">{r.count}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      );
+                    })}
+                </div>
               </div>
             )}
           </div>
