@@ -2086,6 +2086,45 @@ export function TripMap({
     });
   }, [drawn]);
 
+  // ── Overlap offsetting for coincident endpoint pins ──────────────────────
+  // A "big" endpoint badge (boarding/alighting icon) can land on the exact
+  // same coordinate as another leg's endpoint badge — the classic case being
+  // an airport that's the ARRIVAL of one leg and the DEPARTURE of the next
+  // (or of a return leg later in the trip). Leaflet just stacks both markers
+  // on the same point, so only the topmost one is visible/clickable. Detect
+  // every group of big, non-hollow pins sharing a coordinate and nudge each
+  // one sideways (east/west, latitude-corrected) by a small, fixed amount so
+  // the group renders side by side on the same row instead of hidden behind
+  // each other — the underlying route lines still terminate at the real,
+  // un-nudged coordinate; only the badge's drawn position shifts.
+  const pinNudge = useMemo(() => {
+    const PIN_OVERLAP_OFFSET_M = 11; // gap between two side-by-side badges
+    const groups = new Map<string, Array<{ dKey: string; idx: number; ll: LL }>>();
+    drawn.forEach((d) => {
+      d.pins.forEach((p, idx) => {
+        if (!p.big || p.hollow) return;
+        const k = `${p.ll[0].toFixed(4)},${p.ll[1].toFixed(4)}`;
+        let arr = groups.get(k);
+        if (!arr) { arr = []; groups.set(k, arr); }
+        arr.push({ dKey: d.key, idx, ll: p.ll });
+      });
+    });
+    const out = new Map<string, LL>(); // `${dKey}-${idx}` -> nudged ll
+    for (const arr of groups.values()) {
+      if (arr.length < 2) continue;
+      // Stable order (insertion order from `drawn`, itself stable per render)
+      // so the same pin always lands on the same side instead of flip-flopping.
+      const lat = arr[0].ll[0];
+      const metersPerDegLng = 111320 * Math.cos((lat * Math.PI) / 180) || 1;
+      const stepDeg = PIN_OVERLAP_OFFSET_M / metersPerDegLng;
+      const mid = (arr.length - 1) / 2;
+      arr.forEach(({ dKey, idx, ll }, i) => {
+        out.set(`${dKey}-${idx}`, [ll[0], ll[1] + (i - mid) * stepDeg]);
+      });
+    }
+    return out;
+  }, [drawn]);
+
   // Count transit legs whose line couldn't be resolved from OSM data, to warn.
   const missingTransit = useMemo(() => {
     if (!showRoutes || !routes) return 0;
@@ -2291,7 +2330,7 @@ export function TripMap({
           const firstBigIdx = d.pins.findIndex((p) => p.big && !p.hollow);
           return d.pins.map((p, idx) =>
             p.big && !p.hollow ? (
-              <Marker key={`${d.key}-p${idx}`} position={p.ll} icon={endpointIcon(d.mode, d.color, d.line, p.board !== undefined ? p.board : idx === firstBigIdx)}>
+              <Marker key={`${d.key}-p${idx}`} position={pinNudge.get(`${d.key}-${idx}`) ?? p.ll} icon={endpointIcon(d.mode, d.color, d.line, p.board !== undefined ? p.board : idx === firstBigIdx)}>
                 {p.name && (
                   <>
                     <Popup><strong>{withRomanization(p.name, lang)}</strong></Popup>
