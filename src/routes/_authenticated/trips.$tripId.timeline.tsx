@@ -1970,11 +1970,9 @@ function TransportDialog({
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs">{t("depart_date")} <span className="opacity-60">{t("optional")}</span></Label>
-                    <Input
-                      type="date"
+                    <DateField
                       value={leg.depart_at ? leg.depart_at.slice(0, 10) : ""}
-                      onChange={(e) => {
-                        const date = e.target.value;
+                      onChange={(date) => {
                         const time = leg.depart_at ? leg.depart_at.slice(11, 16) : "";
                         updateLeg(i, { depart_at: date ? `${date}T${time || "00:00"}` : "" });
                       }}
@@ -1992,11 +1990,9 @@ function TransportDialog({
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs">{t("arrive_date")} <span className="opacity-60">{t("optional")}</span></Label>
-                    <Input
-                      type="date"
+                    <DateField
                       value={leg.arrive_at ? leg.arrive_at.slice(0, 10) : ""}
-                      onChange={(e) => {
-                        const date = e.target.value;
+                      onChange={(date) => {
                         const time = leg.arrive_at ? leg.arrive_at.slice(11, 16) : "";
                         updateLeg(i, { arrive_at: date ? `${date}T${time || "00:00"}` : "" });
                       }}
@@ -2246,6 +2242,102 @@ function TimeField({
               size="sm"
               onClick={() => {
                 onChange(`${hh}:${mm}`);
+                setOpen(false);
+              }}
+            >
+              <Check className="h-4 w-4" />
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+// ── Custom date picker ──────────────────────────────────────────────────
+// Same rationale and shape as `TimeField` above: a native `<input
+// type="date">`'s OS picker sheet suffers the exact same WebKit anchoring
+// bug inside this app's `transform`-centered dialogs, and it was the actual
+// cause of the "Inizio"/"Fine" field's own box rendering oversized/
+// overflowing the dialog — not a plain CSS sizing mistake. Replacing it with
+// this fully custom picker (day/month/year wheels in the same rounded,
+// properly-centered card as TimeField) sidesteps the bug and gives every
+// date AND time field in the app one consistent look, as requested.
+const DATE_DAYS = Array.from({ length: 31 }, (_, i) => String(i + 1).padStart(2, "0"));
+const DATE_MONTHS = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
+// A generous but bounded travel-planning window — wide enough for a trip
+// booked years ahead or logged years after the fact, without an unbounded
+// (and mostly irrelevant) scroll range.
+function dateYearsAround(centerYear: number): string[] {
+  const years: string[] = [];
+  for (let y = centerYear - 4; y <= centerYear + 8; y++) years.push(String(y));
+  return years;
+}
+
+function DateField({
+  value, onChange, className, placeholder,
+}: {
+  value: string; // "YYYY-MM-DD" or ""
+  onChange: (v: string) => void;
+  className?: string;
+  placeholder?: string;
+}) {
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language || "it";
+  const now = new Date();
+  const [open, setOpen] = useState(false);
+  const [yyyy, setYyyy] = useState(value ? value.slice(0, 4) : String(now.getFullYear()));
+  const [mm, setMm] = useState(value ? value.slice(5, 7) : String(now.getMonth() + 1).padStart(2, "0"));
+  const [dd, setDd] = useState(value ? value.slice(8, 10) : String(now.getDate()).padStart(2, "0"));
+  const years = useMemo(() => dateYearsAround(Number(yyyy) || now.getFullYear()), [yyyy]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function handleOpenChange(v: boolean) {
+    if (v) {
+      const d = new Date();
+      setYyyy(value ? value.slice(0, 4) : String(d.getFullYear()));
+      setMm(value ? value.slice(5, 7) : String(d.getMonth() + 1).padStart(2, "0"));
+      setDd(value ? value.slice(8, 10) : String(d.getDate()).padStart(2, "0"));
+    }
+    setOpen(v);
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => handleOpenChange(true)}
+        className={cn(
+          "flex h-10 w-full items-center rounded-md border border-input bg-background px-3 py-2 text-left text-sm ring-offset-background transition-colors hover:bg-accent/40",
+          !value && "text-muted-foreground",
+          className,
+        )}
+      >
+        {value ? fmtDate(value, lang) : placeholder || t("select_day")}
+      </button>
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+        <DialogContent className="w-[min(92vw,340px)] max-w-none rounded-2xl p-4">
+          <div className="flex items-center justify-center gap-1.5">
+            <TimeWheelColumn values={DATE_DAYS} selected={dd} onPick={setDd} />
+            <TimeWheelColumn values={DATE_MONTHS} selected={mm} onPick={setMm} />
+            <TimeWheelColumn values={years} selected={yyyy} onPick={setYyyy} />
+          </div>
+          <DialogFooter className="mt-1 flex-row items-center justify-between sm:justify-between">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                onChange("");
+                setOpen(false);
+              }}
+            >
+              {t("reset_time")}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => {
+                onChange(`${yyyy}-${mm}-${dd}`);
                 setOpen(false);
               }}
             >
@@ -2579,8 +2671,16 @@ function AddItemDialog({
                       awkward scroll under the keyboard. `--radix-popover-content-
                       available-height` is the exact space Radix computed; capping at
                       the smaller of that and the old 18rem keeps the same look when
-                      there's plenty of room, and actually fits when there isn't. */}
-                  <CommandList className="max-h-[min(18rem,var(--radix-popover-content-available-height,18rem))]">
+                      there's plenty of room, and actually fits when there isn't.
+                      That variable is still computed from the LAYOUT viewport,
+                      though, which iOS/Android do NOT shrink when the on-screen
+                      keyboard opens — so Radix can still think there's more room
+                      below the field than is actually visible, letting the list
+                      render partly under the keyboard. `50dvh` is a hard ceiling on
+                      top of Radix's own number, and `dvh` (dynamic viewport height)
+                      DOES shrink with the keyboard, so the list never claims more
+                      height than what's actually on screen right now. */}
+                  <CommandList className="max-h-[min(18rem,var(--radix-popover-content-available-height,18rem),50dvh)]">
                     {matchTrip.length === 0 && matchExtras.length === 0 && !locQuery && (
                       <CommandEmpty>{t("no_cities")}</CommandEmpty>
                     )}
@@ -2899,13 +2999,10 @@ function AddItemDialog({
               <div className="grid gap-2 sm:grid-cols-2">
                 <div className="min-w-0 space-y-1.5">
                   <Label>{t("starts_at")}</Label>
-                  <Input
-                    type="date"
-                    required
+                  <DateField
                     className="w-full"
                     value={form.start_at ? form.start_at.slice(0, 10) : ""}
-                    onChange={(e) => {
-                      const date = e.target.value;
+                    onChange={(date) => {
                       const time = form.start_at ? form.start_at.slice(11, 16) : "";
                       setForm({ ...form, start_at: date ? `${date}T${time || "00:00"}` : "" });
                     }}
@@ -2926,12 +3023,10 @@ function AddItemDialog({
               <div className="grid gap-2 sm:grid-cols-2">
                 <div className="min-w-0 space-y-1.5">
                   <Label className="text-muted-foreground">{t("ends_at")} <span className="text-xs opacity-70">{t("optional")}</span></Label>
-                  <Input
-                    type="date"
+                  <DateField
                     className="w-full"
                     value={form.end_at ? form.end_at.slice(0, 10) : ""}
-                    onChange={(e) => {
-                      const date = e.target.value;
+                    onChange={(date) => {
                       const time = form.end_at ? form.end_at.slice(11, 16) : "";
                       setForm({ ...form, end_at: date ? `${date}T${time || "00:00"}` : "" });
                     }}
@@ -3038,7 +3133,7 @@ function LegCityCombobox({
       <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
         <Command>
           <CommandInput placeholder={t("search_type")} />
-          <CommandList className="max-h-[min(18rem,var(--radix-popover-content-available-height,18rem))]">
+          <CommandList className="max-h-[min(18rem,var(--radix-popover-content-available-height,18rem),50dvh)]">
             {cities.length === 0 && <CommandEmpty>{t("no_cities")}</CommandEmpty>}
             <CommandGroup>
               {cities.map((c) => (
@@ -3273,7 +3368,7 @@ function StopCombobox({
         autoComplete="off"
       />
       {open && (suggestions.length > 0 || (!hasLineStops && remote.isFetching)) && (
-        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] overflow-auto overscroll-contain rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] overflow-auto overscroll-contain rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-md">
           {suggestions.map((h, idx) => {
             const used = isUsedPlace(h.name, usedPlaces);
             return (
@@ -3412,7 +3507,7 @@ function FerryDestinationCombobox({
         autoComplete="off"
       />
       {open && fromPort.trim() && (hasRecommended || otherOptions.length > 0 || loading) && (
-        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] overflow-auto overscroll-contain rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] overflow-auto overscroll-contain rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-md">
           {hasRecommended && (
             <div className="py-0.5">
               <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
@@ -3531,7 +3626,7 @@ function LineCombobox({
         disabled={!city}
       />
       {open && (suggestions.length > 0 || loading) && (
-        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] overflow-auto overscroll-contain rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] overflow-auto overscroll-contain rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-md">
           {suggestions.map(line => {
             const desc = stripLineRef(line.name, line.ref);
             return (
@@ -3921,7 +4016,7 @@ function WaypointCombobox({
         onChange={(e) => { onType(e.target.value); setOpen(true); }}
       />
       {open && (items.length > 0 || loading) && (
-        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] overflow-auto overscroll-contain rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] overflow-auto overscroll-contain rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-md">
           {loading && items.length === 0 && (
             <div className="px-2 py-1.5 text-xs text-muted-foreground">…</div>
           )}
@@ -4225,7 +4320,7 @@ function HubCombobox({
             autoComplete="off"
           />
           {cityOpen && filteredCities.length > 0 && (
-            <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] overflow-auto overscroll-contain rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+            <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] overflow-auto overscroll-contain rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-md">
               {filteredCities.map((c, i) => {
                 const sel = cityQuery === c.name;
                 return (
@@ -4265,7 +4360,7 @@ function HubCombobox({
               autoComplete="off"
             />
             {open && (poiToShow.length > 0 || liveToShow.length > 0 || liveLoading || usedToShow.length > 0 || value.trim() !== cityLabel) && (
-              <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] overflow-auto overscroll-contain rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+              <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] overflow-auto overscroll-contain rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-md">
                 {value.trim() !== cityLabel && (
                   <button
                     type="button"
@@ -4378,7 +4473,7 @@ function HubCombobox({
           autoComplete="off"
         />
         {open && q.length >= 3 && (tollHubs.length > 0 || tollRemote.isFetching) && (
-          <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] overflow-auto overscroll-contain rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+          <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] overflow-auto overscroll-contain rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-md">
             {tollHubs.length > 0 && (
               <div className="py-1">
                 {tollHubs.map((h, i) => {
@@ -4455,7 +4550,7 @@ function HubCombobox({
             <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
           </button>
           {trainCountryOpen && trainCountryOptions.length > 0 && (
-            <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] overflow-auto overscroll-contain rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+            <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] overflow-auto overscroll-contain rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-md">
               {trainCountryOptions.map((iso) => {
                 const sel = iso === activeCountry;
                 return (
@@ -4492,7 +4587,7 @@ function HubCombobox({
             autoComplete="off"
           />
           {open && (filtered.length > 0 || hiddenCount > 0 || (q && (remoteHubs.length > 0 || trainRemote.isFetching))) && (
-            <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] overflow-auto overscroll-contain rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+            <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] overflow-auto overscroll-contain rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-md">
               {filtered.length === 0 && !q && (
                 <div className="px-2 py-1.5 text-xs text-muted-foreground">{t("no_option")}</div>
               )}
@@ -4606,7 +4701,7 @@ function HubCombobox({
           autoComplete="off"
         />
         {open && (filtered.length > 0 || hiddenCount > 0) && (
-          <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] overflow-auto overscroll-contain rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+          <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] overflow-auto overscroll-contain rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-md">
             {filtered.length === 0 && !q && (
               <div className="px-2 py-1.5 text-xs text-muted-foreground">{t("no_option")}</div>
             )}
@@ -4708,7 +4803,7 @@ function HubCombobox({
         autoComplete="off"
       />
       {open && (filtered.length > 0 || hiddenCount > 0 || (q && (remoteHubs.length > 0 || remote.isFetching))) && (
-        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] overflow-auto overscroll-contain rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[45dvh] overflow-auto overscroll-contain rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-md">
           {filtered.length === 0 && !q && (
             <div className="px-2 py-1.5 text-xs text-muted-foreground">{t("no_option")}</div>
           )}

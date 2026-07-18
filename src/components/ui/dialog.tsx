@@ -41,7 +41,23 @@ const DialogContent = React.forwardRef<
         // [&>*]:min-w-0 lets grid children shrink below their content size, so
         // non-wrapping content (e.g. a long <Select> value) truncates instead of
         // forcing the dialog wider than max-w-lg.
-        "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg [&>*]:min-w-0 translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 sm:rounded-lg",
+        //
+        // This used to be edge-to-edge with square corners below the `sm:`
+        // breakpoint (w-full + `sm:rounded-lg`, no side margin at all) — every
+        // dialog on a phone touched both the left and right edge of the
+        // screen with a hard corner, unlike the detached, rounded floating
+        // card this app otherwise shows everywhere (see TimeField's picker).
+        // `w-[calc(100%-2rem)]` reserves a 1rem margin on every side at any
+        // width, and the border radius is no longer gated behind `sm:`.
+        //
+        // `max-h-[85dvh]` + `overflow-y-auto` caps the dialog's own height
+        // and makes ITS content scroll internally — `dvh` (dynamic viewport
+        // height), not `vh`, is what actually shrinks along with the
+        // on-screen keyboard on iOS/Android, so a tall form's lower fields
+        // (or a suggestion list opened near the bottom) stay reachable
+        // instead of ending up rendered underneath the keyboard with no way
+        // to scroll down to them.
+        "fixed left-[50%] top-[50%] z-50 grid w-[calc(100%-2rem)] max-w-lg max-h-[85dvh] overflow-y-auto [&>*]:min-w-0 translate-x-[-50%] translate-y-[-50%] gap-4 rounded-2xl border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
         className,
       )}
       {...props}

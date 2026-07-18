@@ -232,10 +232,24 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       // the whole page on mobile — without this, a user could zoom the
       // entire app in/out (not just the map), throwing off fixed-position
       // headers/docks and touch targets across every page.
-      { name: "viewport", content: "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" },
+      // viewport-fit=cover lets the page draw underneath the iOS status bar/
+      // notch and home indicator (paired with apple-mobile-web-app-status-
+      // bar-style below) instead of the OS leaving that whole strip an
+      // opaque, un-themed black bar the app can't paint anything behind —
+      // env(safe-area-inset-top) below then reserves exactly that height for
+      // a blurred header so the system clock/battery icons stay legible with
+      // the app's own content visible (blurred) behind them, matching how
+      // native iOS apps treat the status bar area.
+      { name: "viewport", content: "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" },
       { title: "Voyager — Travel Journal & Planner" },
       { name: "description", content: "Track every trip: itineraries, flights, lodging, expenses and live currency conversion. Plan future journeys with a beautiful timeline." },
       { name: "theme-color", content: "#c2632c" },
+      // Only takes effect when installed to the home screen (standalone
+      // PWA) — "black-translucent" is what makes the status bar area
+      // translucent/overlaid instead of a solid opaque bar.
+      { name: "apple-mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
+      { name: "mobile-web-app-capable", content: "yes" },
       { property: "og:title", content: "Voyager — Travel Journal & Planner" },
       { property: "og:description", content: "Your trips, itineraries and expenses in one elegant place." },
       { property: "og:type", content: "website" },
@@ -277,6 +291,27 @@ function RootShell({ children }: { children: ReactNode }) {
   );
 }
 
+// Fills exactly the iOS status-bar/notch strip (env(safe-area-inset-top) —
+// 0 on any device without one, so this is a no-op everywhere else) with a
+// blurred, translucent backdrop instead of leaving it the OS's own opaque
+// bar. Requires viewport-fit=cover + apple-mobile-web-app-status-bar-style=
+// black-translucent (see the <head> meta above) — without those two, iOS
+// never lets page content extend under that area in the first place, so
+// this div would just sit at y=0 with nothing behind it to blur.
+// pointer-events-none so it's purely decorative and never swallows a tap
+// meant for whatever's scrolled underneath it; a high z-index keeps it
+// above every dialog/sheet, since the real status bar is always on top of
+// the entire app, not just the current page's content.
+function StatusBarBlur() {
+  return (
+    <div
+      aria-hidden
+      className="pointer-events-none fixed inset-x-0 top-0 z-[9999] backdrop-blur-md bg-background/40"
+      style={{ height: "env(safe-area-inset-top, 0px)" }}
+    />
+  );
+}
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
@@ -286,6 +321,7 @@ function RootComponent() {
         <DockStyleProvider>
           <AuthProvider>
             <NotificationBootstrap />
+            <StatusBarBlur />
             <SplashWrapper>
               <Outlet />
             </SplashWrapper>
