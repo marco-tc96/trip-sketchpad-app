@@ -854,11 +854,26 @@ function escapeHtml(s: string): string {
 // pin already showed a moment ago on the same line. Uses a zero-size icon +
 // CSS centering so the badge can be a plain circle OR a wider capsule
 // without any anchor-offset math.
-function endpointIcon(mode: string, color: string, line: string | undefined | null, isBoarding: boolean): L.DivIcon {
+//
+// `offsetPx` (screen pixels, not degrees) nudges two coincident badges apart
+// — see `pinNudge` below. It's applied via `iconAnchor`, NOT by moving the
+// marker's actual LatLng: a geographic (metres) offset shrinks to a
+// sub-pixel gap at low zoom (the two badges look merged everywhere except
+// zoomed all the way in, exactly the reported bug) and, worse, still varies
+// with latitude/zoom instead of staying a fixed, predictable gap. `iconAnchor`
+// shifts only where the icon is DRAWN on screen relative to its (unchanged)
+// real coordinate, in actual pixels — so the two badges sit a constant,
+// correct distance apart at every zoom level, from fully zoomed out to
+// fully zoomed in.
+function endpointIcon(mode: string, color: string, line: string | undefined | null, isBoarding: boolean, offsetPx = 0): L.DivIcon {
+  // Icon content is centred via CSS `translate(-50%,-50%)` around anchor
+  // (0,0); shifting the anchor by -offsetPx moves the rendered badge
+  // +offsetPx pixels to the right (and vice versa for a negative offset).
+  const iconAnchor: [number, number] = [-offsetPx, 0];
   let html: string;
   if (!isBoarding) {
     html = `<span style="position:relative;transform:translate(-50%,-50%);display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:9999px;background:${color};border:2.5px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.35)">${DOWN_ARROW_SVG}</span>`;
-    return L.divIcon({ className: "voyager-pin", html, iconSize: [0, 0], iconAnchor: [0, 0] });
+    return L.divIcon({ className: "voyager-pin", html, iconSize: [0, 0], iconAnchor });
   }
   const glyph = MODE_GLYPH[mode] ?? `<circle cx="12" cy="12" r="5"/>`;
   const svg = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0">${glyph}</svg>`;
@@ -868,7 +883,7 @@ function endpointIcon(mode: string, color: string, line: string | undefined | nu
   } else {
     html = `<span style="position:relative;transform:translate(-50%,-50%);display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:9999px;background:${color};border:2.5px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.35)">${svg}</span>`;
   }
-  return L.divIcon({ className: "voyager-pin", html, iconSize: [0, 0], iconAnchor: [0, 0] });
+  return L.divIcon({ className: "voyager-pin", html, iconSize: [0, 0], iconAnchor });
 }
 
 // Strip IATA airport codes so a leg endpoint like "FCO - Roma" or
@@ -2110,34 +2125,35 @@ export function TripMap({
   // an airport that's the ARRIVAL of one leg and the DEPARTURE of the next
   // (or of a return leg later in the trip). Leaflet just stacks both markers
   // on the same point, so only the topmost one is visible/clickable. Detect
-  // every group of big, non-hollow pins sharing a coordinate and nudge each
-  // one sideways (east/west, latitude-corrected) by a small, fixed amount so
-  // the group renders side by side on the same row instead of hidden behind
-  // each other — the underlying route lines still terminate at the real,
-  // un-nudged coordinate; only the badge's drawn position shifts.
+  // every group of big, non-hollow pins sharing a coordinate and assign each
+  // one a fixed PIXEL offset (see `endpointIcon`'s `offsetPx`), NOT a
+  // geographic one — a metres-based offset in latitude/longitude shrinks to
+  // a sub-pixel, invisible gap at anything but maximum zoom (the exact "only
+  // look separated fully zoomed in" bug reported), and even at matching zoom
+  // levels it varies with latitude. A pixel offset via the icon's own anchor
+  // keeps the two badges a constant, correct distance apart on screen at
+  // every zoom level — the underlying route lines still terminate at the
+  // real, un-nudged coordinate; only the badge's drawn position shifts.
   const pinNudge = useMemo(() => {
-    const PIN_OVERLAP_OFFSET_M = 11; // gap between two side-by-side badges
-    const groups = new Map<string, Array<{ dKey: string; idx: number; ll: LL }>>();
+    const PIN_OVERLAP_OFFSET_PX = 15; // gap (px) between two side-by-side badges
+    const groups = new Map<string, Array<{ dKey: string; idx: number }>>();
     drawn.forEach((d) => {
       d.pins.forEach((p, idx) => {
         if (!p.big || p.hollow) return;
         const k = `${p.ll[0].toFixed(4)},${p.ll[1].toFixed(4)}`;
         let arr = groups.get(k);
         if (!arr) { arr = []; groups.set(k, arr); }
-        arr.push({ dKey: d.key, idx, ll: p.ll });
+        arr.push({ dKey: d.key, idx });
       });
     });
-    const out = new Map<string, LL>(); // `${dKey}-${idx}` -> nudged ll
+    const out = new Map<string, number>(); // `${dKey}-${idx}` -> offsetPx
     for (const arr of groups.values()) {
       if (arr.length < 2) continue;
       // Stable order (insertion order from `drawn`, itself stable per render)
       // so the same pin always lands on the same side instead of flip-flopping.
-      const lat = arr[0].ll[0];
-      const metersPerDegLng = 111320 * Math.cos((lat * Math.PI) / 180) || 1;
-      const stepDeg = PIN_OVERLAP_OFFSET_M / metersPerDegLng;
       const mid = (arr.length - 1) / 2;
-      arr.forEach(({ dKey, idx, ll }, i) => {
-        out.set(`${dKey}-${idx}`, [ll[0], ll[1] + (i - mid) * stepDeg]);
+      arr.forEach(({ dKey, idx }, i) => {
+        out.set(`${dKey}-${idx}`, (i - mid) * PIN_OVERLAP_OFFSET_PX);
       });
     }
     return out;
@@ -2348,7 +2364,7 @@ export function TripMap({
           const firstBigIdx = d.pins.findIndex((p) => p.big && !p.hollow);
           return d.pins.map((p, idx) =>
             p.big && !p.hollow ? (
-              <Marker key={`${d.key}-p${idx}`} position={pinNudge.get(`${d.key}-${idx}`) ?? p.ll} icon={endpointIcon(d.mode, d.color, d.line, p.board !== undefined ? p.board : idx === firstBigIdx)}>
+              <Marker key={`${d.key}-p${idx}`} position={p.ll} icon={endpointIcon(d.mode, d.color, d.line, p.board !== undefined ? p.board : idx === firstBigIdx, pinNudge.get(`${d.key}-${idx}`) ?? 0)}>
                 {p.name && (
                   <>
                     <Popup><strong>{withRomanization(p.name, lang)}</strong></Popup>
