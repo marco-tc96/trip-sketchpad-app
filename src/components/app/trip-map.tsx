@@ -917,6 +917,24 @@ function FitBounds({ points, restrictBounds }: { points: [number, number][]; res
     const z = map.getBoundsZoom(restrictBounds, false);
     map.setMinZoom(Math.max(1, z - 1));
   }, [map, restrictBounds]);
+  // Re-apply the actual pan "leash" imperatively every time `restrictBounds`
+  // changes. The `maxBounds` prop passed to <MapContainer> below only takes
+  // effect at the map's INITIAL creation — react-leaflet does not re-sync it
+  // on later renders. `restrictBounds` legitimately grows after mount (a
+  // flight leg's far-away airport is geocoded asynchronously, well after the
+  // very first render that only has the trip's own cities), so without this
+  // the map stayed permanently locked to whatever — often much smaller — area
+  // was known at that first render, making the far pin literally unreachable
+  // by panning no matter how long you waited. This was invisible on layouts
+  // where the container's own resize (see the ResizeObserver effect below)
+  // happened to trigger enough re-renders to mask it, which is why it showed
+  // up more reliably on the desktop layout — same underlying bug either way.
+  useEffect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any — Leaflet's
+    // own runtime accepts `null` to clear the restriction; @types/leaflet's
+    // `setMaxBounds` signature doesn't include it, hence the cast.
+    map.setMaxBounds((restrictBounds ?? null) as any);
+  }, [map, restrictBounds]);
   // Leaflet caches the container size at mount time; if the wrapper's real
   // size settles later (flex layout, safe-area insets, async header content
   // on mobile), the map stays sized/centred on stale dimensions. Re-measure
