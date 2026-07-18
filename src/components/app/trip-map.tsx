@@ -2120,40 +2120,84 @@ export function TripMap({
   }, [drawn]);
 
   // ── Overlap offsetting for coincident endpoint pins ──────────────────────
-  // A "big" endpoint badge (boarding/alighting icon) can land on the exact
-  // same coordinate as another leg's endpoint badge — the classic case being
-  // an airport that's the ARRIVAL of one leg and the DEPARTURE of the next
-  // (or of a return leg later in the trip). Leaflet just stacks both markers
-  // on the same point, so only the topmost one is visible/clickable. Detect
-  // every group of big, non-hollow pins sharing a coordinate and assign each
-  // one a fixed PIXEL offset (see `endpointIcon`'s `offsetPx`), NOT a
-  // geographic one — a metres-based offset in latitude/longitude shrinks to
-  // a sub-pixel, invisible gap at anything but maximum zoom (the exact "only
-  // look separated fully zoomed in" bug reported), and even at matching zoom
-  // levels it varies with latitude. A pixel offset via the icon's own anchor
-  // keeps the two badges a constant, correct distance apart on screen at
-  // every zoom level — the underlying route lines still terminate at the
-  // real, un-nudged coordinate; only the badge's drawn position shifts.
+  // A "big" endpoint badge (boarding/alighting icon) can land on (or very
+  // near) another leg's endpoint badge — the classic case being an airport
+  // that's the ARRIVAL of one leg and the DEPARTURE of the next, but also a
+  // DIFFERENT mode's badge at the "same" real place (e.g. a flight's airport
+  // pin and its airport-bus pin), whose geocoded coordinates are close but
+  // rarely bit-for-bit identical. Leaflet just stacks overlapping markers, so
+  // only the topmost one is visible/clickable. Clustering by PROXIMITY
+  // (union-find over real-world distance), not by exact/rounded-coordinate
+  // equality, is what catches that second case — two pins 20m apart at an
+  // airport are the same visual problem as two pins 0m apart, but a strict
+  // coordinate match only ever caught the latter.
+  //
+  // Each pin in a cluster gets a fixed PIXEL offset (see `endpointIcon`'s
+  // `offsetPx`), NOT a geographic one — a metres-based lat/lng offset shrinks
+  // to a sub-pixel, invisible gap at anything but maximum zoom (badges only
+  // ever looked separated fully zoomed in, exactly as reported) and still
+  // varies with latitude/zoom. A pixel offset via the icon's own anchor
+  // keeps badges a constant, correct distance apart on screen at every zoom
+  // level. The underlying route lines still terminate at the real, un-nudged
+  // coordinate; only each badge's drawn position shifts.
   const pinNudge = useMemo(() => {
-    const PIN_OVERLAP_OFFSET_PX = 15; // gap (px) between two side-by-side badges
-    const groups = new Map<string, Array<{ dKey: string; idx: number }>>();
+    // Two adjacent badges are circles ~28px across (a line-ref capsule is
+    // wider still) — the previous 15px step left them overlapping by more
+    // than half their width. 34px between centres clears the plain circular
+    // badges with a visible gap; a wide capsule pin next to one may still
+    // touch, but every pair is now genuinely side by side rather than
+    // stacked on top of each other.
+    const PIN_GAP_PX = 34;
+    // Real-world radius within which two pins are considered "the same
+    // spot" for decluttering purposes — generous enough to catch an
+    // airport's terminal-vs-bus-stop geocoding drift, tight enough to never
+    // merge two genuinely different nearby places.
+    const CLUSTER_RADIUS_M = 70;
+
+    type Big = { dKey: string; idx: number; ll: LL };
+    const pins: Big[] = [];
     drawn.forEach((d) => {
       d.pins.forEach((p, idx) => {
         if (!p.big || p.hollow) return;
-        const k = `${p.ll[0].toFixed(4)},${p.ll[1].toFixed(4)}`;
-        let arr = groups.get(k);
-        if (!arr) { arr = []; groups.set(k, arr); }
-        arr.push({ dKey: d.key, idx });
+        pins.push({ dKey: d.key, idx, ll: p.ll });
       });
     });
+    if (pins.length < 2) return new Map<string, number>();
+
+    // Union-find over pairwise proximity, so A–B close and B–C close still
+    // cluster all three together (not just A–B), regardless of leg/mode.
+    const parent = pins.map((_, i) => i);
+    const find = (x: number): number => {
+      while (parent[x] !== x) x = parent[x];
+      return x;
+    };
+    const union = (a: number, b: number) => {
+      const ra = find(a), rb = find(b);
+      if (ra !== rb) parent[ra] = rb;
+    };
+    for (let i = 0; i < pins.length; i++) {
+      for (let j = i + 1; j < pins.length; j++) {
+        if (_approxDistM(pins[i].ll, pins[j].ll) <= CLUSTER_RADIUS_M) union(i, j);
+      }
+    }
+    const clusters = new Map<number, number[]>();
+    pins.forEach((_, i) => {
+      const r = find(i);
+      let arr = clusters.get(r);
+      if (!arr) { arr = []; clusters.set(r, arr); }
+      arr.push(i);
+    });
+
     const out = new Map<string, number>(); // `${dKey}-${idx}` -> offsetPx
-    for (const arr of groups.values()) {
-      if (arr.length < 2) continue;
-      // Stable order (insertion order from `drawn`, itself stable per render)
-      // so the same pin always lands on the same side instead of flip-flopping.
-      const mid = (arr.length - 1) / 2;
-      arr.forEach(({ dKey, idx }, i) => {
-        out.set(`${dKey}-${idx}`, (i - mid) * PIN_OVERLAP_OFFSET_PX);
+    for (const idxs of clusters.values()) {
+      if (idxs.length < 2) continue;
+      // Stable order (insertion order from `drawn`, itself stable per
+      // render) so the same pin always lands on the same side instead of
+      // flip-flopping.
+      const mid = (idxs.length - 1) / 2;
+      idxs.forEach((pinIdx, i) => {
+        const { dKey, idx } = pins[pinIdx];
+        out.set(`${dKey}-${idx}`, (i - mid) * PIN_GAP_PX);
       });
     }
     return out;
